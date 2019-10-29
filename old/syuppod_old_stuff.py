@@ -2,6 +2,15 @@
 ### OLD STUFF ###
 
 
+class ThreadMainLoop(threading.Thread):
+    """Thread for the main loop"""
+    def __init__(self, shared, *args, **kwargs):
+        super(ThreadMainLoop,self).__init__(*args, **kwargs)
+        slef.shared = shared
+        
+    def run(self):
+        # I'm not here...
+        pass
 
 
 

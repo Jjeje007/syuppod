@@ -12,11 +12,8 @@ import pathlib
 import time
 import re
 import errno
-import threading
 import utils
-#import pdb 
 
-#from utils import StateInfo
 from portagedbus import PortageDbus
 from gitdbus import GitDbus
 from gitmanager import check_git_dir
@@ -57,20 +54,7 @@ pathdir = {
 }
 
 
-
-
-class ThreadMainLoop(threading.Thread):
-    """Thread for the main loop"""
-    def __init__(self, shared, *args, **kwargs):
-        super(ThreadMainLoop,self).__init__(*args, **kwargs)
-        slef.shared = shared
-        
-    def run(self):
-        # I'm not here...
-        pass
-
-
-    def main():
+def main():
     """Main daemon."""
     
     # Check or create basedir and logdir directories
@@ -107,7 +91,7 @@ class ThreadMainLoop(threading.Thread):
     if args.git:
         log.debug('Git kernel tracking has been enable.')
         
-        # Init trackgit object through GitDbus class
+        # Init gitmanager object through GitDbus class
         mygitmanager = GitDbus(args.pull, args.repo, pathdir, runlevel, log.level)
    
     ## Loop forever :)
@@ -140,93 +124,14 @@ class ThreadMainLoop(threading.Thread):
                 # So pretend has to be run 
                 myportmanager.pretend_world()
         myportmanager.world['remain'] -= 1
-                
-        #time.sleep(1)
-        await asyncio.sleep(10)
         
         
+        # Git stuff
         
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        #print('Branch all remote is {0}'.format(' '.join(trackgit.branch['all']['remote'])))
-        #print('Branch all remote is {0}'.format(' '.join(trackgit.branch['all']['remote'])))
-        #trackgit.check_config()
-        #Ok for the init just do 'both'
-        #And in the loop just do 'local'
-        #trackgit.get_all_branch('both')
-        #trackgit.pull['status'] = 'enable'
-        #trackgit.get_running_kernel()
-        #trackgit.get_installed_kernel()
-        #trackgit.get_all_kernel()
-        #trackgit.get_available_update('branch')
-        #trackgit.get_available_update('kernel')
-        #trackgit.get_last_pull()
-        #trackgit.check_pull()
-        #if trackgit.pull['status'] == 'enable':
-        #trackgit.dopull()
-    
-    
-    #if trackportage.check_sync(init_run=True):
-        #log.debug('Portage sync has been authorised')
-    #else:
-        #log.debug('Portage sync has been delayed')
-        
-    #mysyncer = trackportage.dosync()
-    #log.name = 'Main'
-    
-    #mypretend_world = trackportage.pretend_world()
-    
-    #trackportage.check_sync(init_run=True)
-    
-    mylast_world_update = trackportage.get_last_world_update()
-    
-    #availableportage = trackportage.available_portage_update()
-    
-    #myparser = portagemanager.EmergeLogParser(log, pathdir['emergelog'], '::test::')
-    
-    last_sync = trackportage.check_sync(timestamp_only=True)
-    
-    #log.debug(f'Last sync is {last_sync}')
-    #i = 1
-    #for line in myparser.getlog():
-        #log.debug(f'Got line n°{i}: {line}')
-        #i += 1
-    
-    
-    
-    #if mylast_world_update:
-        #if mylast_world_update == 'inprogress':
-            #log.debug('Ok understood...')
-        #else:
-            #log.debug('Ok, last world update start at {0} and terminate at {1}.'.format(time.ctime(trackportage.world['start']),
-                                                                                #time.ctime(trackportage.world['stop'])))
-        
-    
-    #print('Here is the log from dosync(): {0}.'.format(trackportage.sync['log']))
-        
-        
-        #for value in trackgit.branch['all']['local']:
-        #print('Local branch is {0}'.format(' '.join(trackgit.branch['all']['local'])))
-        #print('Remote branch is {0}'.format(' '.join(trackgit.branch['all']['remote'])))   
-    
+        time.sleep(1)
+
+
     log.info('Nothing left to do, exiting')
     #sys.exit(0)
     #dbus_session.publish('net.' + name + '.Test', trackgit)    

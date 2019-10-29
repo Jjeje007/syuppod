@@ -13,15 +13,14 @@ import _emerge
 import portage
 import subprocess
 import numpy
-import asyncio
-#import pdb
 
 from portage.versions import pkgcmp, pkgsplit
 from _emerge import actions
 from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
-from logger import MainLoggingHandler, ProcessLoggingHandler
+from logger import MainLoggingHandler
+from logger import ProcessLoggingHandler
 
 class PortageHandler:
     """Portage tracking class"""
@@ -38,6 +37,9 @@ class PortageHandler:
         
         # Init save/load info file
         self.stateinfo = StateInfo(self.pathdir, runlevel, self.log.level)
+        
+        # Init Class UpdateInProgress
+        self.update_inprogress = UpdateInProgress(self.log) 
         
         # Sync attributes
         self.sync = {
@@ -78,7 +80,8 @@ class PortageHandler:
             'current'   :   self.stateinfo.load('portage current'),
             'latest'    :   self.stateinfo.load('portage latest'),
             'available' :   self.stateinfo.load('portage available'),
-            'remain'    :   30  # check every 30s when 'available' is True
+            'remain'    :   30,     # check every 30s when 'available' is True
+            'logflow'   :   True    # Control log info flow to avoid spamming syslog
             }
     
     
@@ -90,7 +93,7 @@ class PortageHandler:
         self.log.name = f'{self.logger_name}check_sync::'
         
         # Check if sync is running
-        if check_update_inprogress(self.log, 'Sync'):
+        if self.update_inprogress.check('Sync'):
             # Syncing is in progress keep last timestamp
             if not self.sync['update'] == 'In Progress':
                 self.sync['update'] = 'In Progress'
@@ -132,7 +135,7 @@ class PortageHandler:
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             elif self.sync['timestamp'] != sync_timestamp:
-                self.log.warning(f'Bug module \'{__name__}\', class \'{__qualname__}\', method: \'check_sync()\': timestamp are not the same...')
+                self.log.warning(f'Bug module \'{__name__}\', class \'{self.__class__.__name__}\', method: \'check_sync()\': timestamp are not the same...')
             
             self.sync['elasped'] = round(current_timestamp - sync_timestamp)
             self.sync['remain'] = self.sync['interval'] - self.sync['elasped']
@@ -158,10 +161,10 @@ class PortageHandler:
             return False        
     
     
-    async def dosync(self):
+    def dosync(self):
         """ Updating repo(s) """
         
-        # TODO: thread !
+        # TODO: asyncio :)
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}dosync::'
@@ -174,7 +177,7 @@ class PortageHandler:
             self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
                
         # Check if already running
-        if check_update_inprogress(self.log, 'Sync'):
+        if self.update_inprogress.check('Sync'):
             # recheck in 10 minutes
             self.sync['remain'] = 600
             return False # 'inprogress'
@@ -193,9 +196,9 @@ class PortageHandler:
             
             
             myargs = ['/usr/bin/emerge', '--sync']
-            #mysync = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
-                                                          stderr=asyncio.subprocess.STDOUT, universal_newlines=True)
+            mysync = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            #mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
+                                                         # stderr=asyncio.subprocess.STDOUT, universal_newlines=True)
             
             mylogfile.info('##########################################\n')
             
@@ -338,7 +341,7 @@ class PortageHandler:
         self.log.name = f'{self.logger_name}get_last_world_update::'
         
         # Check if we are running world update right now
-        if check_update_inprogress(self.log, 'World'):
+        if self.update_inprogress.check('World'):
             if not self.world['update'] == 'In Progress':
                 self.world['update'] = 'In Progress'
                 self.log.debug('Saving \'world update: {0}\' to \'{1}\'.'.format(self.world['update'], 
@@ -409,6 +412,7 @@ class PortageHandler:
         
         ## TODO : This have to be run in a thread because it take long time to finish
         # and we didn't really need to wait as will be in a forever loop ...
+        # Ok TODO: asyncio give a try :)
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'Total:.(\d+).packages.*')
@@ -506,13 +510,15 @@ class PortageHandler:
                 return False
             # It's up to date 
             if self.latest == self.portage['current']:
+                # Reset 'available' to False if not 
+                if self.portage['available']:
+                        self.portage['available'] = False
+                        self.stateinfo.save('portage available', 'portage available: ' + str(self.portage['available']))
                 # Just make sure that self.portage['latest'] is also the same
-                # TODO : 'available' !!
                 if self.latest == self.portage['latest']:
                     # Don't need to update any thing 
                     return True
                 else:
-                    self.portage['latest'] = self.latest
                     self.stateinfo.save('portage latest', 'portage latest: ' + str(self.portage['latest']))
                     return True
             else:
@@ -525,7 +531,7 @@ class PortageHandler:
         if len(portage_list) > 1:
             self.log.error('Got more than one result when querying portage db for installed portage package...')
             self.log.error('The list contain: {0}'.format(' '.join(portage_list)))
-            self.log.error('This souldn\'t happend, picking the first in the list.')
+            self.log.error('This souldn\'t happend, anyway picking the first in the list.')
         
         # From https://dev.gentoo.org/~zmedico/portage/doc/api/portage.versions-pysrc.html
         # Parameters:
@@ -555,7 +561,14 @@ class PortageHandler:
             return False
         else:
             if self.result == 1:
-                self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
+                # Print one time only (when program start / when update found)
+                # So this mean each time the program start and if update is available 
+                # it will print.
+                if self.portage['logflow']:
+                    self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
+                    self.portage['logflow'] = False
+                else:
+                    self.log.debug(f'Found an update to portage (from {self.current} to {self.latest}).')
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
@@ -569,6 +582,11 @@ class PortageHandler:
                     self.log.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
                                                                                  self.pathdir['statelog']))
                     self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
+                    # TODO: Wee need to test that
+                    # But this should print if there a new version of portage available
+                    # even if there is already an older version available
+                    if key == 'latest':
+                        self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
             
 
 
@@ -818,9 +836,10 @@ class EmergeLogParser:
                 elif start.match(line):
                     group = { }
                     # Make sure it's start to compile
-                    # Got StopIteration exception while running world update with @world 
-                    # So function check_update_inprogress() don't recognise world update
-                    # Then there were no nextline...
+                    # Got StopIteration exception while running world update with @world
+                    # There were no nextline.
+                    # Class: UpdateInProgress (self.update_inprogress.check()) didn't detect world update
+                    # This has been fixed but keep this in case.
                     try:
                         nextline = next(mylog)
                     # This mean we start to run world update 
@@ -1001,63 +1020,117 @@ class EmergeLogParser:
 
 
 
+class UpdateInProgress:
+    """Check if update is in progress..."""
 
-def check_update_inprogress(log, tocheck):
-    """Check if update is in progress depending on tocheck var
+    def __init__(self, log):
+        """Arguments:
+            (callable) @log : an logger from logging module"""
+        self.log = log
+        # Avoid spamming with log.info
+        self.logflow =  {
+            'Sync'      :   0,   
+            'World'     :   0
+            }
+        self.timestamp = {
+            'Sync'      :   0, 
+            'World'     :   0
+            }
+        
+        
+    def check(self, tocheck):
+        """...depending on tocheck var
         Arguments:
-            (callable) @log : an logger from logging module
             (str) @tocheck : call with 'World' or 'Sync'
-    @return: True or False
-    Adapt from https://stackoverflow.com/a/31997847/11869956"""
+        @return: True or False
+        Adapt from https://stackoverflow.com/a/31997847/11869956"""
+        
+        # TODO: system as well 
+        pids_only = re.compile(r'^\d+$')
+        # Added @world TODO: keep testing don't know if \s after (?:world|@world) is really needed...
+        world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
+        pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
+        sync = re.compile(r'.*emerge\s--sync\s*$')
+        webrsync = re.compile(r'.*emerge-webrsync\s*.*$')
+        
+        inprogress = False
     
-    # TODO: system as well 
-    # psutil module is slower then this.
-    
-    pids_only = re.compile(r'^\d+$')
-    # Added @world TODO: keep testing don't know if \s after (?:world|@world) is really needed...
-    world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
-    pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
-    sync = re.compile(r'.*emerge\s--sync\s*$')
-    webrsync = re.compile(r'.*emerge-webrsync\s*.*$')
-    
-    inprogress = False
-
-    pids = [ ]
-    for dirname in os.listdir('/proc'):
-        if pids_only.match(dirname):
-            try:
-                with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
-                    content = myfd.read().decode().split('\x00')
-            # IOError exception when pid as finish between getting the dir list and open it each
-            except IOError:
-                continue
-            except Exception as exc:
-                log.error(f'Got unexcept error: {exc}')
-                # TODO: Exit or not ?
-                continue
-            # Check world update
-            if tocheck == 'World':
-                if world.match(' '.join(content)):
-                    #  Don't match any -p or --pretend opts
-                    if not pretend.match(' '.join(content)):
+        pids = [ ]
+        for dirname in os.listdir('/proc'):
+            if pids_only.match(dirname):
+                try:
+                    with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
+                        content = myfd.read().decode().split('\x00')
+                # IOError exception when pid as finish between getting the dir list and open it each
+                except IOError:
+                    continue
+                except Exception as exc:
+                    self.log.error(f'Got unexcept error: {exc}')
+                    # TODO: Exit or not ?
+                    continue
+                # Check world update
+                if tocheck == 'World':
+                    if world.match(' '.join(content)):
+                        #  Don't match any -p or --pretend opts
+                        if not pretend.match(' '.join(content)):
+                            inprogress = True
+                            break
+                # Check sync update
+                elif tocheck == 'Sync':
+                    if sync.match(' '.join(content)):
                         inprogress = True
-            # Check sync update
-            elif tocheck == 'Sync':
-                if sync.match(' '.join(content)):
-                    inprogress = True
-                elif webrsync.match(' '.join(content)):
-                    inprogress = True
+                        break
+                    elif webrsync.match(' '.join(content)):
+                        inprogress = True
+                        break
+                else:
+                    self.log.critical(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                      f' method: check(), tocheck: \'{tocheck}\'.')
+                    self.log.critical('Exiting with status \'1\'...')
+                    sys.exit(1)
+            
+        displaylog = False
+        current_timestamp = time.time()
+        
+        if inprogress:
+            
+            self.log.debug(f'{tocheck} update in progress.')
+            
+            # We just detect 'inprogress'
+            if self.timestamp[tocheck] == 0:
+                displaylog = True
+                # add 30 minutes (1800s)
+                self.timestamp[tocheck] = current_timestamp + 1800
+                self.logflow[tocheck] = 1                
             else:
-                log.critical(f'Bug module: \'{__name__}\', function: \'check_update_inprogress()\', tocheck: \'{tocheck}\'.')
-                log.critical('Exiting with status \'1\'...')
-                sys.exit(1)
-
-    if inprogress:
-        # TODO
-        log.debug(f'{tocheck} update in progress')
-        return True
-    else:
-        # TODO
-        log.debug(f'{tocheck} update is not in progress')
-        return False
+                # It's running
+                if self.timestamp[tocheck] <= current_timestamp:
+                    displaylog = True
+                    if self.logflow[tocheck] == 1:
+                        # Add 1 hour (3600s)
+                        self.timestamp[tocheck] = current_timestamp + 3600
+                        self.logflow[tocheck] = 2
+                    elif self.logflow[tocheck] >= 2:
+                        # Add 2 hours (7200s) forever
+                        self.timestamp[tocheck] = current_timestamp + 7200 
+                        self.logflow[tocheck] = 3
+                    else:
+                        self.log.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                          f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
+                        self.log.warning('Resetting all attributes')
+                        self.timestamp[tocheck] = 0
+                        self.logflow[tocheck] = 0
+                                
+            if displaylog:
+                self.log.info(f'{tocheck} update in progress.')
+                
+            return True
+        
+        else:
+            self.log.debug(f'{tocheck} update is not in progress.')
+            # Reset attributes
+            self.timestamp[tocheck] = 0
+            self.logflow[tocheck] = 0
+                       
+            return False
 
