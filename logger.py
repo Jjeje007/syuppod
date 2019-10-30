@@ -21,9 +21,7 @@ class MainLoggingHandler:
         logging.addLevelName(logging.INFO,     '[Info ]')
         logging.addLevelName(logging.DEBUG,    '[Debug]')
         
-        #self.logger           = logging.getLogger(name)
-        #self.logger.propagate = False
-    
+        
     def init_run(self):
         """Logging handler for init run"""
         
@@ -58,9 +56,8 @@ class MainLoggingHandler:
         self.logger = logging.getLogger(self.name)
         
         console_handler = self.logging.StreamHandler()
-        #console_formatter   = self.logging.Formatter('%(levelname)s %(name)s %(message)s')
         console_handler.setFormatter(LogLevelFormatter())
-        # Other wise will print twice ...
+        # Otherwise will print twice ...
         if not self.logger.handlers:
             self.logger.addHandler(console_handler)
                

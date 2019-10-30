@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
-
 # Starting : 08 aout 2019
-
 
 import sys
 import os
@@ -19,13 +17,12 @@ from gitdbus import GitDbus
 from gitmanager import check_git_dir
 from logger import MainLoggingHandler
 from argsparser import ArgsParserHandler
-import portagemanager
-
 
 # To remimber : http://stackoverflow.com/a/11887885
 # TODO : enable or disable dbus bindings. So this should only be load if dbus is enable
 # If dbus is disable (default is enable) then the user should be warn that it won't get any output
 # it has to get info from state file
+# TODO : exit gracefully 
 
 # TODO : debug log level ! 
 try:
@@ -64,11 +61,11 @@ def main():
                 pathlib.Path(pathdir[directory]).mkdir()
             except OSError as error:
                 if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                    log.critical(f'Error while making directory: \'{error.strerror}: {error.filename}\'.')
+                    log.critical(f'Got error while making directory: \'{error.strerror}: {error.filename}\'.')
                     log.critical(f'Daemon is intended to be run as sudo/root.')
                     sys.exit(1)
                 else:
-                    log.critical(f'Something went wrong while making directory: \'{error}\'.')
+                    log.critical(f'Got unexcept error while making directory: \'{error}\'.')
                     sys.exit(1)
        
     # Init StateInfo
@@ -93,6 +90,12 @@ def main():
         
         # Init gitmanager object through GitDbus class
         mygitmanager = GitDbus(args.pull, args.repo, pathdir, runlevel, log.level)
+        
+        # Get running kernel
+        mygitmanager.get_running_kernel()
+        
+        # Get last pull
+        mygitmanager.get_last_pull()
    
     ## Loop forever :)
     while True:
@@ -106,7 +109,8 @@ def main():
                     myportmanager.pretend_world()
                     # check portage update
                     myportmanager.available_portage_update()
-        myportmanager.sync['remain'] -= 1
+        myportmanager.sync['remain'] -= 1 # For the moment this will not exactly be one second
+                                          # Because all this stuff take more time - specially pretend_world()
         
         # Then: check available portage update
         if myportmanager.portage['remain'] <= 0:
@@ -127,8 +131,11 @@ def main():
         
         
         # Git stuff
-        
-        
+        if args.git:
+            #if mygitmanager.pull['status'] or mygitmanager.pull['remain'] <= 0:
+                # Is git in progress ?
+            mygitmanager.check_pull()
+            #mygitmanager.pull['remain'] -= 1
         time.sleep(1)
 
 

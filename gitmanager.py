@@ -16,8 +16,11 @@ import platform
 import time
 
 from distutils.version import StrictVersion
-from utils import StateInfo, FormatTimestamp
-from logger import MainLoggingHandler, ProcessLoggingHandler
+from utils import StateInfo
+from utils import FormatTimestamp
+from utils import UpdateInProgress
+from logger import MainLoggingHandler
+from logger import ProcessLoggingHandler
 
 try:
     import git 
@@ -31,6 +34,7 @@ class GitHandler:
     """Git tracking class."""
     def __init__(self, interval, repo, pathdir, runlevel, loglevel):
         self.pathdir = pathdir
+        self.repo = repo
         
         # Init logger
         self.logger_name = f'::{__name__}::GitHandler::'
@@ -40,40 +44,40 @@ class GitHandler:
         
         # Init load/save info to file
         self.stateinfo = StateInfo(self.pathdir, runlevel, self.log.level)
-                
-        # Changing None to 'None' for dbus compatibility
-        self.interval = interval
-
         
+        # Check git config
+        self._check_config()
+        
+        # Init FormatTimestamp
         self.format_timestamp = FormatTimestamp()
-        self.human_interval = self.format_timestamp.convert(self.interval)
-        self.repo = repo
-        self.elasped = 0
-        self.human_elasped = 'None'
-        self.mtime = 0
-        self.human_mtime = 'None'
-        self.remain = 0
-        self.human_remain = 'None'
         
+        self.update_inprogress = UpdateInProgress(self.log)
+                       
         # Pull attributes
         self.pull = {
-            'status'    :   'disable',
+            'status'    :   False,
             'state'     :   self.stateinfo.load('pull state'),
             # TODO: expose log throught dbus
             # So we have to make an objet which will get last log from 
             # git.log file (and other log file)
             'log'       :   'TODO',             
             'error'     :   self.stateinfo.load('pull error'),
-            'count'     :   str(self.stateinfo.load('pull count'))   # str() or get 'TypeError: must be str, not int' or vice versa
+            'count'     :   str(self.stateinfo.load('pull count')),   # str() or get 'TypeError: must be str, not int' or vice versa
+            'last'      :   int(self.stateinfo.load('pull last')),   # last pull timestamp
+            'remain'    :   0,
+            'elapsed'   :   0,
+            'interval'  :   interval,
+            'forced'    :   False
         }
+        
         # Git branch attributes
         self.branch = {
             # all means from state file
             'all'   :   {
                 # 'local' is branch locally checkout (git checkout)
-                'local'     :   sorted(self.stateinfo.load('branch all local').split(), key=StrictVersion), #['5.1', '5.2', '5.3', '5.4'],
+                'local'     :   sorted(self.stateinfo.load('branch all local').split(), key=StrictVersion),
                 # 'remote' is all available branch from remote repo (so including 'local' as well).
-                'remote'    :   sorted(self.stateinfo.load('branch all remote').split(), key=StrictVersion) #['4.20', '5.1', '5.2', '5.3', '5.4', '5.5']
+                'remote'    :   sorted(self.stateinfo.load('branch all remote').split(), key=StrictVersion)
             },
             # available means after pulling repo (so when running).
             'available'   :   {
@@ -85,8 +89,8 @@ class GitHandler:
                     'all'       :   sorted(self.stateinfo.load('branch available all').split(), key=StrictVersion)
             }
         }
+        
         # Git kernel attributes
-        # 
         self.kernel = {
             # 'all' means all kernel version from git tag command
             'all'           :   sorted(self.stateinfo.load('kernel all').split(), key=StrictVersion),
@@ -96,7 +100,7 @@ class GitHandler:
                 'know'      :   sorted(self.stateinfo.load('kernel available know').split(), key=StrictVersion),
                 # 'new' means available from the last pull and until next pull
                 'new'       :   sorted(self.stateinfo.load('kernel available new').split(), key=StrictVersion),
-                # 'all' means all available for update (so contain both 'know' and 'new'
+                # 'all' means all available for update (so contain both 'know' and 'new')
                 'all'       :   sorted(self.stateinfo.load('kernel available all').split(), key=StrictVersion)
             },
             # 'installed' means compiled and installed into the system
@@ -111,6 +115,7 @@ class GitHandler:
             }
             # TODO : add 'compiled' key : to get last compiled kernel (time)
         }
+    
     
     def get_running_kernel(self):
         """Retrieve running kernel version"""
@@ -210,7 +215,8 @@ class GitHandler:
             self.log.debug('Updating state file info.')
             self.stateinfo.save('kernel installed all', 'kernel installed all: ' + ' '.join(self.kernel['installed']['all']))
         # Else keep previously list 
-        
+  
+  
     def get_all_kernel(self):
         """Retrieve list of all git kernel version."""
         
@@ -276,7 +282,8 @@ class GitHandler:
             self.log.debug('Updating state file info.')
             self.stateinfo.save('kernel all', 'kernel all: ' + ' '.join(self.kernel['all']))
         # Else keep previously list and don't write anything
-    
+  
+  
     def get_all_branch(self, switcher):
         """Retrieve git origin and local branch version list"""
         
@@ -398,12 +405,12 @@ class GitHandler:
             self.log.debug('Found version(s): \'{0}\'.'.format(' '.join(current_available)))
                       
             # First run and will call dopull() or just first run or calling dopull()
-            if target['available']['new'][0] == '0.0' or self.pull['status'] == 'enable':
-                if target['available']['new'][0] == '0.0' and self.pull['status'] == 'enable':
+            if target['available']['new'][0] == '0.0' or self.pull['status']:
+                if target['available']['new'][0] == '0.0' and self.pull['status']:
                     self.log.debug('First run and pull setup:')
                 elif target['available']['new'][0] == '0.0':
                     self.log.debug('First run setup:')
-                elif self.pull['status'] == 'enable':
+                elif self.pull['status']:
                     self.log.debug('Pull run setup:')
                 
                 for switch in 'all', 'know', 'new':
@@ -568,22 +575,49 @@ class GitHandler:
                                       ': ' + ' '.join(target['available'][switch]))
 
 
-    def get_last_pull(self):
+    def get_last_pull(self, timestamp_only=False):
         """Get last git pull timestamp"""
         
         self.log.name = f'{self.logger_name}get_last_pull::'
         
         path = pathlib.Path(self.repo + '/.git/FETCH_HEAD')
         if path.is_file():
-            self.mtime = round(path.stat().st_mtime)
-            #self.human_mtime = datetime.fromtimestamp(self.mtime).strftime("%A, %B %d, %Y %H:%M:%S")
-            self.human_mtime = time.ctime(self.mtime)
-            self.log.debug(f'Last git pull for repository \'{self.repo}\': {self.human_mtime}.')
-            return
+            lastpull =  round(path.stat().st_mtime)
+            self.log.debug('Last git pull for repository \'{0}\': {1}.'.format(self.repo, 
+                                                                               time.ctime(lastpull)))
+            if timestamp_only:
+                return lastpull
+            
+            saving = False
+            
+            if self.pull['last'] == 0:
+                # First run 
+                saving = True
+                self.pull['last'] = lastpull
+                
+            elif not self.pull['last'] == lastpull:
+                # This mean pull has been run outside the program
+                self.log.debug('Git pull has been run outside the program.')
+                self.log.debug('Current git pull timestamp: \'{0}\', last: \'{1}\'.'.format(self.pull['last'],
+                                                                                            lastpull))
+                self.log.debug('Forcing all update.')
+                self.pull['forced'] = True
+                
+                # Saving timestamp
+                self.pull['last'] == lastpull
+                saving = True
+                
+            if saving:
+                self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
+                                                                                 self.pathdir['statelog']))
+                self.stateinfo.save('pull last', 'pull last: ' + str(self.pull['last']))
+                
+            return True
+        
         path = pathlib.Path(self.repo + '.git/refs/remotes/origin/HEAD')
         if path.is_file():
-            self.log.debug('Repository \'{self.repo}\' has never been updated (pull).')
-            self.pull['status'] = 'enable'
+            self.log.debug(f'Repository \'{self.repo}\' has never been updated (pull).')
+            self.pull['status'] = True
             return
    
 
@@ -592,17 +626,26 @@ class GitHandler:
         
         self.log.name = f'{self.logger_name}check_pull::'
         
-        if self.pull['status'] == 'disable':
+        # TODO TODO TODO : is git pull already running ?
+        if self.update_inprogress.check('Git', self.repo):
+            # Update in progress 
+            # retry in 3 minutes
+            if self.pull['remain'] <= 180:
+                self.pull['remain'] = 180
+                return
+            else:
+                # don't touch
+                return
+               
+        if not self.pull['status']:
             current_timestamp = time.time()
-            self.elasped = round(current_timestamp - self.mtime)
-            self.human_elasped = self.format_timestamp.convert(self.elasped)
-            self.remain = self.interval - self.elasped
-            self.human_remain = self.format_timestamp.convert(self.remain)
-            self.log.debug(f'Git pull elasped time: {self.human_elasped}') 
-            self.log.debug(f'Git pull remain time: {self.human_remain}')
-            self.log.debug(f'Git pull interval: {self.human_interval}.')
-            if self.remain <= 0:
-                self.pull['status'] = 'enable'
+            self.pull['elasped'] = round(current_timestamp - self.pull['last'])
+            self.pull['remain'] = self.pull['interval'] - self.pull['elasped']
+            self.log.debug('Git pull elasped time: {0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
+            self.log.debug('Git pull remain time: {0}'.format(self.format_timestamp.convert(self.pull['remain'])))
+            self.log.debug('Git pull interval: {0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+            if self.pull['remain'] <= 0:
+                self.pull['status'] = True
     
 
     def dopull(self):
@@ -664,13 +707,23 @@ class GitHandler:
                 mylogfile.info(line)
             self.log.debug(f'Successfully wrote git pull log to \'{0}\'.'.format(self.pathdir['gitlog']))
             
+            # Get last timestamp
+            self.pull['last'] = self.get_last_pull(timestamp_only=True)
+            
+            # Save
+            self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
+                                                                          self.pathdir['statelog']))
+        
+        # Reset remain to interval
+        self.pull['remain'] = self.pull['interval']
+            
 
-    def check_config(self):
+    def _check_config(self):
         """Check git config file options"""
         
         self.log.name = f'{self.logger_name}check_config::'
         
-        # Check / add git config for get all tags from remote origin repository
+        # Check / add git config to get all tags from remote origin repository
                               # fetch = +refs/heads/*:refs/remotes/origin/*
         regex = re.compile(r'\s+fetch.=.\+refs/heads/\*:refs/remotes/origin/\*')
         to_write = '        fetch = +refs/tags/*:refs/tags/*'
@@ -691,7 +744,7 @@ class GitHandler:
                 self.log.critical(f'Got: \'{error}\'.')
             sys.exit(1)
         
-        # Make an backup
+        # Make backup
         try:
             # Check if backup file already exists 
             if not pathlib.Path(self.repo + '/.git/config.backup_' + name).is_file(): 

@@ -11,6 +11,7 @@ import re
 import errno
 import sys
 import tempfile
+import time
 from logger import MainLoggingHandler
 
 
@@ -32,6 +33,7 @@ class StateInfo:
             'pull count: 0', 
             'pull error: 0',
             'pull state: never pull',
+            'pull last: 0',
             # Setting default to '0.0' as StrictVersion compare will failed if only '0' or string
             # '0.0' -> factory | '0.0.0' -> empty list
             # TODO : '# Branch Opts',
@@ -247,5 +249,147 @@ class CapturedFd:
             os.dup2(self.prevfd[i], fid)
             i = i + 1
 
+
+class UpdateInProgress:
+    """Check if update is in progress..."""
+
+    def __init__(self, log):
+        """Arguments:
+            (callable) @log : an logger from logging module"""
+        self.log = log
+        # Avoid spamming with log.info
+        self.logflow =  {
+            'Sync'      :   0,   
+            'World'     :   0,
+            'Git'       :   0
+            }
+        self.timestamp = {
+            'Sync'      :   0, 
+            'World'     :   0,
+            'Git'       :   0
+            }
+        
+        
+    def check(self, tocheck, repogit=False):
+        """...depending on tocheck var
+        Arguments:
+            (str) @tocheck : call with 'World' or 'Sync'
+        @return: True or False
+        Adapt from https://stackoverflow.com/a/31997847/11869956"""
+        
+        # TODO: system as well 
+        pids_only = re.compile(r'^\d+$')
+        # Added @world TODO: keep testing don't know if \s after (?:world|@world) is really needed...
+        world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
+        pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
+        sync = re.compile(r'.*emerge\s--sync\s*$')
+        webrsync = re.compile(r'.*emerge-webrsync\s*.*$')
+        # For git 
+        git_pull = re.compile(r'.*git\s{1}(?:pull|fetch).*')
+        
+        if repogit:
+            self.repogit = os.path.realpath(repogit)
+            
+        inprogress = False
+    
+        pids = [ ]
+        for dirname in os.listdir('/proc'):
+            if pids_only.match(dirname):
+                try:
+                    with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
+                        content = myfd.read().decode().split('\x00')
+                # IOError exception when pid as finish between getting the dir list and open it each
+                except IOError:
+                    continue
+                except Exception as exc:
+                    self.log.error(f'Got unexcept error: {exc}')
+                    # TODO: Exit or not ?
+                    continue
+                # Check world update
+                if tocheck == 'World':
+                    if world.match(' '.join(content)):
+                        #  Don't match any -p or --pretend opts
+                        if not pretend.match(' '.join(content)):
+                            inprogress = True
+                            break
+                # Check sync update
+                elif tocheck == 'Sync':
+                    if sync.match(' '.join(content)):
+                        inprogress = True
+                        break
+                    elif webrsync.match(' '.join(content)):
+                        inprogress = True
+                        break
+                # Check git pull / fetch
+                elif tocheck == 'Git':
+                    if git_pull.match(' '.join(content)):
+                        try:
+                            # We need to get the path to besure that it is 
+                            # the right git pull / fetch process
+                            path = os.readlink('/proc/{0}/cwd'.format(dirname))
+                            if not repogit:
+                                self.log.error('Missing repogit args !')
+                                return False # TODO : hum don't know :)
+                            # Then compare path
+                            elif os.path.samefile(path, self.repogit):
+                                inprogress = True
+                                break
+                        # Same as upper 
+                        except IOError:
+                            continue
+                        except Exception as exc:
+                            self.log.error(f'Got unexcept error: {exc}')
+                            # TODO: Exit or not ?
+                            continue
+                else:
+                    self.log.critical(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                      f' method: check(), tocheck: \'{tocheck}\'.')
+                    self.log.critical('Exiting with status \'1\'...')
+                    sys.exit(1)
+            
+        displaylog = False
+        current_timestamp = time.time()
+        
+        if inprogress:
+            
+            self.log.debug(f'{tocheck} update in progress.')
+            
+            # We just detect 'inprogress'
+            if self.timestamp[tocheck] == 0:
+                displaylog = True
+                # add 30 minutes (1800s)
+                self.timestamp[tocheck] = current_timestamp + 1800
+                self.logflow[tocheck] = 1                
+            else:
+                # It's running
+                if self.timestamp[tocheck] <= current_timestamp:
+                    displaylog = True
+                    if self.logflow[tocheck] == 1:
+                        # Add 1 hour (3600s)
+                        self.timestamp[tocheck] = current_timestamp + 3600
+                        self.logflow[tocheck] = 2
+                    elif self.logflow[tocheck] >= 2:
+                        # Add 2 hours (7200s) forever
+                        self.timestamp[tocheck] = current_timestamp + 7200 
+                        self.logflow[tocheck] = 3
+                    else:
+                        self.log.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                          f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
+                        self.log.warning('Resetting all attributes')
+                        self.timestamp[tocheck] = 0
+                        self.logflow[tocheck] = 0
+                                
+            if displaylog:
+                self.log.info(f'{tocheck} update in progress.')
+                
+            return True
+        
+        else:
+            self.log.debug(f'{tocheck} update is not in progress.')
+            # Reset attributes
+            self.timestamp[tocheck] = 0
+            self.logflow[tocheck] = 0
+                       
+            return False
 
 
