@@ -30,6 +30,8 @@ except Exception as exc:
     sys.exit(1)
 
 
+# TODO : be more verbose in log.info !
+
 class GitHandler:
     """Git tracking class."""
     def __init__(self, interval, repo, pathdir, runlevel, loglevel):
@@ -69,6 +71,9 @@ class GitHandler:
             'interval'  :   interval,
             'forced'    :   False
         }
+        
+        # Main remain for checking local branch checkout and local kernel installed
+        self.remain = 30
         
         # Git branch attributes
         self.branch = {
@@ -284,10 +289,10 @@ class GitHandler:
         # Else keep previously list and don't write anything
   
   
-    def get_all_branch(self, switcher):
+    def get_branch(self, key):
         """Retrieve git origin and local branch version list"""
         
-        self.log.name = f'{self.logger_name}get_all_branch::'
+        self.log.name = f'{self.logger_name}get_branch::'
         
         switch = { 
             # Main loop - check only local (faster) 
@@ -299,12 +304,12 @@ class GitHandler:
                     'remote'    :   '-r'
                     },
             # Init program
-            'both'      :   {
+            'all'      :   {
                     'local'     :   '-l',
                     'remote'    :   '-r'
                     }
             }
-        for origin, opt in switch[switcher].items():
+        for origin, opt in switch[key].items():
             try:
                 self.log.debug(f'Getting all available branch from {origin}:')
                 stdout = git.Repo(self.repo).git.branch(opt).splitlines()
@@ -393,7 +398,7 @@ class GitHandler:
                     current_available.append(version)
             except ValueError as err:
                 # This shouldn't append
-                # self.branch['all']['local'] (and ['remote']) is check in get_all_branch()
+                # self.branch['all']['local'] (and ['remote']) is check in get_branch()
                 # So print an error and continue with next item in the self.branch['all']['remote'] list
                 self.log.error(f'Got unexcept error while checking available update {target_attr}:')
                 self.log.error(f'{err} skipping...')
@@ -604,7 +609,7 @@ class GitHandler:
                 self.pull['forced'] = True
                 
                 # Saving timestamp
-                self.pull['last'] == lastpull
+                self.pull['last'] = lastpull
                 saving = True
                 
             if saving:
@@ -618,7 +623,11 @@ class GitHandler:
         if path.is_file():
             self.log.debug(f'Repository \'{self.repo}\' has never been updated (pull).')
             self.pull['status'] = True
-            return
+            
+            return True
+        
+        # Got problem 
+        return False
    
 
     def check_pull(self):
@@ -626,26 +635,30 @@ class GitHandler:
         
         self.log.name = f'{self.logger_name}check_pull::'
         
-        # TODO TODO TODO : is git pull already running ?
+        # git pull already running ?
         if self.update_inprogress.check('Git', self.repo):
             # Update in progress 
             # retry in 3 minutes
             if self.pull['remain'] <= 180:
                 self.pull['remain'] = 180
-                return
+                return False
             else:
                 # don't touch
-                return
-               
-        if not self.pull['status']:
+                return False
+        
+        # Call get_last_pull()
+        if self.get_last_pull():
             current_timestamp = time.time()
             self.pull['elasped'] = round(current_timestamp - self.pull['last'])
             self.pull['remain'] = self.pull['interval'] - self.pull['elasped']
             self.log.debug('Git pull elasped time: {0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
             self.log.debug('Git pull remain time: {0}'.format(self.format_timestamp.convert(self.pull['remain'])))
             self.log.debug('Git pull interval: {0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+                        
             if self.pull['remain'] <= 0:
                 self.pull['status'] = True
+                return True
+        return False
     
 
     def dopull(self):
@@ -681,6 +694,11 @@ class GitHandler:
             # Write 'state' to state file as well
             self.stateinfo.save('pull error', 'pull error: 1')
             self.stateinfo.save('pull state', 'pull state: Failed')
+            
+            # Reset remain to interval
+            self.pull['remain'] = self.pull['interval']
+            
+            return False
         
         else:
             self.pull['state'] = 'Success'
@@ -714,9 +732,11 @@ class GitHandler:
             self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
                                                                           self.pathdir['statelog']))
         
-        # Reset remain to interval
-        self.pull['remain'] = self.pull['interval']
+            # Reset remain to interval
+            self.pull['remain'] = self.pull['interval']
             
+            return True
+                    
 
     def _check_config(self):
         """Check git config file options"""

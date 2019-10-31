@@ -94,8 +94,13 @@ def main():
         # Get running kernel
         mygitmanager.get_running_kernel()
         
-        # Get last pull
-        mygitmanager.get_last_pull()
+        # Update all attributes
+        # mygitmanager.get_last_pull() # We don't need this i think
+        mygitmanager.get_installed_kernel()
+        mygitmanager.get_all_kernel()
+        mygitmanager.get_available_update('kernel')
+        mygitmanager.get_branch('all')
+        mygitmanager.get_available_update('branch')       
    
     ## Loop forever :)
     while True:
@@ -132,10 +137,37 @@ def main():
         
         # Git stuff
         if args.git:
-            #if mygitmanager.pull['status'] or mygitmanager.pull['remain'] <= 0:
+            # First: pull
+            if mygitmanager.pull['status'] or mygitmanager.pull['remain'] <= 0:
                 # Is git in progress ?
-            mygitmanager.check_pull()
-            #mygitmanager.pull['remain'] -= 1
+                if mygitmanager.check_pull():
+                    # Pull
+                    if mygitmanager.dopull():
+                        # Pull is ok
+                        # Then update all kernel / remote branch
+                        mygitmanager.get_all_kernel()
+                        mygitmanager.get_available_update('kernel')
+                        mygitmanager.get_branch('remote')
+                        mygitmanager.get_available_update('branch')
+            mygitmanager.pull['remain'] -= 1
+            # Then : update all local info
+            if mygitmanager.remain <= 0:
+                # This is a regular info update
+                mygitmanager.get_installed_kernel()
+                mygitmanager.get_available_update('kernel')
+                mygitmanager.get_branch('local')
+                mygitmanager.get_available_update('branch')
+                mygitmanager.remain = 30
+            mygitmanager.remain -= 1
+            # Last: forced all kernel / remote branch update 
+            # as git pull was run outside the program
+            if mygitmanager.pull['forced']:
+                mygitmanager.get_all_kernel()
+                mygitmanager.get_available_update('kernel')
+                mygitmanager.get_branch('remote')
+                mygitmanager.get_available_update('branch')
+                mygitmanager.pull['forced'] = False
+                        
         time.sleep(1)
 
 
