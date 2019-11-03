@@ -23,7 +23,8 @@ class StateInfo:
                 
         # Init logger
         self.logger_name = f'::{__name__}::StateInfo::'
-        mainlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'])
+        mainlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
+                                     self.pathdir['fdlog'])
         self.log = getattr(mainlog, runlevel)()
         self.log.setLevel(loglevel)
         
@@ -270,7 +271,7 @@ class UpdateInProgress:
             }
         
         
-    def check(self, tocheck, repogit=False):
+    def check(self, tocheck, repogit=False, quiet=False):
         """...depending on tocheck var
         Arguments:
             (str) @tocheck : call with 'World' or 'Sync'
@@ -379,7 +380,7 @@ class UpdateInProgress:
                         self.timestamp[tocheck] = 0
                         self.logflow[tocheck] = 0
                                 
-            if displaylog:
+            if displaylog and not quiet:
                 self.log.info(f'{tocheck} update in progress.')
                 
             return True
@@ -393,3 +394,10 @@ class UpdateInProgress:
             return False
 
 
+
+def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    logger.exception(exc_info=(exc_type, exc_value, exc_traceback))

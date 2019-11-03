@@ -8,12 +8,12 @@ import logging.handlers
 
 # TODO : maybe give the choice to custom logrotate ?
 
-
 class MainLoggingHandler:
     """Main logging handler"""
-    def __init__(self, name, debuglog):
+    def __init__(self, name, debuglog, fdlog):
         self.name = name
         self.debuglog = debuglog
+        self.fdlog = fdlog
         self.logging = logging
         logging.addLevelName(logging.CRITICAL, '[Crit ]')
         logging.addLevelName(logging.ERROR,    '[Error]')
@@ -30,21 +30,34 @@ class MainLoggingHandler:
         # Debug only go to file
         # Rotate the log 
         # 2.86MB, rotate 3x times
-        file_handler = logging.handlers.RotatingFileHandler(self.debuglog, maxBytes=3000000, backupCount=3)
+        debug_handler = logging.handlers.RotatingFileHandler(self.debuglog, maxBytes=3000000, backupCount=3)
         datefmt = '%Y-%m-%d %H:%M:%S'
-        file_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s', datefmt)
-        file_handler.setFormatter(file_formatter)
-        file_handler.addFilter(LogLevelFilter(10))
-        file_handler.setLevel(10)
+        debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s', datefmt)
+        debug_handler.setFormatter(debug_formatter)
+        debug_handler.addFilter(LogLevelFilter(10))
+        debug_handler.setLevel(10)
         if not self.logger.handlers:
-            self.logger.addHandler(file_handler)
+            self.logger.addHandler(debug_handler)
         
         # Other level goes to Syslog
         syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
         syslog_formatter = logging.Formatter('syuppod %(levelname)s  %(message)s')
         syslog_handler.setFormatter(syslog_formatter)
+        # Filter stderr output
+        syslog_handler.addFilter(LogErrorFilter(stderr=False))
         syslog_handler.setLevel(20)
         self.logger.addHandler(syslog_handler)
+        
+        # Catch file descriptor stderr
+        # Rotate the log 
+        # 2.86MB, rotate 3x times
+        fd_handler = logging.handlers.RotatingFileHandler(self.fdlog, maxBytes=3000000, backupCount=3)
+        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
+        fd_handler.setFormatter(fd_formatter)
+        fd_handler.addFilter(LogErrorFilter(stderr=True))
+        # Level is error : See class WriteToLogger
+        fd_handler.setLevel(40)
+        self.logger.addHandler(fd_handler)
        
         return self.logger
     
@@ -79,7 +92,8 @@ class ProcessLoggingHandler:
         file_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
         file_handler.setFormatter(file_formatter)
         file_handler.setLevel(self.logging.INFO)
-        self.logger.addHandler(file_handler)
+        if not self.logger.handlers:
+            self.logger.addHandler(file_handler)
         
         return self.logger
 
@@ -92,6 +106,29 @@ class LogLevelFilter(logging.Filter):
     def filter(self, record):
         # Just revert >= to <= then get only current level or lower.
         return record.levelno <= self.level
+
+class LogErrorFilter(logging.Filter):
+    """Filter logging.error and separate msg from stderr"""
+    def __init__(self, stderr):
+        self.stderr = stderr
+        
+    def filter(self, record):
+        if self.stderr:
+            try:
+                if record.__dict__['STDERR']:
+                    return record
+                else:
+                    return False
+            except KeyError:
+                return False
+        else:
+            try:
+                if record.__dict__['STDERR']:
+                    return False
+                else:
+                    return record
+            except KeyError:
+                return record
    
    
 class LogLevelFormatter(logging.Formatter):
@@ -107,3 +144,22 @@ class LogLevelFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
+
+class RedirectFdToLogger:
+    """Retrieve from https://stackoverflow.com/a/51612402/11869956
+    And modified to filter stderr to a separate file"""
+    def __init__(self, logger):
+        self.logger = logger
+        self.msg = ''
+
+    def write(self, message):
+        self.msg = self.msg + message
+        while '\n' in self.msg:
+            pos = self.msg.find('\n')
+            self.logger.error(self.msg[:pos], extra={ 'STDERR' : True })
+            self.msg = self.msg[pos+1:]
+
+    def flush(self):
+        if self.msg != '':
+            self.logger.error(self.msg, extra={ 'STDERR' : True })
+            self.msg = ''

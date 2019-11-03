@@ -38,7 +38,8 @@ class PortageHandler:
         
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
-        portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'])
+        portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
+                                               self.pathdir['fdlog'])
         self.log = getattr(portagemanagerlog, runlevel)()
         self.log.setLevel(loglevel)
         
@@ -127,7 +128,7 @@ class PortageHandler:
         
         current_timestamp = time.time()
         update_statefile = False
-        
+                
         if sync_timestamp:
             # Ok it's first run ever 
             if self.sync['timestamp'] == 0:
@@ -141,14 +142,25 @@ class PortageHandler:
                 self.world['status'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
+            # Same here 
             elif self.sync['timestamp'] != sync_timestamp:
-                self.log.warning(f'Bug module \'{__name__}\', class \'{self.__class__.__name__}\', method: \'check_sync()\': timestamp are not the same...')
+                self.log.debug('Portage repo has been update outside the program, forcing pretend world...')
+                self.world['status'] = True # So run pretend world update
+                self.sync['timestamp'] = sync_timestamp
+                update_statefile = True
+                #self.log.warning(f'Bug module \'{__name__}\', class \'{self.__class__.__name__}\', method: \'check_sync()\': timestamp are not the same...')
             
             self.sync['elasped'] = round(current_timestamp - sync_timestamp)
             self.sync['remain'] = self.sync['interval'] - self.sync['elasped']
+            
             self.log.debug('Update repo elasped time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elasped'])))
             self.log.debug('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
             self.log.debug('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
+            
+            if init_run:
+                self.log.info('Update repo elasped time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elasped'])))
+                self.log.info('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
+                self.log.info('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             if update_statefile:
                 self.log.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
@@ -201,7 +213,7 @@ class PortageHandler:
             self.log.debug('Log level: info')
             mylogfile.setLevel(processlog.logging.INFO)
             
-            
+            # BUG : Look like this is called twice !!! 
             myargs = ['/usr/bin/emerge', '--sync']
             mysync = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             #mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
@@ -339,6 +351,7 @@ class PortageHandler:
                         self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
                 
                 return True
+            # BUG: last time after dopull() it's crashed just after this ...
                 
                 
     def get_last_world_update(self):
@@ -368,7 +381,7 @@ class PortageHandler:
                 self.stateinfo.save('world update', 'world update: ' + self.world['update'])
             # else: TODO: debug log level :)
             
-            self.world['remain'] = 30
+            self.world['remain'] = 25
             
             myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
             # keep default setting 
@@ -395,7 +408,8 @@ class PortageHandler:
                             self.stateinfo.save('world last ' + key, 
                                                 'world last ' + key + ': ' + str(self.world['last'][key]))
                     except KeyError:
-                        # This should be for incompleted world update only because we have an extra key 'failed'
+                        #TODO BUG : not saving 'failed at' !!
+                        # This should be for incompleted world update only because we have an extra key 'failed at'
                         if not self.world['last'][key] == 0:
                             self.world['last'][key] = 0
                             self.log.debug('Saving \'world last {0}: {1}\' to \'{2}\'.'.format(key, self.world['last'][key], 
@@ -420,6 +434,8 @@ class PortageHandler:
         ## TODO : This have to be run in a thread because it take long time to finish
         # and we didn't really need to wait as will be in a forever loop ...
         # Ok TODO: asyncio give a try :)
+        # TODO: I had a crash when calling this after dosync() and i was doing 
+        # an world update...
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'Total:.(\d+).packages.*')
@@ -613,6 +629,7 @@ class EmergeLogParser:
             self.lines = [60000, False]
         else:
             self.lines = [self.lines, True]
+            self.log.debug(f'Log file {emergelog} has : {self.lines} lines.')
         # construct exponantial lists
         self._range = {
             'sync'  :   numpy.geomspace(500, self.lines[0], num=15, endpoint=True, dtype=int),
@@ -773,6 +790,7 @@ class EmergeLogParser:
         
         # RE
         # Added @world TODO: keep testing
+        # TODO TODO TODO : --keep-going !!
         # Added \s* after (?:world|@world) to make sure we match only @world or world : keep testing as well ...
         # TODO: should we match with '.' or '\s' ??
         start = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')

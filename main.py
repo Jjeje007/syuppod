@@ -16,7 +16,9 @@ from portagedbus import PortageDbus
 from gitdbus import GitDbus
 from gitmanager import check_git_dir
 from logger import MainLoggingHandler
+from logger import RedirectFdToLogger
 from argsparser import ArgsParserHandler
+from utils import UpdateInProgress
 
 # To remimber : http://stackoverflow.com/a/11887885
 # TODO : enable or disable dbus bindings. So this should only be load if dbus is enable
@@ -41,12 +43,13 @@ pathdir = {
     'basedir'       :   '/var/lib/' + name,
     'logdir'        :   '/var/log/' + name,
     'emergelog'     :   '/var/log/emerge.log',
-    'debuglog'      :   'debug.log', # TEST changing
-    'statelog'         :   'state.info',    #'/var/lib/' + name + 'state.info'
-    'gitlog'        :   'git.log',  # '/var/log/' + name + 'git.log',     
+    'debuglog'      :   '/var/log/' + name + '/debug.log', # TEST changing
+    'fdlog'         :   '/var/log/' + name + '/stderr.log', 
+    'statelog'      :   '/var/lib/' + name + '/state.info', #'state.info',    #
+    'gitlog'        :   '/var/log/' + name + '/git.log', #'git.log',  #      
     # TODO TODO TODO : add a check to see if user which run the program have enough right to perform all this operations
-    'synclog'       :   'sync.log',       #'/var/log/' + name + 'sync.log'
-    'pretendlog'    :   'pretend.log'     #'/var/log' + name + 'pretend.log'
+    'synclog'       :   '/var/log/' + name + '/sync.log', #'sync.log',       #
+    'pretendlog'    :   '/var/log/' + name + '/pretend.log' #'pretend.log'     #
     
 }
 
@@ -102,6 +105,8 @@ def main():
         mygitmanager.get_branch('all')
         mygitmanager.get_available_update('branch')       
    
+    log.info('...running.')
+   
     ## Loop forever :)
     while True:
         # First: check if we have to sync
@@ -110,10 +115,12 @@ def main():
             if myportmanager.check_sync():
                 # sync
                 if myportmanager.dosync():
-                    # pretend world update as sync is ok :)
-                    myportmanager.pretend_world()
-                    # check portage update
-                    myportmanager.available_portage_update()
+                    myupdate = UpdateInProgress('World')
+                    if not myupdate.check(quiet=True):
+                        # pretend world update as sync is ok :)
+                        myportmanager.pretend_world()
+                        # check portage update
+                        myportmanager.available_portage_update()
         myportmanager.sync['remain'] -= 1 # For the moment this will not exactly be one second
                                           # Because all this stuff take more time - specially pretend_world()
         
@@ -141,7 +148,11 @@ def main():
             if mygitmanager.pull['status'] or mygitmanager.pull['remain'] <= 0:
                 # Is git in progress ?
                 if mygitmanager.check_pull():
-                    # Pull
+                    # This is necessary to move all kernel / branch 
+                    # from new list to know list
+                    mygitmanager.get_available_update('kernel')
+                    mygitmanager.get_available_update('branch')
+                    # Pull 
                     if mygitmanager.dopull():
                         # Pull is ok
                         # Then update all kernel / remote branch
@@ -157,7 +168,7 @@ def main():
                 mygitmanager.get_available_update('kernel')
                 mygitmanager.get_branch('local')
                 mygitmanager.get_available_update('branch')
-                mygitmanager.remain = 30
+                mygitmanager.remain = 35
             mygitmanager.remain -= 1
             # Last: forced all kernel / remote branch update 
             # as git pull was run outside the program
@@ -186,7 +197,7 @@ if __name__ == '__main__':
     args = myargsparser.parsing()
         
     ### Creating log ###
-    mainlog = MainLoggingHandler('::main::', pathdir['debuglog'])
+    mainlog = MainLoggingHandler('::main::', pathdir['debuglog'], pathdir['fdlog'])
     
     if sys.stdout.isatty():
         log = mainlog.tty_run()      # create logger tty_run()
@@ -198,7 +209,11 @@ if __name__ == '__main__':
         log.setLevel(mainlog.logging.INFO)
         runlevel = 'init_run'
         display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
-    
+        # Redirect stderr to log 
+        # For the moment maybe stdout as well but nothing should be print to...
+        fd2 = RedirectFdToLogger(log)
+        sys.stderr = fd2
+       
     if args.debug and args.quiet or args.quiet and args.debug:
         log.info('Both debug and quiet opts has been enable, falling back to log level info.')
         log.setLevel(mainlog.logging.INFO)
@@ -209,8 +224,10 @@ if __name__ == '__main__':
     elif args.quiet:
         log.setLevel(mainlog.logging.ERROR)
     
+    log.info('Starting up...')
+    
     if sys.stdout.isatty():
-        log.info('Running in interactive mode, all logs go to terminal.')
+        log.info('Interactive mode detected, all logs go to terminal.')
     
     ### MAIN ###
     main()

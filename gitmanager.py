@@ -30,7 +30,7 @@ except Exception as exc:
     sys.exit(1)
 
 
-# TODO : be more verbose in log.info !
+# TODO : be more verbose for log.info !
 
 class GitHandler:
     """Git tracking class."""
@@ -40,7 +40,8 @@ class GitHandler:
         
         # Init logger
         self.logger_name = f'::{__name__}::GitHandler::'
-        gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'])
+        gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'],
+                                           self.pathdir['fdlog'])
         self.log = getattr(gitmanagerlog, runlevel)()
         self.log.setLevel(loglevel)
         
@@ -73,7 +74,7 @@ class GitHandler:
         }
         
         # Main remain for checking local branch checkout and local kernel installed
-        self.remain = 30
+        self.remain = 35
         
         # Git branch attributes
         self.branch = {
@@ -583,6 +584,8 @@ class GitHandler:
     def get_last_pull(self, timestamp_only=False):
         """Get last git pull timestamp"""
         
+         # BUG : even if git pull failed it's still modify .git/FETCH_HEAD  ...
+        
         self.log.name = f'{self.logger_name}get_last_pull::'
         
         path = pathlib.Path(self.repo + '/.git/FETCH_HEAD')
@@ -636,7 +639,7 @@ class GitHandler:
         self.log.name = f'{self.logger_name}check_pull::'
         
         # git pull already running ?
-        if self.update_inprogress.check('Git', self.repo):
+        if self.update_inprogress.check('Git', repogit=self.repo):
             # Update in progress 
             # retry in 3 minutes
             if self.pull['remain'] <= 180:
@@ -665,6 +668,7 @@ class GitHandler:
         """Pulling git repository"""
         
         # TODO: thread
+        # BUG : even if git pull failed it's still modify .git/FETCH_HEAD  ... 
         
         self.log.name = f'{self.logger_name}dopull::'
         
