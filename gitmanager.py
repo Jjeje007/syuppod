@@ -633,7 +633,7 @@ class GitHandler:
         return False
    
 
-    def check_pull(self):
+    def check_pull(self, init_run=False):
         """Check git pull status depending on specified interval"""
         
         self.log.name = f'{self.logger_name}check_pull::'
@@ -654,10 +654,23 @@ class GitHandler:
             current_timestamp = time.time()
             self.pull['elasped'] = round(current_timestamp - self.pull['last'])
             self.pull['remain'] = self.pull['interval'] - self.pull['elasped']
-            self.log.debug('Git pull elasped time: {0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
-            self.log.debug('Git pull remain time: {0}'.format(self.format_timestamp.convert(self.pull['remain'])))
-            self.log.debug('Git pull interval: {0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
-                        
+            
+            self.log.debug('Git pull elasped time: ' + 
+                           '{0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
+            self.log.debug('Git pull remain time: ' + 
+                           '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
+            self.log.debug('Git pull interval: ' + 
+                           '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+            
+            if init_run:
+                self.log.info('Git pull elasped time: ' + 
+                           '{0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
+                self.log.info('Git pull remain time: ' + 
+                           '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
+                self.log.info('Git pull interval: ' + 
+                           '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+            
+            
             if self.pull['remain'] <= 0:
                 self.pull['status'] = True
                 return True

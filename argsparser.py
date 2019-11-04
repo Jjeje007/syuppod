@@ -96,8 +96,8 @@ class ArgsParserHandler:
                 self.parser.error(f'Got invalid interval while parsing: \'{match.string}\', regex \'{match.re}\'.')
         
         # Ok so converted should be greater or equal to 86400 (mini sync interval)
-        if not converted >= 86400:
-            self.parser.error(f'Interval \'{interval}\' too small: minimum is 24 hours / 1 day !')
-        else:
-            return converted
+        #if not converted >= 86400:
+            #self.parser.error(f'Interval \'{interval}\' too small: minimum is 24 hours / 1 day !')
+        #else:
+        return converted
 

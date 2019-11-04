@@ -19,6 +19,7 @@ from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
 from utils import UpdateInProgress
+from utils import on_parent_exit
 from logger import MainLoggingHandler
 from logger import ProcessLoggingHandler
 
@@ -213,9 +214,9 @@ class PortageHandler:
             self.log.debug('Log level: info')
             mylogfile.setLevel(processlog.logging.INFO)
             
-            # BUG : Look like this is called twice !!! 
+
             myargs = ['/usr/bin/emerge', '--sync']
-            mysync = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            mysync = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             #mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
                                                          # stderr=asyncio.subprocess.STDOUT, universal_newlines=True)
             
@@ -426,7 +427,7 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         
-        # TODO: ported to subprocess
+        # TODO: ported to subprocess ??
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
@@ -965,7 +966,8 @@ class EmergeLogParser:
     def getlines(self):
         """Get the total number of lines from emerge.log file"""
         myargs = ['/bin/wc', '--lines', self.emergelog]
-        mywc = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         
         nlines = re.compile(r'^(\d+)\s.*$')
         
@@ -992,7 +994,8 @@ class EmergeLogParser:
         https://stackoverflow.com/a/136280/11869956"""
                 
         myargs = ['/bin/tail', '-n', str(lastlines + offset), self.emergelog]
-        mytail = subprocess.Popen(myargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        mytail = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         
         # From https://stackoverflow.com/a/4417735/11869956
         for line in iter(mytail.stdout.readline, ""):

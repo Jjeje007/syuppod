@@ -12,6 +12,8 @@ import errno
 import sys
 import tempfile
 import time
+import signal
+from ctypes import cdll
 from logger import MainLoggingHandler
 
 
@@ -274,15 +276,19 @@ class UpdateInProgress:
     def check(self, tocheck, repogit=False, quiet=False):
         """...depending on tocheck var
         Arguments:
-            (str) @tocheck : call with 'World' or 'Sync'
+            (str) @tocheck : call with 'World' or 'Sync' or 'Git'
+            (str) @repogit : full path to git repo (use only with @tocheck == 'Git'
+            (str) @quiet : enable or disable quiet output
         @return: True or False
         Adapt from https://stackoverflow.com/a/31997847/11869956"""
         
         # TODO: system as well 
         pids_only = re.compile(r'^\d+$')
+        # For world
         # Added @world TODO: keep testing don't know if \s after (?:world|@world) is really needed...
         world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
         pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
+        # For sync
         sync = re.compile(r'.*emerge\s--sync\s*$')
         webrsync = re.compile(r'.*emerge-webrsync\s*.*$')
         # For git 
@@ -394,7 +400,26 @@ class UpdateInProgress:
             return False
 
 
+# Taken from https://gist.github.com/evansd/2346614
+class PrCtlError(Exception):
+    pass
 
+def on_parent_exit(signame='SIGTERM'):
+    """
+    Return a function to be run in a child process which will trigger SIGNAME
+    to be sent when the parent process dies
+    """
+    PR_SET_PDEATHSIG = 1
+    signum = getattr(signal, signame)
+    def set_parent_exit_signal():
+        # http://linux.die.net/man/2/prctl
+        result = cdll['libc.so.6'].prctl(PR_SET_PDEATHSIG, signum)
+        if result != 0:
+            raise PrCtlError('prctl failed with error code %s' % result)
+    return set_parent_exit_signal
+
+
+# TODO 
 def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)

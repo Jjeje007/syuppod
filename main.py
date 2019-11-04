@@ -98,7 +98,7 @@ def main():
         mygitmanager.get_running_kernel()
         
         # Update all attributes
-        # mygitmanager.get_last_pull() # We don't need this i think
+        mygitmanager.check_pull(init_run=True) # We need this to print log.info only one time
         mygitmanager.get_installed_kernel()
         mygitmanager.get_all_kernel()
         mygitmanager.get_available_update('kernel')
@@ -115,8 +115,8 @@ def main():
             if myportmanager.check_sync():
                 # sync
                 if myportmanager.dosync():
-                    myupdate = UpdateInProgress('World')
-                    if not myupdate.check(quiet=True):
+                    myupdate = UpdateInProgress(log)
+                    if not myupdate.check(tocheck='World', quiet=True):
                         # pretend world update as sync is ok :)
                         myportmanager.pretend_world()
                         # check portage update
@@ -211,6 +211,7 @@ if __name__ == '__main__':
         display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
         # Redirect stderr to log 
         # For the moment maybe stdout as well but nothing should be print to...
+        # This is not good if there is error before log(ger) is initialized...
         fd2 = RedirectFdToLogger(log)
         sys.stderr = fd2
        
