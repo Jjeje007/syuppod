@@ -149,7 +149,6 @@ class PortageHandler:
                 self.world['status'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
-                #self.log.warning(f'Bug module \'{__name__}\', class \'{self.__class__.__name__}\', method: \'check_sync()\': timestamp are not the same...')
             
             self.sync['elasped'] = round(current_timestamp - sync_timestamp)
             self.sync['remain'] = self.sync['interval'] - self.sync['elasped']
@@ -214,9 +213,9 @@ class PortageHandler:
             self.log.debug('Log level: info')
             mylogfile.setLevel(processlog.logging.INFO)
             
-
             myargs = ['/usr/bin/emerge', '--sync']
-            mysync = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            mysync = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             #mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
                                                          # stderr=asyncio.subprocess.STDOUT, universal_newlines=True)
             
@@ -427,7 +426,8 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         
-        # TODO: ported to subprocess ??
+        # TODO: has to be ported to subprocess  
+        # so it's exit when parent exit ...
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
@@ -791,7 +791,8 @@ class EmergeLogParser:
         
         # RE
         # Added @world TODO: keep testing
-        # TODO TODO TODO : --keep-going !!
+        # TODO TODO TODO : --keep-going opts 
+        # This will be harder ;)
         # Added \s* after (?:world|@world) to make sure we match only @world or world : keep testing as well ...
         # TODO: should we match with '.' or '\s' ??
         start = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
@@ -836,15 +837,25 @@ class EmergeLogParser:
                                 self.log.debug('Recording incompleted, start: {0}, stop: {1}, packages: {2}, failed at: {3}'
                                           .format(group['start'], group['stop'], group['packages'], group['failed']))
                             packages_count = 1
+                        # --keep-going opts: restart immediatly after failed package ex:
+                        #   1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
+                        #   1572887531:  === (1078 of 1150) Cleaning (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+                        #   1572887531:  === (1078 of 1150) Compiling/Merging (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+                        #   1572887560:  >>> emerge (1 of 72) x11-libs/gtk+-3.24.11 to /
+                        # And the package number should be:
+                        #   total package number - package failed number - 1 
+                        # And it should restart to 1
+                        # elif re.match('\d+:\s{2}>>>.emerge.\(1.*of.*'
                         elif re.match('\d+:\s{2}:::.completed.emerge.\(' 
                                             + str(packages_count) + r'.*of.*' 
                                             + str(group['packages']) + r'\).*$', line):
-                            current_package = False # Compile finished
+                            current_package = False # Compile finished for the currebt package
                             compiling = True
                             packages_count = packages_count + 1
                     elif re.match(r'^\d+:\s{2}>>>.emerge.\('
                                             + str(packages_count) + r'.*of.*' 
                                             + str(group['packages']) + r'\).*$', line):
+                        # TODO : get the package name 
                         current_package = True
                     elif succeeded.match(line):
                         # Make sure it's succeeded the right compile

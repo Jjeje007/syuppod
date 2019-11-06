@@ -401,8 +401,8 @@ class UpdateInProgress:
 
 
 # Taken from https://gist.github.com/evansd/2346614
-class PrCtlError(Exception):
-    pass
+#class PrCtlError(Exception):
+    #pass
 
 def on_parent_exit(signame='SIGTERM'):
     """
@@ -415,7 +415,9 @@ def on_parent_exit(signame='SIGTERM'):
         # http://linux.die.net/man/2/prctl
         result = cdll['libc.so.6'].prctl(PR_SET_PDEATHSIG, signum)
         if result != 0:
-            raise PrCtlError('prctl failed with error code %s' % result)
+            # Look like this is not working 
+            # mean : it raise but didn't got this error msg ...
+            raise #PrCtlError('prctl failed with error code %s' % result)
     return set_parent_exit_signal
 
 

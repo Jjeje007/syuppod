@@ -3,8 +3,6 @@
 # -*- coding: utf-8 -*-
 # -*- python -*- 
 
-# OK all good normally this is version 0.1 final : 10/08/2019 
-# 10/18/2019 : Added dedidace logger and stateinfo. 
 
 import re
 import os

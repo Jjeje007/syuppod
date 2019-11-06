@@ -115,6 +115,9 @@ def main():
             if myportmanager.check_sync():
                 # sync
                 if myportmanager.dosync():
+                    # Check if we are running world update and
+                    # abord pretend world and check portage update
+                    # if this is the case.
                     myupdate = UpdateInProgress(log)
                     if not myupdate.check(tocheck='World', quiet=True):
                         # pretend world update as sync is ok :)
