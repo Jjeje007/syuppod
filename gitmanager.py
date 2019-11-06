@@ -710,9 +710,10 @@ class GitHandler:
             self.stateinfo.save('pull error', 'pull error: 1')
             self.stateinfo.save('pull state', 'pull state: Failed')
             
-            # Reset remain to interval
+            # Reset remain to interval and status
             self.pull['remain'] = self.pull['interval']
-            
+            self.pull['status'] = False
+                        
             return False
         
         else:
@@ -747,8 +748,9 @@ class GitHandler:
             self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
                                                                           self.pathdir['statelog']))
         
-            # Reset remain to interval
+            # Reset remain to interval and status
             self.pull['remain'] = self.pull['interval']
+            self.pull['status'] = False
             
             return True
                     
