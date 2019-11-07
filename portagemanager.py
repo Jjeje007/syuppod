@@ -9,12 +9,12 @@ import re
 import pathlib
 import time
 import errno
-import _emerge
+#import _emerge
 import portage
 import subprocess
 
 from portage.versions import pkgcmp, pkgsplit
-from _emerge import actions
+#from _emerge import actions
 from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
@@ -250,7 +250,7 @@ class PortageHandler:
             if return_code:
                 self.log.error('Got error while updating portage repository.')
                 self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
-                self.log.error(f'You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
+                self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
                 
                 # don't write if state is already in 'Failed'
                 if not self.sync['state'] == 'Failed':
@@ -426,71 +426,62 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         
-        # TODO: has to be ported to subprocess  
-        # so it's exit when parent exit ...
-        
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
         ## TODO : This have to be run in a thread because it take long time to finish
         # and we didn't really need to wait as will be in a forever loop ...
         # Ok TODO: asyncio give a try :)
-        # TODO: I had a crash when calling this after dosync() and i was doing 
-        # an world update...
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'Total:.(\d+).packages.*')
-        myconfig = actions._emerge_config(action={ 'update' :  True }, args={ 'world' : True }, 
-                                                      opts={ '--verbose' : True, '--pretend' : True, 
-                                                             '--deep' : True, '--newuse' : True, 
-                                                             '--update' : True, '--with-bdeps' : True  })
+        
         # Init logging 
         processlog = ProcessLoggingHandler(name='pretendlog')
         mylogfile = processlog.dolog(self.pathdir['pretendlog'])
         mylogfile.setLevel(processlog.logging.INFO)
-                
+        
+        myargs = [ '/usr/bin/emerge', '--verbose', '--pretend', '--deep', 
+                  '--newuse', '--update', 'world', '--with-bdeps=y' ]
+               
         while retry < 2:
-            loadconfig = _emerge.actions.load_emerge_config(emerge_config=myconfig)
-            try:
-                # TODO : Should we capture stderr and stdout singly ?
-                # TODO : expose this to dbus client and maybe propose to apply the proposal update ?
-                #        Any way we HAVE to capture both (stdout and sterr) or sdtout will be print 
-                #        to terminal or else where...
-                self.log.debug('Getting how many packages have to be update.')
-                self.log.debug('This could take some time, please wait...')
-                               
-                with CapturedFd(fd=[1, 2]) as tmpfile:
-                    _emerge.actions.action_build(loadconfig)
-                    
-                # Make sure we have a total package
-                with pathlib.Path(tmpfile.name).open() as mytmp:
-                    mylogfile.info('##################################################################\n')
-                    for line in mytmp.readlines():
-                        mylogfile.info(line.rstrip())
-                        if find_build_packages.match(line):
-                            # Ok so we got packages then don't retry
-                            retry = 2
-                            update_packages = int(find_build_packages.match(line).group(1))
-                    
-                # Ok so do we got update package ?
-                if retry == 2:
-                    if update_packages > 1:
-                        to_print = 'packages'
-                    else:
-                        to_print = 'package'
-                    
-                    self.log.info(f'Found {update_packages} {to_print} to update.')
+            mypretend = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            mylogfile.info('##########################################\n')
+            for line in iter(mypretend.stdout.readline, ""):
+                    # Write the log
+                    mylogfile.info(line.rstrip())
+                    if find_build_packages.match(line):
+                        # Ok so we got packages then don't retry
+                        retry = 2
+                        update_packages = int(find_build_packages.match(line).group(1))
+            mypretend.stdout.close()
+            
+            # Check if return code is ok
+            return_code = mypretend.wait()
+            
+            if return_code:
+                self.log.error('Got error while pretending world update.')
+                self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
+                self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['pretendlog'])) 
+                if retry < 2:
+                    self.log.error('Retrying without opts \'--with-bdeps\'...')
+        
+            # Ok so do we got update package ?
+            if retry == 2:
+                if update_packages > 1:
+                    to_print = 'packages'
                 else:
-                    # Remove --with-bdeps and retry one more time.
-                    myconfig = _emerge.actions._emerge_config(action={ 'update' :  True }, args={ 'world' : True }, 
-                                                                opts={ '--verbose' : True, '--pretend' : True, 
-                                                                       '--deep' : True, '--newuse' : True, 
-                                                                       '--update' : True}) 
-                    self.log.debug('Couldn\'t found how many package to update, retrying without opt \'--with-bdeps\'.')
-                    retry = 1
-            # TODO : get Exception from portage / _emerge !!
-            except Exception as exc:
-                self.log.error(f'Got unexcept error : {exc}')
+                    to_print = 'package'
+                    
+                self.log.info(f'Found {update_packages} {to_print} to update.')
+            else:
+                # Remove --with-bdeps and retry one more time.
+                retry += 1
+                if retry < 2:
+                    myargs.pop()
+                    self.log.debug('Couldn\'t found how many package to update, retrying without opt \'--with bdeps\'.')
+                
         
         # pretend has been run then:
         self.world['status'] = False
