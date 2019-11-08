@@ -87,10 +87,7 @@ def main():
     
     # Check sync
     myportmanager.check_sync(init_run=True)
-    myportmanager.get_last_world_update()
-    
-    sys.exit(0)
-    
+        
     if args.git:
         log.debug('Git kernel tracking has been enable.')
         

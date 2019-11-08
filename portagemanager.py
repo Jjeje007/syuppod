@@ -82,7 +82,7 @@ class PortageHandler:
                     'start'     :   int(self.stateinfo.load('world last start')),
                     'stop'      :   int(self.stateinfo.load('world last stop')),
                     'total'     :   int(self.stateinfo.load('world last packages')),
-                    'failed'    :   int(self.stateinfo.load('world last failed'))
+                    'failed'    :   self.stateinfo.load('world last failed')
                 }
             }
         self.portage = {
