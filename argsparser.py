@@ -8,6 +8,7 @@ import re
 import argparse
 from gitmanager import check_git_dir
 
+# TODO: add --dry-run opt to not write to statefile 
 
 class ArgsParserHandler:
     """Handle arguments parsing"""

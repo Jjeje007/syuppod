@@ -65,7 +65,7 @@ class StateInfo:
             'world last stop: 0',
             'world last state: unknow',
             'world last packages: 0',
-            'world last failed at: 0',
+            'world last failed: 0',
             # TODO: '# Portage Opts',
             'portage available: False',
             'portage current: 0.0',
