@@ -77,6 +77,7 @@ class MainLoggingHandler:
         return self.logger
 
 
+
 class ProcessLoggingHandler:
     """Specific logging which handle process logging"""
     def __init__(self, name):
@@ -98,6 +99,7 @@ class ProcessLoggingHandler:
         return self.logger
 
 
+
 class LogLevelFilter(logging.Filter):
     """https://stackoverflow.com/a/7447596/190597 (robert)."""
     def __init__(self, level):
@@ -106,6 +108,8 @@ class LogLevelFilter(logging.Filter):
     def filter(self, record):
         # Just revert >= to <= then get only current level or lower.
         return record.levelno <= self.level
+
+
 
 class LogErrorFilter(logging.Filter):
     """Filter logging.error and separate msg from stderr"""
@@ -129,7 +133,8 @@ class LogErrorFilter(logging.Filter):
                     return record
             except KeyError:
                 return record
-   
+ 
+ 
    
 class LogLevelFormatter(logging.Formatter):
     """Formatter which separate debug and other log level for tty_run()
@@ -143,6 +148,7 @@ class LogLevelFormatter(logging.Formatter):
         log_fmt = self.formats.get(record.levelno, self.formats['default'])
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
+
 
 
 class RedirectFdToLogger:

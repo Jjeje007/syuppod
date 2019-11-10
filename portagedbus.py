@@ -9,9 +9,9 @@ class PortageDbus(PortageHandler):
     # TODO : write it !
     """
         <node>
-            <interface name='net.lew21.pydbus.ClientServerExample'>
-                <method name='publish_branch_old_local'>
-                    <arg type='a{ss}' name='response' direction='out'/>
+            <interface name='net.syuppod.portagemanager'>
+                <method name='publish_sync_remain'>
+                    <arg type='s' name='response' direction='out'/>
                 </method>
                 <method name='mod'>
                     <arg type='s' name='a' direction='in'/>
@@ -21,3 +21,6 @@ class PortageDbus(PortageHandler):
             </interface>
         </node>
     """
+    def publish_sync_remain(self):
+        return self.sync['remain']
+    

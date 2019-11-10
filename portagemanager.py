@@ -9,12 +9,10 @@ import re
 import pathlib
 import time
 import errno
-#import _emerge
 import portage
 import subprocess
 
 from portage.versions import pkgcmp, pkgsplit
-#from _emerge import actions
 from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
@@ -85,6 +83,8 @@ class PortageHandler:
                     'failed'    :   self.stateinfo.load('world last failed')
                 }
             }
+        
+        # Portage attributes
         self.portage = {
             'current'   :   self.stateinfo.load('portage current'),
             'latest'    :   self.stateinfo.load('portage latest'),
@@ -409,16 +409,6 @@ class PortageHandler:
                         self.stateinfo.save('world last ' + key, 
                                             'world last ' + key 
                                             + ': ' + str(self.world['last'][key]))
-                    #except KeyError:
-                        #TODO BUG : not saving 'failed at' !!
-                        #This should be for incompleted world update only because we have an extra key 'failed at'
-                        #if not self.world['last'][key] == 0:
-                            #self.world['last'][key] = 0
-                            #self.log.debug('Saving \'world last {0}: {1}\' to \'{2}\'.'.format(key, self.world['last'][key], 
-                                                                                                #self.pathdir['statelog']))
-                            #self.stateinfo.save('world last ' + key, 
-                                                    #'world last ' + key + ': ' + str(self.world['last'][key]))
-                
                 return True # All good ;)
             else:
                 # TODO : should we modified last world update attributes ?
@@ -599,10 +589,10 @@ class PortageHandler:
                     self.log.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
                                                                                  self.pathdir['statelog']))
                     self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
-                    # TODO: Wee need to test that
+                    # TODO: We need to test that
                     # But this should print if there a new version of portage available
                     # even if there is already an older version available
-                    if key == 'latest':
+                    if key == 'latest' and self.portage['logflow']:
                         self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
             
 
@@ -623,14 +613,8 @@ class EmergeLogParser:
             self.lines = [60000, False]
         else:
             self.lines = [self.lines, True]
-            self.log.debug(f'Log file {emergelog} has : {self.lines} lines.')
-        # construct exponantial lists
-        # TODO : this has to be in last_sync() and last_world_update() method
-        self._range = {
-            'sync'  :   numpy.geomspace(500, self.lines[0], num=15, endpoint=True, dtype=int),
-            'world' :   numpy.geomspace(3000, self.lines[0], num=15, endpoint=True, dtype=int)
-            }
-        
+        self._range = { }
+    
     
     def last_sync(self, lastlines=500):
         """Return last sync timestamp
@@ -668,13 +652,15 @@ class EmergeLogParser:
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}last_sync::'
-      
+        
         # RE
         start_re = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*--sync.*$')
         completed_re = re.compile(r'^\d+:\s{1}===.Sync.completed.for.gentoo$')
         stop_re = re.compile(r'^\d+:\s{2}\*\*\*.terminating.$')
         
         self.lastlines = lastlines
+        # construct exponantial list
+        self._range['sync'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
         with_delimiting_lines = True
         collect = [ ]
         keep_running = True
@@ -785,11 +771,11 @@ class EmergeLogParser:
         count = 1
         keepgoing = False
         self.lastlines = lastlines
+        # construct exponantial list
+        self._range['world'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
         
         # RE
         # Added @world TODO: keep testing
-        # TODO TODO TODO : --keep-going opts 
-        # This will be harder ;)
         # Added \s* after (?:world|@world) to make sure we match only @world or world : keep testing as well ...
         # TODO: should we match with '.' or '\s' ??
         start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
@@ -820,7 +806,6 @@ class EmergeLogParser:
                             # This is for incompleted only
                             if not 'failed' in group:
                                 group['failed'] = f'at {packages_count} ({package_name})'
-                                #group['failed'].append(f'at {packages_count} ({package_name})')
                             # first
                             if keepgoing:
                                 # Ok so we have to validate the collect
@@ -828,9 +813,6 @@ class EmergeLogParser:
                                 # equal to : total of saved count - total of failed packages
                                 # This is NOT true every time, so go a head and validate any way
                                 # TODO: keep testing :)
-                                #count_and_failed = group['saved']['count'] + packages_count # current
-                                #print(''
-                                #if group['saved']['total'] == count_and_failed:
                                 group['state'] = 'keepgoing'
                                 group['stop'] = int(failed.match(line).group(1))
                                 group['total'] = group['saved']['total']
@@ -855,7 +837,6 @@ class EmergeLogParser:
                                 group['stop'] = int(failed.match(line).group(1))
                                 # Record how many package compile successfully
                                 # So if incompleted is enable and nincompleted
-                                #group['failed'] = packages_count
                                 group['state'] = 'incompleted'
                                 collect['incompleted'].append(group)
                                 self.log.debug('Recording keepgoing, ' 

@@ -84,6 +84,9 @@ def main():
     
     # Init portagemanager
     myportmanager = PortageDbus(args.sync, pathdir, runlevel, log.level)
+    myportmanager.get_last_world_update()
+    
+    sys.exit(0)
     
     # Check sync
     myportmanager.check_sync(init_run=True)
