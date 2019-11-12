@@ -10,7 +10,8 @@ import pathlib
 import time
 import re
 import errno
-import utils
+#import utils
+import threading
 
 from portagedbus import PortageDbus
 from gitdbus import GitDbus
@@ -19,6 +20,7 @@ from logger import MainLoggingHandler
 from logger import RedirectFdToLogger
 from argsparser import ArgsParserHandler
 from utils import UpdateInProgress
+from utils import StateInfo
 
 # To remimber : http://stackoverflow.com/a/11887885
 # TODO : enable or disable dbus bindings. So this should only be load if dbus is enable
@@ -29,7 +31,7 @@ from utils import UpdateInProgress
 # TODO : debug log level ! 
 try:
     from gi.repository import GLib
-    from pydbus import SessionBus # Changing to SystemBus (when run as root/sudo)
+    from pydbus import SystemBus # Changing to SystemBus (when run as root/sudo)
     # TODO: writing Exception like that in all program
 except Exception as exc:
     print(f'Got unexcept error while loading dbus bindings: {exc}')
@@ -54,6 +56,91 @@ pathdir = {
 }
 
 
+class MainLoopThread(threading.Thread):
+    def __init__(self, manager, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.manager = manager
+    
+    def run(self):
+        while True:
+            # First: check if we have to sync
+            if self.manager['portage'].sync['status'] or self.manager['portage'].sync['remain'] <= 0:
+                # Make sure sync is not in progress
+                if self.manager['portage'].check_sync():
+                    # sync
+                    if self.manager['portage'].dosync():
+                        # Check if we are running world update and
+                        # abord pretend world and check portage update
+                        # if this is the case.
+                        myupdate = UpdateInProgress(log)
+                        if not myupdate.check(tocheck='World', quiet=True):
+                            # pretend world update as sync is ok :)
+                            self.manager['portage'].pretend_world()
+                            # check portage update
+                            self.manager['portage'].available_portage_update()
+            self.manager['portage'].sync['remain'] -= 1 # For the moment this will not exactly be one second
+                                            # Because all this stuff take more time - specially pretend_world()
+            
+            # Then: check available portage update
+            if self.manager['portage'].portage['remain'] <= 0:
+                if self.manager['portage'].portage['available']:
+                    # Make sure it's still available
+                    self.manager['portage'].available_portage_update()
+                    # reset remain 
+                    self.manager['portage'].portage['remain'] = 30
+            self.manager['portage'].portage['remain'] -= 1
+            
+            # Last (for portage): check if we are running world update
+            if self.manager['portage'].world['remain'] <= 0:
+                self.manager['portage'].get_last_world_update()
+                if self.manager['portage'].world['status']:
+                    # So pretend has to be run 
+                    self.manager['portage'].pretend_world()
+            self.manager['portage'].world['remain'] -= 1
+            
+            
+            # Git stuff
+            if self.manager['git'].enable:
+                # First: pull
+                if self.manager['git'].pull['status'] or self.manager['git'].pull['remain'] <= 0:
+                    # Is git in progress ?
+                    if self.manager['git'].check_pull():
+                        # This is necessary to move all kernel / branch 
+                        # from new list to know list
+                        self.manager['git'].get_available_update('kernel')
+                        self.manager['git'].get_available_update('branch')
+                        # Pull 
+                        if self.manager['git'].dopull():
+                            # Pull is ok
+                            # Then update all kernel / remote branch
+                            self.manager['git'].get_all_kernel()
+                            self.manager['git'].get_available_update('kernel')
+                            self.manager['git'].get_branch('remote')
+                            self.manager['git'].get_available_update('branch')
+                self.manager['git'].pull['remain'] -= 1
+                # Then : update all local info
+                if self.manager['git'].remain <= 0:
+                    # This is a regular info update
+                    self.manager['git'].get_installed_kernel()
+                    self.manager['git'].get_available_update('kernel')
+                    self.manager['git'].get_branch('local')
+                    self.manager['git'].get_available_update('branch')
+                    self.manager['git'].remain = 35
+                self.manager['git'].remain -= 1
+                # Last: forced all kernel / remote branch update 
+                # as git pull was run outside the program
+                if self.manager['git'].pull['forced']:
+                    self.manager['git'].get_all_kernel()
+                    self.manager['git'].get_available_update('kernel')
+                    self.manager['git'].get_branch('remote')
+                    self.manager['git'].get_available_update('branch')
+                    self.manager['git'].pull['forced'] = False
+                        
+            time.sleep(1)
+
+
+
+
 def main():
     """Main daemon."""
     
@@ -72,31 +159,29 @@ def main():
                     sys.exit(1)
        
     # Init StateInfo
-    mystateinfo = utils.StateInfo(pathdir, runlevel, log.level)
+    mystateinfo = StateInfo(pathdir, runlevel, log.level)
     
     # Check state file
     mystateinfo.config()
         
     # Init dbus service
-    #dbusloop = GLib.MainLoop()
-    #dbus_session = SessionBus()
-    #objtracking = []
+    dbusloop = GLib.MainLoop()
+    dbus_session = SystemBus()
+    manager = { }
     
     # Init portagemanager
     myportmanager = PortageDbus(args.sync, pathdir, runlevel, log.level)
-    myportmanager.get_last_world_update()
-    
-    sys.exit(0)
-    
+        
     # Check sync
     myportmanager.check_sync(init_run=True)
+        
         
     if args.git:
         log.debug('Git kernel tracking has been enable.')
         
         # Init gitmanager object through GitDbus class
-        mygitmanager = GitDbus(args.pull, args.repo, pathdir, runlevel, log.level)
-        
+        mygitmanager = GitDbus(interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel, loglevel=log.level)
+               
         # Get running kernel
         mygitmanager.get_running_kernel()
         
@@ -107,95 +192,24 @@ def main():
         mygitmanager.get_available_update('kernel')
         mygitmanager.get_branch('all')
         mygitmanager.get_available_update('branch')       
+    else:
+        mygitmanager = GitDbus(enable=False)
+        
    
     log.info('...running.')
+    manager['git'] = mygitmanager
+    dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
+    manager['portage'] = myportmanager
+    dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+    thread = MainLoopThread(manager, name='Main Loop Thread')
+    thread.start()
+    dbusloop.run()
+    thread.join()
    
-    ## Loop forever :)
-    while True:
-        # First: check if we have to sync
-        if myportmanager.sync['status'] or myportmanager.sync['remain'] <= 0:
-            # Make sure sync is not in progress
-            if myportmanager.check_sync():
-                # sync
-                if myportmanager.dosync():
-                    # Check if we are running world update and
-                    # abord pretend world and check portage update
-                    # if this is the case.
-                    myupdate = UpdateInProgress(log)
-                    if not myupdate.check(tocheck='World', quiet=True):
-                        # pretend world update as sync is ok :)
-                        myportmanager.pretend_world()
-                        # check portage update
-                        myportmanager.available_portage_update()
-        myportmanager.sync['remain'] -= 1 # For the moment this will not exactly be one second
-                                          # Because all this stuff take more time - specially pretend_world()
-        
-        # Then: check available portage update
-        if myportmanager.portage['remain'] <= 0:
-            if myportmanager.portage['available']:
-                # Make sure it's still available
-                myportmanager.available_portage_update()
-                # reset remain 
-                myportmanager.portage['remain'] = 30
-        myportmanager.portage['remain'] -= 1
-        
-        # Last (for portage): check if we are running world update
-        if myportmanager.world['remain'] <= 0:
-            myportmanager.get_last_world_update()
-            if myportmanager.world['status']:
-                # So pretend has to be run 
-                myportmanager.pretend_world()
-        myportmanager.world['remain'] -= 1
-        
-        
-        # Git stuff
-        if args.git:
-            # First: pull
-            if mygitmanager.pull['status'] or mygitmanager.pull['remain'] <= 0:
-                # Is git in progress ?
-                if mygitmanager.check_pull():
-                    # This is necessary to move all kernel / branch 
-                    # from new list to know list
-                    mygitmanager.get_available_update('kernel')
-                    mygitmanager.get_available_update('branch')
-                    # Pull 
-                    if mygitmanager.dopull():
-                        # Pull is ok
-                        # Then update all kernel / remote branch
-                        mygitmanager.get_all_kernel()
-                        mygitmanager.get_available_update('kernel')
-                        mygitmanager.get_branch('remote')
-                        mygitmanager.get_available_update('branch')
-            mygitmanager.pull['remain'] -= 1
-            # Then : update all local info
-            if mygitmanager.remain <= 0:
-                # This is a regular info update
-                mygitmanager.get_installed_kernel()
-                mygitmanager.get_available_update('kernel')
-                mygitmanager.get_branch('local')
-                mygitmanager.get_available_update('branch')
-                mygitmanager.remain = 35
-            mygitmanager.remain -= 1
-            # Last: forced all kernel / remote branch update 
-            # as git pull was run outside the program
-            if mygitmanager.pull['forced']:
-                mygitmanager.get_all_kernel()
-                mygitmanager.get_available_update('kernel')
-                mygitmanager.get_branch('remote')
-                mygitmanager.get_available_update('branch')
-                mygitmanager.pull['forced'] = False
-                        
-        time.sleep(1)
-
-
     log.info('Nothing left to do, exiting')
-    #sys.exit(0)
-    #dbus_session.publish('net.' + name + '.Test', trackgit)    
-    #dbusloop.run()
     
-
-
-
+    
+    
 if __name__ == '__main__':
 
     ### Parse arguments ###

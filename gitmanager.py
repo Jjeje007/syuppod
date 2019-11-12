@@ -32,19 +32,30 @@ except Exception as exc:
 
 class GitHandler:
     """Git tracking class."""
-    def __init__(self, interval, repo, pathdir, runlevel, loglevel):
-        self.pathdir = pathdir
-        self.repo = repo
+    #def __init__(self, interval, repo, pathdir, runlevel, loglevel):
+    def __init__(self, *args, **kwargs):
+        # Check we got all kwargs
+        for key in 'interval', 'repo', 'pathdir', 'runlevel', 'loglevel':
+            if not key in kwargs:
+                # Print to stderr as when running in init mode 
+                # stderr is redirect to a log file
+                # And also because logger is NOT initialized 
+                print(f'Error: missing argument \'{key}\' when calling gitmanager module.', file=sys.stderr)
+                print('Error: exiting with status \'1\'.', file=sys.stderr)
+                sys.exit(1)
+                
+        self.pathdir = kwargs.get('pathdir')
+        self.repo = kwargs.get('repo')
         
         # Init logger
         self.logger_name = f'::{__name__}::GitHandler::'
         gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'],
                                            self.pathdir['fdlog'])
-        self.log = getattr(gitmanagerlog, runlevel)()
-        self.log.setLevel(loglevel)
+        self.log = getattr(gitmanagerlog, kwargs['runlevel'])()
+        self.log.setLevel(kwargs['loglevel'])
         
         # Init load/save info to file
-        self.stateinfo = StateInfo(self.pathdir, runlevel, self.log.level)
+        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.log.level)
         
         # Check git config
         self._check_config()
@@ -67,7 +78,7 @@ class GitHandler:
             'last'      :   int(self.stateinfo.load('pull last')),   # last pull timestamp
             'remain'    :   0,
             'elapsed'   :   0,
-            'interval'  :   interval,
+            'interval'  :   kwargs.get('interval'),
             'forced'    :   False
         }
         

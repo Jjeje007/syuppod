@@ -7,12 +7,11 @@
 from gitmanager import GitHandler
 
 class GitDbus(GitHandler):
-    # TODO : write it !
     """
         <node>
-            <interface name='net.lew21.pydbus.ClientServerExample'>
-                <method name='publish_branch_old_local'>
-                    <arg type='a{ss}' name='response' direction='out'/>
+            <interface name='net.syuppod.Manager.Git'>
+                <method name='check_enable'>
+                    <arg type='b' name='response' direction='out'/>
                 </method>
                 <method name='mod'>
                     <arg type='s' name='a' direction='in'/>
@@ -22,6 +21,15 @@ class GitDbus(GitHandler):
             </interface>
         </node>
     """
+    def __init__(self, enable=True, *args, **kwargs):
+        self.enable = enable
+        if self.enable:
+            super().__init__(self, *args, **kwargs)
+        
+    def check_enable(self):
+        if self.enable:
+            return True
+        return False
     
     def publish_branch_old_local(self):
         """Publish dictionnary through dbus"""

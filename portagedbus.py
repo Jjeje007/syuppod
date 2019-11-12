@@ -9,9 +9,12 @@ class PortageDbus(PortageHandler):
     # TODO : write it !
     """
         <node>
-            <interface name='net.syuppod.portagemanager'>
-                <method name='publish_sync_remain'>
-                    <arg type='s' name='response' direction='out'/>
+            <interface name='net.syuppod.Manager.Portage'>
+                <method name='get_sync_remain'>
+                    <arg type='i' name='response' direction='out'/>
+                </method>
+                 <method name='get_world_packages'>
+                    <arg type='i' name='response' direction='out'/>
                 </method>
                 <method name='mod'>
                     <arg type='s' name='a' direction='in'/>
@@ -21,6 +24,9 @@ class PortageDbus(PortageHandler):
             </interface>
         </node>
     """
-    def publish_sync_remain(self):
+    def get_sync_remain(self):
         return self.sync['remain']
+    def get_world_packages(self):
+        return self.world['packages']
+    
     

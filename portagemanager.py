@@ -50,16 +50,17 @@ class PortageHandler:
         
         # Sync attributes
         self.sync = {
-            'status'    :   False, # By default it's disable ;)
-            'state'     :   self.stateinfo.load('sync state'),
-            'update'    :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finished'
-            'log'       :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
-            'error'     :   self.stateinfo.load('sync error'),
-            'count'     :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not int' or vice versa
-            'timestamp' :   int(self.stateinfo.load('sync timestamp')),
-            'interval'  :   interval,
-            'elasped'   :   0,
-            'remain'    :   0
+            'status'        :   False, # By default it's disable ;)
+            'state'         :   self.stateinfo.load('sync state'),
+            'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finished'
+            'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
+            'error'         :   self.stateinfo.load('sync error'),
+            'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not int' or vice versa
+            'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
+            'interval'      :   interval,
+            'elasped'       :   0,
+            'remain'        :   0,
+            'current_count' :   0   # Counting sync count since running (current session)
             }
         
         # Print an warning about interval it's 'too big'
