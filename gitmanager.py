@@ -32,9 +32,8 @@ except Exception as exc:
 
 class GitHandler:
     """Git tracking class."""
-    #def __init__(self, interval, repo, pathdir, runlevel, loglevel):
-    def __init__(self, *args, **kwargs):
-        # Check we got all kwargs
+    def __init__(self, **kwargs):
+        # Check we got all required kwargs
         for key in 'interval', 'repo', 'pathdir', 'runlevel', 'loglevel':
             if not key in kwargs:
                 # Print to stderr as when running in init mode 
@@ -457,7 +456,7 @@ class GitHandler:
                                 self.log.debug(f'List \'{switch}\' already setup, skipping.')
                                 continue
                             else:
-                                self.log.debug(f'\Clearing list \'{switch}\'.')
+                                self.log.debug(f'Clearing list \'{switch}\'.')
                                 target['available'][switch].clear()
                                 self.log.debug(f'Adding to \'{switch}\' list: \'0.0.0\' (means nothing available).')
                                 target['available'][switch].append('0.0.0')

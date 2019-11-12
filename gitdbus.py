@@ -17,22 +17,15 @@ class GitDbus(GitHandler):
                     <arg type='s' name='a' direction='in'/>
                     <arg type='s' name='response' direction='out'/>
                 </method>
-                <method name='Quit'/>
             </interface>
         </node>
     """
-    def __init__(self, enable=True, *args, **kwargs):
+    def __init__(self, enable=True, **kwargs):
         self.enable = enable
         if self.enable:
-            super().__init__(self, *args, **kwargs)
+            super().__init__(**kwargs)
         
     def check_enable(self):
         if self.enable:
             return True
         return False
-    
-    def publish_branch_old_local(self):
-        """Publish dictionnary through dbus"""
-        #return self.pull
-        pass
-    

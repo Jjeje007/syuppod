@@ -78,8 +78,9 @@ class MainLoopThread(threading.Thread):
                             self.manager['portage'].pretend_world()
                             # check portage update
                             self.manager['portage'].available_portage_update()
-            self.manager['portage'].sync['remain'] -= 1 # For the moment this will not exactly be one second
-                                            # Because all this stuff take more time - specially pretend_world()
+            self.manager['portage'].sync['remain'] -= 1  # For the moment this will not exactly be one second
+            self.manager['portage'].sync['elasped'] += 1 # Because all this stuff take more time - specially
+                                                         # pretend_world()
             
             # Then: check available portage update
             if self.manager['portage'].portage['remain'] <= 0:
@@ -174,8 +175,7 @@ def main():
         
     # Check sync
     myportmanager.check_sync(init_run=True)
-        
-        
+               
     if args.git:
         log.debug('Git kernel tracking has been enable.')
         
@@ -196,7 +196,7 @@ def main():
         mygitmanager = GitDbus(enable=False)
         
    
-    log.info('...running.')
+    log.info('... now running.')
     manager['git'] = mygitmanager
     dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     manager['portage'] = myportmanager

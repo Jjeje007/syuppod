@@ -415,16 +415,16 @@ def on_parent_exit(signame='SIGTERM'):
         # http://linux.die.net/man/2/prctl
         result = cdll['libc.so.6'].prctl(PR_SET_PDEATHSIG, signum)
         if result != 0:
-            # Look like this is not working 
+            # BUG Look like this is not working 
             # mean : it raise but didn't got this error msg ...
             raise #PrCtlError('prctl failed with error code %s' % result)
     return set_parent_exit_signal
 
 
 # TODO 
-def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
-    if issubclass(exc_type, KeyboardInterrupt):
-        sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        return
+#def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
+    #if issubclass(exc_type, KeyboardInterrupt):
+        #sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        #return
 
-    logger.exception(exc_info=(exc_type, exc_value, exc_traceback))
+    #logger.exception(exc_info=(exc_type, exc_value, exc_traceback))
