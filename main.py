@@ -84,11 +84,12 @@ class MainLoopThread(threading.Thread):
             
             # Then: check available portage update
             if self.manager['portage'].portage['remain'] <= 0:
-                if self.manager['portage'].portage['available']:
-                    # Make sure it's still available
-                    self.manager['portage'].available_portage_update()
-                    # reset remain 
-                    self.manager['portage'].portage['remain'] = 30
+                #if self.manager['portage'].portage['available']:
+                # We have to check every time
+                # Because you can make the update and then go back 
+                self.manager['portage'].available_portage_update()
+                # reset remain 
+                self.manager['portage'].portage['remain'] = 30
             self.manager['portage'].portage['remain'] -= 1
             
             # Last (for portage): check if we are running world update

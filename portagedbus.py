@@ -22,6 +22,9 @@ class PortageDbus(PortageHandler):
                     <arg type='s' name='portage_key' direction='in'/>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='forced_pretend'>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
             </interface>
         </node>
     """
@@ -31,6 +34,8 @@ class PortageDbus(PortageHandler):
        
     ### world attributes
     def get_world_attribute(self, key, subkey):
+        # Ok this has to be done this way:
+        # like **kwargs or *args : list or dict 
         if not subkey == 'False':   # Workaround because subkey could be str or bool ...
             return str(self.world[key][subkey])
         return str(self.world[key])
@@ -38,4 +43,21 @@ class PortageDbus(PortageHandler):
     ### portage attributtes
     def get_portage_attribute(self, key):
         return str(self.portage[key])
+    
+    ### forced method
+    def forced_sync(self):
+        # TODO: some idea to make this 'good'
+        # We could force sync one time every 24H 
+        # But only 2 times a week . we think it fair enough.
+        pass
+    
+    def forced_pretend(self):
+        # Every time if not in progress and sync also 
+        if not self.world['pretend']: # and not self.sync[:
+            self.pretend_world()
+            return 'completed'
+        return 'already in progress'
+    
+    # TODO: some ideas : we could propose applied pretend update
+    #       this mean lauching terminal through dbus and asking root passw / sudo ?
     
