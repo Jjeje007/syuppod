@@ -25,6 +25,9 @@ class PortageDbus(PortageHandler):
                 <method name='forced_pretend'>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='forced_sync'>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
             </interface>
         </node>
     """
@@ -49,11 +52,16 @@ class PortageDbus(PortageHandler):
         # TODO: some idea to make this 'good'
         # We could force sync one time every 24H 
         # But only 2 times a week . we think it fair enough.
-        pass
+        self.log.info('This is a test from portagedbus')
+        return 'ok'
     
     def forced_pretend(self):
         # Every time if not in progress and sync also 
+        # TODO: this should be async also 
+        # Look like pydbus is not...
+        # https://github.com/ldo/dbussy
         if not self.world['pretend']: # and not self.sync[:
+            #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
             self.pretend_world()
             return 'completed'
         return 'already in progress'

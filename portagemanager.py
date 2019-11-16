@@ -126,6 +126,8 @@ class PortageHandler:
         myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
         sync_timestamp = myparser.last_sync()
         
+        self.log.name = f'{self.logger_name}check_sync::'
+        
         if timestamp_only:
             return sync_timestamp
         
@@ -390,6 +392,7 @@ class PortageHandler:
             # keep default setting 
             # TODO : give the choice cf EmergeLogParser() --> last_world_update()
             get_world_info = myparser.last_world_update()
+            self.log.name = f'{self.logger_name}get_last_world_update::'
             
             if get_world_info:
                 to_print = True                
@@ -749,9 +752,9 @@ class EmergeLogParser:
         @returns: dictionary
         @keys:  'start'     -> start timestamp.
                 'stop'      -> stop timestamp.
-                'total'  -> total packages which has been update.
-                'state'     -> 'completed' if success or 'incompleted' if failed.
-                'failed'    -> definied only if failed, package number which failed. 
+                'total'     -> total packages which has been update.
+                'state'     -> 'completed' / 'partial' / 'incompleted'
+                'failed'    -> if 'completed': 0, if 'partial' / 'incompleted': package number which failed. 
         @error: return False
         
         Exemple from emerge.log:
@@ -772,12 +775,12 @@ class EmergeLogParser:
         collect = {
             'completed'     :   [ ],
             'incompleted'   :   [ ],
-            'partial'     :   [ ]
+            'partial'       :   [ ]
             }
         
         incompleted_msg = ''
         if incompleted:
-            incompleted_msg = 'and incompleted'
+            incompleted_msg = ', incompleted'
         
         compiling = False
         packages_count = 1
@@ -786,6 +789,7 @@ class EmergeLogParser:
         current_package = False
         count = 1
         keepgoing = False
+        parallel_merge = False
         self.lastlines = lastlines
         # construct exponantial list
         self._range['world'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
@@ -795,15 +799,16 @@ class EmergeLogParser:
         # Added \s* after (?:world|@world) to make sure we match only @world or world : keep testing as well ...
         # TODO: should we match with '.' or '\s' ??
         start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
+        start_parallel = re.compile(r'^\d+:\s{1}Started.emerge.on:.*$')
         # find --keep-going opt
-        # TODO: detect package dropped due to unmet dependency
+        # detect package dropped due to unmet dependency
         # for exemple (display in terminal only):
         #   * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
         #   * >=kde-apps/kio-extras-19.08.3:5
         # BUT we get nothing in a emerge.log about that
         # So we CAN'T have the name of the package
-        # We -could- have the number and display some more informations, like:
-        # (+n package(s) dropped)
+        # So we get have the number and display some more informations, like:
+        # (+n package(s) dropped) - this has to be tested more and more
         keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
         # So make sure we start to compile the world update and this should be the first package 
         start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.\(1.of.(\d+)\)\s(.*)\sto.*$')
@@ -817,15 +822,30 @@ class EmergeLogParser:
         # TODO : Also we can update 'system' first (i'm not doing that way but)
         #        Add this option as well :)
         
+        # BUG   : This has to be detected :
+        #           1563019245:  >>> emerge (158 of 165) kde-plasma/powerdevil-5.16.3 to /
+        #           1563025365: Started emerge on: juil. 13, 2019 15:42:45
+        #           1563025365:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
+        #        this is NOT a parallel emerge and the merge which 'crashed' (???) was a world update...
+
+        
         while keep_running:
             self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             mylog = self.getlog(self.lastlines)
-            self.log.debug(f'Extracting list of completed {incompleted_msg} world update informations.')
+            self.log.debug(f'Extracting list of completed{incompleted_msg} and partial world update informations.')
             for line in mylog:
                 if compiling:
                     # If keepgoing is detected than last package could be completed
                     # and current_package = False but compiling end to failed match
-                    if current_package or keepgoing and packages_count >= group['total']:
+                    #print(f'Packages count is {packages_count}'
+                          #f', keepgoing is {keepgoing}'
+                          #' and group[total] is {0}'.format(group['total']))
+                    if current_package or (keepgoing and \
+                        packages_count == group['total'] and \
+                            'total' in group['saved'] ):
+                        #if 'total' in group['saved']:
+                        #    print('group[saved][total] is {0}'.format(group['saved']['total']),
+                        #      ' and group[saved][count] is {0}'.format(group['saved']['count']))
                         if failed.match(line):
                             # This is for incompleted only
                             if not 'failed' in group:
@@ -837,11 +857,21 @@ class EmergeLogParser:
                                 # equal to : total of saved count - total of failed packages
                                 # This is NOT true every time, so go a head and validate any way
                                 # TODO: keep testing :)
+                                # Try to detect skipped packages due to dependency
+                                group['dropped'] = ''
+                                dropped = group['saved']['total'] - \
+                                          group['saved']['count'] - \
+                                          packages_count
+                                if dropped > 0:
+                                    group['dropped'] = f' (+{dropped} dropped)'
+                                                                                    
                                 group['state'] = 'partial'
                                 group['stop'] = int(failed.match(line).group(1))
                                 group['total'] = group['saved']['total']
+                                #print('group[failed] is {0}'.format(group['failed']))
                                 # Easier to return str over list
-                                group['failed'] = ' '.join(group['failed'])
+                                group['failed'] = ' '.join(group['failed']) \
+                                                  + '{0}'.format(group['dropped'])
                                 collect['partial'].append(group)
                                 self.log.debug('Recording partial, ' 
                                     + 'start: {0}, '.format(group['start']) 
@@ -890,7 +920,7 @@ class EmergeLogParser:
                         # TODO: testing doing in a same time an world update and an other 
                         # install (i never doing this but...)
                         elif keepgoing and start_compiling.match(line):
-                            # save the total number of package from the first last emerge failed
+                            # save the total number of package from the first emerge failed
                             if not 'total' in group['saved']:
                                 # 'real' total package number
                                 group['saved']['total'] = group['total']
@@ -901,6 +931,9 @@ class EmergeLogParser:
                             group['failed'].append(package_name)
                             # Set name of the package to current one
                             package_name = start_compiling.match(line).group(2)
+                            #print('group[saved][total] is {0}'.format(group['saved']['total']),
+                                  #', group[saved][count] is {0}'.format(group['saved']['count']),
+                                  #f' and package_name is {package_name}')
                             # get the total number of package from this new emerge 
                             group['total'] = int(start_compiling.match(line).group(1))
                             packages_count = 1
@@ -916,6 +949,9 @@ class EmergeLogParser:
                             package_name = None
                             if not packages_count >= group['total']:
                                 packages_count += 1
+                        # TODO !!
+                        #elif start_parallel.match(line):
+                            
                     elif re.match(r'^\d+:\s{2}>>>.emerge.\('
                                             + str(packages_count) 
                                             + r'.*of.*' 
