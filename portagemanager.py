@@ -400,13 +400,12 @@ class PortageHandler:
                 for key in 'start', 'stop', 'state', 'total', 'failed':
                     if not self.world['last'][key] == get_world_info[key]:
                         # Ok this mean world update has been run
+                        # So run pretend_world()
+                        #if key == 'start':
+                        self.world['status'] = True
                         if to_print:
                             self.log.info('World update has been run') # TODO: give more details
                             to_print = False
-                            
-                        # So run pretend_world()
-                        if key == 'start':
-                            self.world['status'] = True
                             
                         self.world['last'][key] = get_world_info[key]
                         self.log.debug(f'Saving \'world last {key}: '
@@ -535,8 +534,9 @@ class PortageHandler:
                 return False
             # It's up to date 
             if self.latest == self.portage['current']:
+                self.log.debug(f'No update to portage package is available (current version: {self.latest}')
                 # Reset 'available' to False if not
-                # Don't mess with False and 'False' / bool vs str
+                # Don't mess with False vs 'False' / bool vs str
                 if self.portage['available'] == 'True':
                         self.portage['available'] = False
                         self.stateinfo.save('portage available', 'portage available: ' + str(self.portage['available']))
@@ -977,8 +977,15 @@ class EmergeLogParser:
                             keepgoing = False
                             group['stop'] = int(succeeded.match(line).group(1))
                             group['state'] = 'completed'
-                            # For comptability
-                            group['failed'] = 0
+                            # For comptability 
+                            # Make str() because:
+                            # If value is not '0', then  value is str() any way.
+                            # stateinfo load as str()
+                            # if not str() then when comparing value in class PortageHandler
+                            #   method get_last_world_update(), it will keep rewriting value 
+                            #   because int(0) != str(0) and - by the way - this will be treat 
+                            #   as an world update run. (Ok i already changed this)
+                            group['failed'] = '0'
                             collect['completed'].append(group)
                             packages_count = 1
                             self.log.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'

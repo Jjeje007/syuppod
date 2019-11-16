@@ -225,6 +225,7 @@ if __name__ == '__main__':
         log.setLevel(mainlog.logging.INFO)
         runlevel = 'tty_run'
         display_init_tty = ''
+        print('\33]0; {0} - {1}  \a'.format(name, __version__), end='', flush=True)
     else:
         log = mainlog.init_run()     # create logger init_run()
         log.setLevel(mainlog.logging.INFO)
