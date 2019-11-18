@@ -771,19 +771,22 @@ class EmergeLogParser:
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}last_world_update::'
-        
-        collect = {
+        self.collect = {
             'completed'     :   [ ],
             'incompleted'   :   [ ],
             'partial'       :   [ ]
             }
+        self.packages_count = 1
+        self.lastlines = lastlines
+        self.nincompleted = nincompleted
+        self.group = { }
+        # construct exponantial list
+        self._range['world'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
         
         incompleted_msg = ''
         if incompleted:
             incompleted_msg = ', incompleted'
-        
         compiling = False
-        packages_count = 1
         package_name = None
         keep_running =  True
         current_package = False
@@ -791,17 +794,14 @@ class EmergeLogParser:
         keepgoing = False
         parallel_merge = False
         linecompiling = 0
-        self.lastlines = lastlines
-        # construct exponantial list
-        self._range['world'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
-        
+        record = [ ]
+        forced = False       
         # RE
-        # Added @world TODO: keep testing
-        # Added \s* after (?:world|@world) to make sure we match only @world or world : keep testing as well ...
-        # TODO: should we match with '.' or '\s' ??
+        # Added @world
+        # Added \s* after (?:world|@world) to make sure we match only @world or world 
+        # Should we match with '.' or '\s' ??
         start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
         start_parallel = re.compile(r'^\d+:\s{1}Started.emerge.on:.*$')
-        # find --keep-going opt
         # detect package dropped due to unmet dependency
         # for exemple (display in terminal only):
         #   * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
@@ -810,10 +810,11 @@ class EmergeLogParser:
         # We CAN'T have the name of the package.
         # Just get the number and display some more informations, like:
         # (+n package(s) dropped) - this has to be tested more and more
+        # --keep-going opt
         keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
         # So make sure we start to compile the world update and this should be the first package 
         start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.\(1.of.(\d+)\)\s(.*)\sto.*$')
-        # Make sure it's failed with status == 1 
+        # Make sure it's failed with status == 1
         failed = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
         succeeded = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
         
@@ -839,82 +840,141 @@ class EmergeLogParser:
         #   group['failed'] = ' '.join(group['failed']) \
         #   TypeError: sequence item 1: expected str instance, NoneType found
         
+        def _saved_incompleted(package_name):
+            """Saving world update incompleted state"""
+            if not 'failed' in self.group:
+                self.group['failed'] = f'at {self.packages_count} ({package_name})'
+            if self.nincompleted[1] == 'percentage':
+                if self.packages_count <= self.group['total'] * self.nincompleted[0]:
+                    self.log.debug('NOT recording incompleted, ' 
+                                    + 'start: {0}, '.format(self.group['start']) 
+                                    + 'stop: {0}, '.format(self.group['stop']) 
+                                    + 'total packages: {0}, '.format(self.group['total'])
+                                    + 'failed: {0}'.format(self.group['failed']))
+                    self.log.debug('Additionnal informations: not selected because:')
+                    self.log.debug(f'Incompleted is True, packages count ({self.packages_count})'
+                                    + ' <= packages total ({0})'.format(self.group['total'])
+                                    + f' * percentage limit ({self.nincompleted[0]})')
+                    self.log.debug('Result is : {0} <= {1} (False)'.format(self.packages_count,
+                                                    self.group['total'] * self.nincompleted[0]))
+                    self.packages_count = 1
+                    return
+            elif self.nincompleted[1] == 'number':
+                if self.packages_count <= self.nincompleted[0]:
+                    self.log.debug('NOT recording incompleted, ' 
+                                    + 'start: {0}, '.format(self.group['start']) 
+                                    + 'stop: {0}, '.format(self.group['stop']) 
+                                    + 'total packages: {0}, '.format(self.group['total'])
+                                    + 'failed: {0}'.format(self.group['failed']))
+                    self.log.debug('Additionnal informations: not selected because:')
+                    self.log.debug(f'Incompleted is True, packages count ({self.packages_count})'
+                                    + f' <= number limit ({self.nincompleted[0]}): False.')
+                    self.packages_count = 1
+                    return
+            # Record how many package compile successfully
+            # if it passed self.nincompleted
+            self.group['state'] = 'incompleted'
+            self.collect['incompleted'].append(self.group)
+            self.log.debug('Recording incompleted, ' 
+                            + 'start: {0}, '.format(self.group['start']) 
+                            + 'stop: {0}, '.format(self.group['stop']) 
+                            + 'total packages: {0}, '.format(self.group['total'])
+                            + 'failed: {0}'.format(self.group['failed']))
+            
+            
+        def _saved_partial():
+            """Saving world update partial state""" 
+            # Ok so we have to validate the collect
+            # This mean that total number of package should be 
+            # equal to : total of saved count - total of failed packages
+            # This is NOT true every time, so go a head and validate any way
+            # TODO: keep testing :)
+            # Try to detect skipped packages due to dependency
+            self.group['dropped'] = ''
+            dropped =   self.group['saved']['total'] - \
+                        self.group['saved']['count'] - \
+                        self.packages_count
+            if dropped > 0:
+                self.group['dropped'] = f' (+{dropped} dropped)'
+                                                                                    
+            self.group['state'] = 'partial'
+            self.group['total'] = self.group['saved']['total']
+            #print('self.group[failed] is {0}'.format(self.group['failed']))
+            # Easier to return str over list - because it's only for display
+            self.group['failed'] = ' '.join(self.group['failed']) \
+                                        + '{0}'.format(self.group['dropped'])
+            self.collect['partial'].append(self.group)
+            self.log.debug('Recording partial, ' 
+                            + 'start: {0}, '.format(self.group['start']) 
+                            + 'stop: {0}, '.format(self.group['stop']) 
+                            + 'total packages: {0}, '.format(self.group['total'])
+                            + 'failed: {0}'.format(self.group['failed']))
+            
+            
+        def _saved_completed():
+            """Saving world update completed state""" 
+            self.group['state'] = 'completed'
+            # For comptability 
+            # Make str() because:
+            # If value is not '0', then  value is str() any way.
+            # stateinfo load as str()
+            # if not str() then when comparing value in class PortageHandler
+            #   method get_last_world_update(), it will keep rewriting value 
+            #   because int(0) != str(0) and - by the way - this will be treat 
+            #   as an world update run.
+            self.group['failed'] = '0'
+            self.collect['completed'].append(self.group)
+            self.packages_count = 1
+            self.log.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
+                           .format(self.group['start'], self.group['stop'], self.group['total']))
         
+                    
         while keep_running:
             self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             mylog = self.getlog(self.lastlines)
-            self.log.debug(f'Extracting list of completed{incompleted_msg} and partial world update informations.')
+            self.log.debug(f'Extracting list of completed{incompleted_msg} and partial world update'
+                           + 'informations.')
             for line in mylog:
                 linecompiling += 1
                 if compiling:
                     # If keepgoing is detected, last package could be in completed state
-                    # so current_package = False but compiling end to failed match.
-                    #print(f'Packages count is {packages_count}'
+                    # so current_package is False but compiling end to a failed match.
+                    #print(f'Packages count is {self.packages_count}'
                           #f', keepgoing is {keepgoing}'
-                          #' and group[total] is {0}'.format(group['total']))
+                          #' and self.group[total] is {0}'.format(self.group['total']))
                     if current_package or (keepgoing and \
-                        # mean compile as finished
-                        packages_count == group['total'] and \
+                        # mean compile as finished (it's the last package)
+                        self.packages_count == self.group['total'] and \
                         # make sure emerge was auto restarted
                         # other wise this end to a completed update
-                        'total' in group['saved'] ):
-                        #if 'total' in group['saved']:
-                           #print('group[saved][total] is {0}'.format(group['saved']['total']),
-                             #' and group[saved][count] is {0}'.format(group['saved']['count']))
+                        'total' in self.group['saved'] ):
+                        # Save lines
+                        if current_package:
+                            record.append(line)
+                        #if 'total' in self.group['saved']:
+                           #print('self.group[saved][total] is {0}'.format(self.group['saved']['total']),
+                             #' and self.group[saved][count] is {0}'.format(self.group['saved']['count']))
                         if failed.match(line):
-                            # This is for incompleted only
-                            if not 'failed' in group:
-                                group['failed'] = f'at {packages_count} ({package_name})'
+                            # We don't care about record here so reset it
+                            record = [ ]
+                            # set stop
+                            self.group['stop'] = int(failed.match(line).group(1))
                             # first make sure it's restart or it's just incompleted.
-                            if keepgoing and 'total' in group['saved']:
-                                # Ok so we have to validate the collect
-                                # This mean that total number of package should be 
-                                # equal to : total of saved count - total of failed packages
-                                # This is NOT true every time, so go a head and validate any way
-                                # TODO: keep testing :)
-                                # Try to detect skipped packages due to dependency
-                                group['dropped'] = ''
-                                dropped = group['saved']['total'] - \
-                                          group['saved']['count'] - \
-                                          packages_count
-                                if dropped > 0:
-                                    group['dropped'] = f' (+{dropped} dropped)'
-                                                                                    
-                                group['state'] = 'partial'
-                                group['stop'] = int(failed.match(line).group(1))
-                                group['total'] = group['saved']['total']
-                                #print('group[failed] is {0}'.format(group['failed']))
-                                # Easier to return str over list
-                                group['failed'] = ' '.join(group['failed']) \
-                                                  + '{0}'.format(group['dropped'])
-                                collect['partial'].append(group)
-                                self.log.debug('Recording partial, ' 
-                                    + 'start: {0}, '.format(group['start']) 
-                                    + 'stop: {0}, '.format(group['stop']) 
-                                    + 'total packages: {0}, '.format(group['total'])
-                                    + 'failed: {0}'.format(group['failed']))
-                            # If incompleted is enable (by default)
+                            if keepgoing and 'total' in self.group['saved']:
+                                _saved_partial()
                             elif incompleted:
-                                if nincompleted[1] == 'percentage':
-                                    if packages_count <= group['total'] * nincompleted[0]:
-                                        packages_count = 1
-                                        continue
-                                elif nincompleted[1] == 'number':
-                                    if packages_count <= nincompleted[0]:
-                                        packages_count = 1
-                                        continue
-                                group['stop'] = int(failed.match(line).group(1))
-                                # Record how many package compile successfully
-                                # So if incompleted is enable and nincompleted
-                                group['state'] = 'incompleted'
-                                collect['incompleted'].append(group)
-                                self.log.debug('Recording incompleted, ' 
-                                    + 'start: {0}, '.format(group['start']) 
-                                    + 'stop: {0}, '.format(group['stop']) 
-                                    + 'total packages: {0}, '.format(group['total'])
-                                    + 'failed: {0}'.format(group['failed']))
+                                _saved_incompleted(package_name)
+                            else:
+                                self.log.debug('NOT recording partial/incompleted, ' 
+                                            + 'start: {0}, '.format(self.group['start']) 
+                                            + 'stop: {0}, '.format(self.group['stop']) 
+                                            + 'total packages: {0}, '.format(self.group['total'])
+                                            + 'failed: {0}'.format(self.group['failed']))
+                                self.log.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
+                                                f'incompleted ({incompleted}), '
+                                                f'nincompleted ({self.nincompleted[0]} / {self.nincompleted[1]}).')
                             # At then end reset
-                            packages_count = 1
+                            self.packages_count = 1
                             current_package = False
                             compiling = False
                             package_name = None
@@ -931,85 +991,122 @@ class EmergeLogParser:
                         # the package which failed (depending of the list of dependency)
                         # TODO: need more testing. But for the moment: if opts --keep-going found,
                         # if new emerge is found (mean restart to '1 of n') then this will be treat as
-                        # an auto restart, only true if current_package = True 
+                        # an auto restart, only true if current_package == True 
                         # TODO: testing doing in a same time an world update and an other 
                         # install (i never doing this but...)
                         elif keepgoing and start_compiling.match(line):
+                            # Try to fix bug describe upstair
+                            unexcept_start = False
+                            for saved_line in record:
+                                #print(f'Saved line is {saved_line}')
+                                if start_opt.match(saved_line):
+                                    unexcept_start = saved_line
+                                    break
+                                                        
+                            # So here is my BUG :)
+                            if unexcept_start:
+                                self.log.error(f'While parsing {self.emergelog}, got unexcept'
+                                                f' world update start opt:')
+                                self.log.error(f'{unexcept_start}')
+                                # Except first element in a list is a stop match
+                                self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', record[0]).group(1))
+                                # First try if it was an keepgoing restart
+                                if keepgoing and 'total' in self.group['saved']:
+                                    self.log.error('Forcing save of current world update part.')
+                                    _saved_partial()
+                                # if incompleted is enable
+                                elif incompleted:
+                                    self.log.error('Forcing save of current world update part.')
+                                    _saved_incompleted(package_name)
+                                else:
+                                    self.log.error('Skipping save of current world update part '
+                                                   + '(unmet conditions).')
+                                # Ok now we have to restart everything
+                                self.group = { }
+                                # Get the timestamp
+                                self.group['start'] = int(start_opt.match(unexcept_start).group(1))
+                                #--keep-going setup
+                                if keepgoing_opt.match(unexcept_start):
+                                    keepgoing = True
+                                self.group['total'] = int(start_compiling.match(line).group(1))
+                                #Get the package name
+                                package_name = start_compiling.match(line).group(2)
+                                compiling = True
+                                self.packages_count = 1
+                                self.group['saved'] = {
+                                    'count' :    0
+                                }
+                                # we are already 'compiling' the first package
+                                current_package = True
+                                # skip everything else
+                                continue
                             # save the total number of package from the first emerge failed
-                            if not 'total' in group['saved']:
+                            if not 'total' in self.group['saved']:
                                 # 'real' total package number
-                                group['saved']['total'] = group['total']
-                            group['saved']['count'] += packages_count
+                                self.group['saved']['total'] = self.group['total']
+                            self.group['saved']['count'] += self.packages_count
                             # Keep the name of each package which failed
-                            if not 'failed' in group:
-                                group['failed'] =  [ ]
-                            group['failed'].append(package_name)
+                            if not 'failed' in self.group:
+                                self.group['failed'] =  [ ]
+                            self.group['failed'].append(package_name)
                             # Set name of the package to current one
                             package_name = start_compiling.match(line).group(2)
-                            #print('group[saved][total] is {0}'.format(group['saved']['total']),
-                                  #', group[saved][count] is {0}'.format(group['saved']['count']),
-                                  #f' and package_name is {package_name}')
                             # get the total number of package from this new emerge 
-                            group['total'] = int(start_compiling.match(line).group(1))
-                            packages_count = 1
+                            self.group['total'] = int(start_compiling.match(line).group(1))
+                            self.packages_count = 1
                             current_package = True # As we restart to compile
                             compiling = True
                         elif re.match('\d+:\s{2}:::.completed.emerge.\(' 
-                                            + str(packages_count) 
+                                            + str(self.packages_count) 
                                             + r'.*of.*' 
-                                            + str(group['total']) 
+                                            + str(self.group['total']) 
                                             + r'\).*$', line):
                             current_package = False # Compile finished for the current package
+                            record = [ ] # same here it's finished so reset record
                             compiling = True
                             package_name = None
-                            if not packages_count >= group['total']:
-                                packages_count += 1
-                        # TODO !!
-                        #elif start_parallel.match(line):
-                            
+                            if not self.packages_count >= self.group['total']:
+                                self.packages_count += 1
                     elif re.match(r'^\d+:\s{2}>>>.emerge.\('
-                                            + str(packages_count) 
+                                            + str(self.packages_count) 
                                             + r'.*of.*' 
-                                            + str(group['total']) 
+                                            + str(self.group['total']) 
                                             + r'\).*$', line):
                         current_package = True
+                        # reset record as it will restart 
+                        record = [ ]
+                        record.append(line) # Needed to set stop
                         # This is a lot of reapeat for python 3.8 we'll get this :
                         # https://www.python.org/dev/peps/pep-0572/#capturing-condition-values
                         # TODO : implant this ?
                         package_name = re.match(r'^\d+:\s{2}>>>.emerge.\('
-                                                + str(packages_count) 
+                                                + str(self.packages_count) 
                                                 + r'.*of.*' 
-                                                + str(group['total']) 
+                                                + str(self.group['total']) 
                                                 + r'\)\s(.*)\sto.*$', line).group(1)
+                        #print(f'Inside match >>> emerge: package_name is {package_name}')
                         compiling = True
                     elif succeeded.match(line):
+                        # Reset record here as well
+                        record = [ ]
+                        # set stop
+                        self.group['stop'] = int(succeeded.match(line).group(1))
                         # Make sure it's succeeded the right compile
                         # In case we run parallel emerge
-                        if packages_count >= group['total']:
+                        if self.packages_count == self.group['total']:
                             current_package = False
                             compiling = False
                             package_name = None
                             keepgoing = False
-                            group['stop'] = int(succeeded.match(line).group(1))
-                            group['state'] = 'completed'
-                            # For comptability 
-                            # Make str() because:
-                            # If value is not '0', then  value is str() any way.
-                            # stateinfo load as str()
-                            # if not str() then when comparing value in class PortageHandler
-                            #   method get_last_world_update(), it will keep rewriting value 
-                            #   because int(0) != str(0) and - by the way - this will be treat 
-                            #   as an world update run.
-                            group['failed'] = '0'
-                            collect['completed'].append(group)
-                            packages_count = 1
-                            self.log.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
-                                          .format(group['start'], group['stop'], group['total']))
-                        # Just leave the rest because we don't know in which state we are...
+                            _saved_completed()
+                        else:
+                            self.log.debug('NOT recording completed, start: {0}, stop: {1}, packages: {2}'
+                                          .format(self.group['start'], self.group['stop'], self.group['total']))
+                            self.log.debug(f'Additionnal informations: packages count is {packages_count}')
                 elif start_opt.match(line):
-                    group = { }
+                    self.group = { }
                     # Get the timestamp
-                    group['start'] = int(start_opt.match(line).group(1))
+                    self.group['start'] = int(start_opt.match(line).group(1))
                     #--keep-going setup
                     if keepgoing_opt.match(line):
                         keepgoing = True
@@ -1026,7 +1123,7 @@ class EmergeLogParser:
                     #This mean we start to run world update 
                     #except StopIteration:
                         #compiling = False
-                        #packages_count = 1
+                        #self.packages_count = 1
                         #current_package = False
                         #package_name = None
                         #keepgoing = False
@@ -1034,21 +1131,22 @@ class EmergeLogParser:
                     if start_compiling.match(line):
                         #Ok we start already to compile the first package
                         #Get how many package to update 
-                        group['total'] = int(start_compiling.match(line).group(1))
+                        self.group['total'] = int(start_compiling.match(line).group(1))
                         #Get the package name
                         package_name = start_compiling.match(line).group(2)
                         compiling = True
-                        packages_count = 1
-                        group['saved'] = {
+                        self.packages_count = 1
+                        self.group['saved'] = {
                             'count' :    0
                             }
-                            
                         # we are already 'compiling' the first package
                         current_package = True
                     else:
                         #This has been aborded
+                        # TODO: test with 
+                        self.group = { }
                         compiling = False
-                        packages_count = 1
+                        self.packages_count = 1
                         current_package = False
                         package_name = None
                         keepgoing = False
@@ -1056,9 +1154,7 @@ class EmergeLogParser:
                   
             # Do we got something ?
             if incompleted:
-                if collect['completed'] and collect['incompleted'] and collect['partial']:
-                    keep_running = False
-                elif collect['completed'] or collect['incompleted'] or collect['partial']:
+                if self.collect['completed'] or self.collect['incompleted'] or self.collect['partial']:
                     keep_running = False
                 else:
                     # That mean we have nothing ;)
@@ -1070,7 +1166,7 @@ class EmergeLogParser:
                     else:
                         return False
             else:
-                if collect['completed'] or collect['partial']:
+                if self.collect['completed'] or self.collect['partial']:
                     keep_running = False
                 else:
                     if self._keep_collecting(count, ['last world update timestamp', 
@@ -1084,11 +1180,11 @@ class EmergeLogParser:
         # So now compare and get the highest timestamp from each list
         tocompare = [ ]
         for target in 'completed', 'incompleted', 'partial':
-            if collect[target]:
+            if self.collect[target]:
                 # This this the start timestamp
-                latest_timestamp = collect[target][0]['start']
-                latest_sublist = collect[target][0]
-                for sublist in collect[target]:
+                latest_timestamp = self.collect[target][0]['start']
+                latest_sublist = self.collect[target][0]
+                for sublist in self.collect[target]:
                     if sublist['start'] > latest_timestamp:
                         latest_timestamp = sublist['start']
                         latest_sublist = sublist
