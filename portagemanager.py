@@ -616,7 +616,6 @@ class PortageHandler:
             
 
 
-
 class EmergeLogParser:
     """Parse emerge.log file and extract informations"""
     def __init__(self, log, emergelog, logger_name):
@@ -792,60 +791,81 @@ class EmergeLogParser:
         current_package = False
         count = 1
         keepgoing = False
-        parallel_merge = False
+        #parallel_merge = False
         linecompiling = 0
         record = [ ]
         forced = False       
-        # RE
-        # Added @world
-        # Added \s* after (?:world|@world) to make sure we match only @world or world 
-        # Should we match with '.' or '\s' ??
+       
+        #   Added @world
+        #   Added \s* after (?:world|@world) to make sure we match only @world or world 
+        #   Should we match with '.' or '\s' ??
         start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
         start_parallel = re.compile(r'^\d+:\s{1}Started.emerge.on:.*$')
-        # detect package dropped due to unmet dependency
-        # for exemple (display in terminal only):
-        #   * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
-        #   * >=kde-apps/kio-extras-19.08.3:5
-        # BUT we get nothing in a emerge.log about that.
-        # We CAN'T have the name of the package.
-        # Just get the number and display some more informations, like:
-        # (+n package(s) dropped) - this has to be tested more and more
-        # --keep-going opt
+        #   Detect package dropped due to unmet dependency
+        #   for exemple (display in terminal only):
+        #       * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
+        #       * >=kde-apps/kio-extras-19.08.3:5
+        #   BUT we get nothing in a emerge.log about that.
+        #   We CAN'T have the name of the package.
+        #   Just get the number and display some more informations, like:
+        #   (+n package(s) dropped) - this has to be tested more and more
+        
+        #   --keep-going opts: restart immediatly after failed package ex:
+        #       1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
+        #       1572887531:  === (1078 of 1150) Cleaning (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+        #       1572887531:  === (1078 of 1150) Compiling/Merging (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+        #       1572887560:  >>> emerge (1 of 72) x11-libs/gtk+-3.24.11 to /
+        #   And the package number should be:
+        #       total package number - package failed number
+        #   And it should restart to 1
+        #   This is NOT true each time, some time emerge jump over more than just
+        #   the package which failed (depending of the list of dependency)
+        # TODO  need more testing. But for the moment: if opts --keep-going found,
+        #       if new emerge is found (mean restart to '1 of n') then this will be treat as
+        #       an auto restart, only true if current_package == True 
+        # TODO  testing doing in a same time an world update and an other install
         keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
-        # So make sure we start to compile the world update and this should be the first package 
+        #   So make sure we start to compile the world update and this should be the first package 
         start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.\(1.of.(\d+)\)\s(.*)\sto.*$')
-        # Make sure it's failed with status == 1
+        #   Make sure it's failed with status == 1
         failed = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
         succeeded = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
         
-        # TODO : Give a choice to enable or disable incompleted collect
-        #        Also: i think we should remove incompleted update which just failed after n package 
-        #        Where n could be : a pourcentage or a number (if think 30% could be a good start)
-        #        Maybe give the choice to tweak this as well  - YES !
-        # TODO : Also we can update 'system' first (i'm not doing that way but)
-        #        Add this option as well :)
+        # TODO  Give a choice to enable or disable incompleted collect
+        #       Also: i think we should remove incompleted update which just failed after n package 
+        #       Where n could be : a pourcentage or a number (if think 30% could be a good start)
+        #       Maybe give the choice to tweak this as well  - YES !
+        # TODO  Also we can update 'system' first (i'm not doing that way but)
+        #       Add this option as well :)
+        # TODO  Improve performance, for now :
+        #       Elapsed Time: 2.97 seconds.  Collected 217 stack frames (88 unique)
+        #       For 51808 lines read (the whole file) - but it's not intend to be 
+        #       run like that
+        #       With default settings:
+        #       Elapsed Time: 0.40 seconds.  Collected 118 stack frames (82 unique)
+        #       For last 3000 lines.
         
-        # BUG   : This has to be detected :
+        # BUGFIX   This is detected :
         #           1563019245:  >>> emerge (158 of 165) kde-plasma/powerdevil-5.16.3 to /
         #           1563025365: Started emerge on: juil. 13, 2019 15:42:45
         #           1563025365:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
-        #        this is NOT a parallel emerge and the merge which 'crashed' (???) was a world update...
-        #        After some more investigation: this is the only time in my emerge.log (~52000 lines)
-        #        So don't know but i think this could be a power cut or something like that.
+        #       this is NOT a parallel emerge and the merge which 'crashed' (???) was a world update...
+        #       After some more investigation: this is the only time in my emerge.log (~52000 lines)
+        #       So don't know but i think this could be a power cut or something like that.
         #       And the program raise:
-        #   Traceback (most recent call last):
-        #   File "./test.py", line 40, in <module>
-        #   get_world_info = myparser.last_world_update(lastlines=60000)
-        #   File "/data/01/devel/python/syuppod/portagemanager.py", line 876, in last_world_update
-        #   group['failed'] = ' '.join(group['failed']) \
-        #   TypeError: sequence item 1: expected str instance, NoneType found
+        #           Traceback (most recent call last):
+        #           File "./test.py", line 40, in <module>
+        #           get_world_info = myparser.last_world_update(lastlines=60000)
+        #           File "/data/01/devel/python/syuppod/portagemanager.py", line 876, in last_world_update
+        #           group['failed'] = ' '.join(group['failed']) \
+        #           TypeError: sequence item 1: expected str instance, NoneType found
+        # TODO  After some more test with an old emerge.log, we really have to implant detection 
+        #       of parallel merge
         
-        def _saved_incompleted(package_name):
+        def _saved_incompleted():
             """Saving world update incompleted state"""
-            if not 'failed' in self.group:
-                self.group['failed'] = f'at {self.packages_count} ({package_name})'
             if self.nincompleted[1] == 'percentage':
-                if self.packages_count <= self.group['total'] * self.nincompleted[0]:
+                if self.packages_count <= round(self.group['total'] * self.nincompleted[0]):
                     self.log.debug('NOT recording incompleted, ' 
                                     + 'start: {0}, '.format(self.group['start']) 
                                     + 'stop: {0}, '.format(self.group['stop']) 
@@ -855,8 +875,8 @@ class EmergeLogParser:
                     self.log.debug(f'Incompleted is True, packages count ({self.packages_count})'
                                     + ' <= packages total ({0})'.format(self.group['total'])
                                     + f' * percentage limit ({self.nincompleted[0]})')
-                    self.log.debug('Result is : {0} <= {1} (False)'.format(self.packages_count,
-                                                    self.group['total'] * self.nincompleted[0]))
+                    self.log.debug('Round result is : {0} <= {1} (False)'.format(self.packages_count,
+                                                    round(self.group['total'] * self.nincompleted[0])))
                     self.packages_count = 1
                     return
             elif self.nincompleted[1] == 'number':
@@ -880,7 +900,6 @@ class EmergeLogParser:
                             + 'stop: {0}, '.format(self.group['stop']) 
                             + 'total packages: {0}, '.format(self.group['total'])
                             + 'failed: {0}'.format(self.group['failed']))
-            
             
         def _saved_partial():
             """Saving world update partial state""" 
@@ -910,7 +929,6 @@ class EmergeLogParser:
                             + 'total packages: {0}, '.format(self.group['total'])
                             + 'failed: {0}'.format(self.group['failed']))
             
-            
         def _saved_completed():
             """Saving world update completed state""" 
             self.group['state'] = 'completed'
@@ -933,15 +951,12 @@ class EmergeLogParser:
             self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             mylog = self.getlog(self.lastlines)
             self.log.debug(f'Extracting list of completed{incompleted_msg} and partial world update'
-                           + 'informations.')
+                           + ' group informations.')
             for line in mylog:
                 linecompiling += 1
                 if compiling:
                     # If keepgoing is detected, last package could be in completed state
                     # so current_package is False but compiling end to a failed match.
-                    #print(f'Packages count is {self.packages_count}'
-                          #f', keepgoing is {keepgoing}'
-                          #' and self.group[total] is {0}'.format(self.group['total']))
                     if current_package or (keepgoing and \
                         # mean compile as finished (it's the last package)
                         self.packages_count == self.group['total'] and \
@@ -951,19 +966,18 @@ class EmergeLogParser:
                         # Save lines
                         if current_package:
                             record.append(line)
-                        #if 'total' in self.group['saved']:
-                           #print('self.group[saved][total] is {0}'.format(self.group['saved']['total']),
-                             #' and self.group[saved][count] is {0}'.format(self.group['saved']['count']))
                         if failed.match(line):
                             # We don't care about record here so reset it
                             record = [ ]
+                            if not 'failed' in self.group:
+                                self.group['failed'] = f'at {self.packages_count} ({package_name})'
                             # set stop
                             self.group['stop'] = int(failed.match(line).group(1))
                             # first make sure it's restart or it's just incompleted.
                             if keepgoing and 'total' in self.group['saved']:
                                 _saved_partial()
                             elif incompleted:
-                                _saved_incompleted(package_name)
+                                _saved_incompleted()
                             else:
                                 self.log.debug('NOT recording partial/incompleted, ' 
                                             + 'start: {0}, '.format(self.group['start']) 
@@ -979,47 +993,31 @@ class EmergeLogParser:
                             compiling = False
                             package_name = None
                             keepgoing = False
-                        # --keep-going opts: restart immediatly after failed package ex:
-                        #   1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
-                        #   1572887531:  === (1078 of 1150) Cleaning (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
-                        #   1572887531:  === (1078 of 1150) Compiling/Merging (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
-                        #   1572887560:  >>> emerge (1 of 72) x11-libs/gtk+-3.24.11 to /
-                        # And the package number should be:
-                        #   total package number - package failed number
-                        # And it should restart to 1
-                        # This is NOT true each time, some time emerge jump over more than just
-                        # the package which failed (depending of the list of dependency)
-                        # TODO: need more testing. But for the moment: if opts --keep-going found,
-                        # if new emerge is found (mean restart to '1 of n') then this will be treat as
-                        # an auto restart, only true if current_package == True 
-                        # TODO: testing doing in a same time an world update and an other 
-                        # install (i never doing this but...)
                         elif keepgoing and start_compiling.match(line):
-                            # Try to fix bug describe upstair
+                            # Try to fix BUG describe upstair
                             unexcept_start = False
                             for saved_line in record:
-                                #print(f'Saved line is {saved_line}')
                                 if start_opt.match(saved_line):
                                     unexcept_start = saved_line
                                     break
-                                                        
-                            # So here is my BUG :)
                             if unexcept_start:
                                 self.log.error(f'While parsing {self.emergelog}, got unexcept'
                                                 f' world update start opt:')
                                 self.log.error(f'{unexcept_start}')
                                 # Except first element in a list is a stop match
                                 self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', record[0]).group(1))
+                                if not 'failed' in self.group:
+                                    self.group['failed'] = f'at {self.packages_count} ({package_name})'
                                 # First try if it was an keepgoing restart
                                 if keepgoing and 'total' in self.group['saved']:
-                                    self.log.error('Forcing save of current world update part.')
+                                    self.log.error('Forcing save of current world update group.')
                                     _saved_partial()
                                 # if incompleted is enable
                                 elif incompleted:
-                                    self.log.error('Forcing save of current world update part.')
-                                    _saved_incompleted(package_name)
+                                    self.log.error('Forcing save of current world update group.')
+                                    _saved_incompleted()
                                 else:
-                                    self.log.error('Skipping save of current world update part '
+                                    self.log.error('Skipping save of current world update group '
                                                    + '(unmet conditions).')
                                 # Ok now we have to restart everything
                                 self.group = { }
@@ -1075,7 +1073,7 @@ class EmergeLogParser:
                         current_package = True
                         # reset record as it will restart 
                         record = [ ]
-                        record.append(line) # Needed to set stop
+                        record.append(line) # Needed to set stop if unexcept_start is detected
                         # This is a lot of reapeat for python 3.8 we'll get this :
                         # https://www.python.org/dev/peps/pep-0572/#capturing-condition-values
                         # TODO : implant this ?
@@ -1084,7 +1082,6 @@ class EmergeLogParser:
                                                 + r'.*of.*' 
                                                 + str(self.group['total']) 
                                                 + r'\)\s(.*)\sto.*$', line).group(1)
-                        #print(f'Inside match >>> emerge: package_name is {package_name}')
                         compiling = True
                     elif succeeded.match(line):
                         # Reset record here as well
@@ -1143,7 +1140,6 @@ class EmergeLogParser:
                         current_package = True
                     else:
                         #This has been aborded
-                        # TODO: test with 
                         self.group = { }
                         compiling = False
                         self.packages_count = 1

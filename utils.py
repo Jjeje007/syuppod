@@ -15,7 +15,7 @@ import time
 import signal
 from ctypes import cdll
 from logger import MainLoggingHandler
-
+from itertools import chain
 
 
 class StateInfo:
@@ -194,40 +194,214 @@ class StateInfo:
             sys.exit(1)  
  
 class FormatTimestamp:
+    """Convert seconds to, optional rounded, time depending of granularity's degrees.
+        inspired by https://stackoverflow.com/a/24542445/11869956"""
     def __init__(self):
-        self.intervals = (
-            ('years', 31556952),  # https://www.calculateme.com/time/years/to-seconds/
-            ('months', 2629746),  # https://www.calculateme.com/time/months/to-seconds/
-            ('weeks', 604800),  # 60 * 60 * 24 * 7
-            ('days', 86400),    # 60 * 60 * 24
-            ('hours', 3600),    # 60 * 60
-            ('minutes', 60),
-            #('seconds', 1),
-            )
+        # For now i haven't found a way to do it better
+        # TODO: optimize ?!? ;)
+        self.intervals = {
+            # 'years'     :   31556952,  # https://www.calculateme.com/time/years/to-seconds/
+            # https://www.calculateme.com/time/months/to-seconds/ -> 2629746 seconds
+            # But it's outputing some strange result :
+            # So 3 seconds less (2629743) : 4 weeks, 2 days, 10 hours, 29 minutes and 3 seconds
+            # than after 3 more seconds : 1 month ?!?
+            # Google give me 2628000 seconds
+            # So 3 seconds less (2627997): 4 weeks, 2 days, 9 hours, 59 minutes and 57 seconds
+            # Strange as well 
+            # So for the moment latest is week ...
+            #'months'    :   2419200, # 60 * 60 * 24 * 7 * 4 
+            'weeks'     :   604800,  # 60 * 60 * 24 * 7
+            'days'      :   86400,    # 60 * 60 * 24
+            'hours'     :   3600,    # 60 * 60
+            'minutes'   :   60,
+            'seconds'  :   1
+            }
+        self.nextkey = {
+            'seconds'   :   'minutes',
+            'minutes'   :   'hours',
+            'hours'     :   'days',
+            'days'      :   'weeks',
+            'weeks'     :   'weeks',
+            #'months'    :   'months',
+            #'years'     :   'years' # stop here
+            }
         
-    def convert(self, seconds, granularity=3):
-        """Convert seconds to varying degrees of granularity.
-        https://stackoverflow.com/a/24542445/11869956"""
-        # TODO : round for exemple:  full display: 4 days, 2 hours, 42 minutes and 50 seconds
-        # TODO TODO TODO !!!
-        # if granularity is 2 this should be 4 days 3 hours NOT 2 hours (because 42 minutes)
+    def convert(self, seconds, granularity=2, rounded=True, ouput='join'):
+        """Proceed the conversion"""
+        
+        def _format(result):
+            """Return the formatted result
+            TODO : numpy / google docstrings"""
+            start = 1 
+            length = len(result)
+            none = 0
+            next_item = False
+            for item in reversed(result[:]):
+                if item['value']:
+                    # if we have more than one item
+                    if length - none > 1:
+                        # This is the first 'real' item 
+                        if start == 1:
+                            item['ponct'] = ''
+                            next_item = True
+                        elif next_item:
+                            # This is the second 'real' item
+                            # Happend 'and' to key name
+                            item['ponct'] = ' and'
+                            next_item = False
+                        # If there is more than two 'real' item
+                        # than happend ','
+                        elif 2 < start:
+                            item['ponct'] = ','
+                        else:
+                            item['ponct'] = ''
+                    else:
+                        item['ponct'] = ''
+                    start += 1
+                else:
+                    none += 1
+            return [ { 'value'  :   mydict['value'], 
+                       'name'   :   mydict['name_strip'],
+                       'ponct'  :   mydict['ponct'] } for mydict in result if mydict['value'] is not None ]
+                    
+        
+        def _rstrip(value, name):
+            """Rstrip 's' name depending of value"""
+            if value == 1:
+                name = name.rstrip('s')
+            return name
+            
+            
+        # Make sure granularity is an integer
+        if not isinstance(granularity, int):
+            raise ValueError(f'Granularity should be an integer: {granularity}')
+        
+        # For seconds only don't need to compute
         if seconds < 0:
             return 'any time now.'
         elif seconds < 60:
             return 'less than a minute.'
-        
+                
         result = []
-
-        for name, count in self.intervals:
+        for name, count in self.intervals.items():
             value = seconds // count
             if value:
                 seconds -= value * count
-                if value == 1:
-                    name = name.rstrip('s')
-                result.append("{} {}".format(value, name))
+                name_strip = _rstrip(value, name)
+                # save as dict: value, name_strip (eventually strip), name (for reference), value in seconds
+                # and count (for reference)
+                result.append({ 
+                        'value'        :   value,
+                        'name_strip'   :   name_strip,
+                        'name'         :   name, 
+                        'seconds'      :   value * count,
+                        'count'        :   count
+                                 })
+            else:
+                if len(result) > 0:
+                    # We strip the name as second == 0
+                    name_strip = name.rstrip('s')
+                    # adding None to key 'value' but keep other value
+                    # in case when need to add seconds when we will 
+                    # recompute every thing
+                    result.append({ 
+                        'value'        :   None,
+                        'name_strip'   :   name_strip,
+                        'name'         :   name, 
+                        'seconds'      :   0,
+                        'count'        :   count
+                                 })
         
-        return ', '.join(result[:granularity])
-    
+        # Get the length of the list
+        length = len(result)
+        # Don't need to compute everything / everytime
+        if length < granularity or not rounded:
+            if ouput == 'join':
+                return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['ponct']) \
+                                                for item in _format(result))
+            elif output == 'list':
+                return _format(result)
+            
+        start = length - 1
+        # Reverse list so the firsts elements 
+        # could be not selected depending on granularity.
+        # And we can delete item after we had his seconds to next
+        # item in the current list (result)
+        for item in reversed(result[:]):
+            if granularity <= start <= length - 1:
+                # So we have to round
+                current_index = result.index(item)
+                next_index = current_index - 1
+                # skip item value == None
+                # if the seconds of current item is superior
+                # to the half seconds of the next item: round
+                if item['value'] and item['seconds'] > result[next_index]['count'] // 2:
+                    # +1 to the next item (in seconds: depending on item count)
+                    result[next_index]['seconds'] += result[next_index]['count']
+                # Remove item which is not selected
+                del result[current_index]
+            start -= 1
+        # Ok now recalcul every thing
+        # Reverse as well 
+        for item in reversed(result[:]):
+            # Check if seconds is superior or equal to the next item 
+            # but not from 'result' list but from 'self.intervals' dict
+            # Make sure it's not None
+            if item['value']:
+                next_item_name = self.nextkey[item['name']]
+                # This mean we are at weeks
+                if item['name'] == next_item_name:
+                    # Just recalcul
+                    item['value'] = item['seconds'] // item['count']
+                    item['name_strip'] = _rstrip(item['value'], item['name'])
+                # Stop to weeks to stay 'right' 
+                elif item['seconds'] >= self.intervals[next_item_name]:
+                    # First make sure we have the 'next item'
+                    # found via --> https://stackoverflow.com/q/26447309/11869956
+                    # maybe there is a faster way to do it ? - TODO
+                    if any(search_item['name'] == next_item_name for search_item in result):
+                        next_item_index = result.index(item) - 1
+                        # Append to
+                        result[next_item_index]['seconds'] += item['seconds']
+                        # recalcul value
+                        result[next_item_index]['value'] = result[next_item_index]['seconds'] // \
+                                                           result[next_item_index]['count']
+                        # strip or not
+                        result[next_item_index]['name_strip'] = _rstrip(result[next_item_index]['value'],
+                                                                       result[next_item_index]['name'])
+                    else:
+                        # Creating 
+                        next_item_index = result.index(item) - 1
+                        # get count
+                        next_item_count = self.intervals[next_item_name]
+                        # convert seconds
+                        next_item_value = item['seconds'] // next_item_count
+                        # strip 's' or not
+                        next_item_name_strip = _rstrip(next_item_value, next_item_name)
+                        # added to dict
+                        next_item = {
+                                       'value'      :   next_item_value,
+                                       'name_strip' :   next_item_name_strip,
+                                       'name'       :   next_item_name,
+                                       'seconds'    :   item['seconds'],
+                                       'count'      :   next_item_count
+                                       }
+                        # insert to the list
+                        result.insert(next_item_index, next_item)
+                    # Remove current item
+                    del result[result.index(item)]
+                else:
+                    # for current item recalculate
+                    # keys 'value' and 'name_strip'
+                    item['value'] = item['seconds'] // item['count']
+                    item['name_strip'] = _rstrip(item['value'], item['name'])
+        if ouput == 'join':
+            return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['ponct']) \
+                                                for item in _format(result))
+        elif output == 'list':
+            return _format(result)
+
+
 
 class CapturedFd:
     """Pipe the specified fd to an temporary file
