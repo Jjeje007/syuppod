@@ -13,9 +13,21 @@ import sys
 import tempfile
 import time
 import signal
+import gettext
+import locale
+
 from ctypes import cdll
 from logger import MainLoggingHandler
 from itertools import chain
+
+
+
+mylocale = locale.getlocale()
+# see --> https://stackoverflow.com/a/10174657/11869956 thx
+localedir = os.path.join(os.path.dirname(__file__), 'locales')
+lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]])
+lang_translations.install()
+_ = lang_translations.gettext
 
 
 class StateInfo:
@@ -225,8 +237,28 @@ class FormatTimestamp:
             #'months'    :   'months',
             #'years'     :   'years' # stop here
             }
+        self.translate = {
+            'weeks'     :   _('weeks'),
+            'days'      :   _('days'),
+            'hours'     :   _('hours'),
+            'minutes'   :   _('minutes'),
+            'seconds'   :   _('seconds'),
+            ## Single
+            'week'      :   _('week'),
+            'day'       :   _('day'),
+            'hour'      :   _('hour'),
+            'minute'    :   _('minute'),
+            'second'    :   _('second'),
+            ' and'      :   _('and'),
+            ','         :   _(','),     # This is for compatibility
+            ''          :   '\0'        # same here BUT we CANNOT pass empty string to gettext 
+                                        # or we get : warning: Empty msgid.  It is reserved by GNU gettext:
+                                        # gettext("") returns the header entry with
+                                        # meta information, not the empty string.
+                                        # Thx to --> https://stackoverflow.com/a/30852705/11869956 - saved my day
+            }
         
-    def convert(self, seconds, granularity=2, rounded=True, ouput='string'):
+    def convert(self, seconds, granularity=2, rounded=True, translate=False):
         """Proceed the conversion"""
         
         def _format(result):
@@ -317,11 +349,13 @@ class FormatTimestamp:
         length = len(result)
         # Don't need to compute everything / everytime
         if length < granularity or not rounded:
-            if ouput == 'string':
+            if translate:
+                return ' '.join('{0} {1}{2}'.format(item['value'], _(self.translate[item['name']]), 
+                                                _(self.translate[item['punctuation']])) \
+                                                for item in _format(result))
+            else:
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
-            elif output == 'list':
-                return _format(result)
             
         start = length - 1
         # Reverse list so the firsts elements 
@@ -396,13 +430,14 @@ class FormatTimestamp:
                     # keys 'value' and 'name_strip'
                     item['value'] = item['seconds'] // item['count']
                     item['name_strip'] = _rstrip(item['value'], item['name'])
-        if ouput == 'string':
+        if translate:
+            return ' '.join('{0} {1}{2}'.format(item['value'], 
+                                                _(self.translate[item['name']]), 
+                                                _(self.translate[item['punctuation']])) \
+                                                for item in _format(result))
+        else:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
-        elif output == 'list':
-            return _format(result)
-
-
 
 class CapturedFd:
     """Pipe the specified fd to an temporary file
