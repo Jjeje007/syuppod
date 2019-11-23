@@ -226,7 +226,7 @@ class FormatTimestamp:
             #'years'     :   'years' # stop here
             }
         
-    def convert(self, seconds, granularity=2, rounded=True, ouput='join'):
+    def convert(self, seconds, granularity=2, rounded=True, ouput='string'):
         """Proceed the conversion"""
         
         def _format(result):
@@ -242,27 +242,28 @@ class FormatTimestamp:
                     if length - none > 1:
                         # This is the first 'real' item 
                         if start == 1:
-                            item['ponct'] = ''
+                            item['punctuation'] = ''
                             next_item = True
                         elif next_item:
                             # This is the second 'real' item
                             # Happend 'and' to key name
-                            item['ponct'] = ' and'
+                            item['punctuation'] = ' and'
                             next_item = False
                         # If there is more than two 'real' item
                         # than happend ','
                         elif 2 < start:
-                            item['ponct'] = ','
+                            item['punctuation'] = ','
                         else:
-                            item['ponct'] = ''
+                            item['punctuation'] = ''
                     else:
-                        item['ponct'] = ''
+                        item['punctuation'] = ''
                     start += 1
                 else:
                     none += 1
-            return [ { 'value'  :   mydict['value'], 
-                       'name'   :   mydict['name_strip'],
-                       'ponct'  :   mydict['ponct'] } for mydict in result if mydict['value'] is not None ]
+            return [ { 'value'        :   mydict['value'], 
+                       'name'         :   mydict['name_strip'],
+                       'punctuation'  :   mydict['punctuation'] } for mydict in result \
+                                                                  if mydict['value'] is not None ]
                     
         
         def _rstrip(value, name):
@@ -316,8 +317,8 @@ class FormatTimestamp:
         length = len(result)
         # Don't need to compute everything / everytime
         if length < granularity or not rounded:
-            if ouput == 'join':
-                return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['ponct']) \
+            if ouput == 'string':
+                return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
             elif output == 'list':
                 return _format(result)
@@ -395,8 +396,8 @@ class FormatTimestamp:
                     # keys 'value' and 'name_strip'
                     item['value'] = item['seconds'] // item['count']
                     item['name_strip'] = _rstrip(item['value'], item['name'])
-        if ouput == 'join':
-            return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['ponct']) \
+        if ouput == 'string':
+            return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
         elif output == 'list':
             return _format(result)
