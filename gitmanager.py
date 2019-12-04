@@ -24,7 +24,9 @@ try:
     import git 
     from git import InvalidGitRepositoryError as _InvalidGitRepositoryError
 except Exception as exc:
-    print(f'Got unexcept error while loading git module: {exc}')
+    # Print to stderr
+    print(f'Error: unexcept error while loading git module: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 

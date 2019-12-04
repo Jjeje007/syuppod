@@ -18,7 +18,7 @@ from gitdbus import GitDbus
 from gitmanager import check_git_dir
 from logger import MainLoggingHandler
 from logger import RedirectFdToLogger
-from argsparser import ArgsParserHandler
+from argsparser import DaemonParserHandler
 from utils import UpdateInProgress
 from utils import StateInfo
 
@@ -34,10 +34,11 @@ try:
     from pydbus import SystemBus # Changing to SystemBus (when run as root/sudo)
     # TODO: writing Exception like that in all program
 except Exception as exc:
-    print(f'Got unexcept error while loading dbus bindings: {exc}')
+    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.1-beta1"
+__version__ = "dev"
 # DONT change this or dbus service won't work (client part)
 name = 'syuppod'  
 
@@ -79,7 +80,7 @@ class MainLoopThread(threading.Thread):
                             # check portage update
                             self.manager['portage'].available_portage_update()
             self.manager['portage'].sync['remain'] -= 1  # For the moment this will not exactly be one second
-            self.manager['portage'].sync['elasped'] += 1 # Because all this stuff take more time - specially
+            self.manager['portage'].sync['elapse'] += 1 # Because all this stuff take more time - specially
                                                          # pretend_world()
             
             # Then: check available portage update
@@ -181,7 +182,8 @@ def main():
         log.debug('Git kernel tracking has been enable.')
         
         # Init gitmanager object through GitDbus class
-        mygitmanager = GitDbus(interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel, loglevel=log.level)
+        mygitmanager = GitDbus(enable=True, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
+                               loglevel=log.level)
                
         # Get running kernel
         mygitmanager.get_running_kernel()
@@ -194,7 +196,8 @@ def main():
         mygitmanager.get_branch('all')
         mygitmanager.get_available_update('branch')       
     else:
-        mygitmanager = GitDbus(enable=False)
+        mygitmanager = GitDbus(enable=False, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
+                               loglevel=log.level)
         
    
     log.info('... now running.')
@@ -214,7 +217,7 @@ def main():
 if __name__ == '__main__':
 
     ### Parse arguments ###
-    myargsparser = ArgsParserHandler(pathdir, __version__)
+    myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
         
     ### Creating log ###
@@ -234,7 +237,7 @@ if __name__ == '__main__':
         display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
         # Redirect stderr to log 
         # For the moment maybe stdout as well but nothing should be print to...
-        # This is not good if there is error before log(ger) is initialized...
+        # This is NOT good if there is error before log(ger) is initialized...
         fd2 = RedirectFdToLogger(log)
         sys.stderr = fd2
        

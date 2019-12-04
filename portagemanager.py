@@ -33,37 +33,34 @@ class PortageHandler:
     
     def __init__(self, interval, pathdir, runlevel, loglevel):
         self.pathdir = pathdir
+        # Init convert/format timestamp
         self.format_timestamp = FormatTimestamp()
-        
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
         portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
                                                self.pathdir['fdlog'])
         self.log = getattr(portagemanagerlog, runlevel)()
         self.log.setLevel(loglevel)
-        
         # Init save/load info file
         self.stateinfo = StateInfo(self.pathdir, runlevel, self.log.level)
-        
         # Init Class UpdateInProgress
         self.update_inprogress = UpdateInProgress(self.log) 
-        
         # Sync attributes
         self.sync = {
             'status'        :   False, # By default it's disable ;)
-            'state'         :   self.stateinfo.load('sync state'),
-            'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finished'
+            'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
+            'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finish'
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
             'error'         :   self.stateinfo.load('sync error'),
             'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   interval,
-            'elasped'       :   0,
+            'elapse'       :   0,
             'remain'        :   0,
             'current_count' :   0   # Counting sync count since running (current session)
             }
         
-        # Print an warning about interval it's 'too big'
+        # Print warning about interval it's 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
             self.log.warning('Sync interval for portage update tree is too big (\'{0}\').'
@@ -73,7 +70,7 @@ class PortageHandler:
         self.world = {
             'status'    :   False,   # This mean we don't have to run pretend world update
             'pretend'   :   False,   # False / True when running pretend (avoid running twice)
-            'update'    :   self.stateinfo.load('world update'), # 'In Progress' / 'Finished'
+            'update'    :   self.stateinfo.load('world update'), # 'In Progress' / 'Finish'
             'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
             'remain'    :   30, # Check every 30s  TODO: this could be tweaked (dbus client or args ?)
             # attributes for last world update informations extract from emerge.log file
@@ -116,8 +113,8 @@ class PortageHandler:
             return False
         else:
             # Reset update to 'Finished'
-            if not self.sync['update'] == 'Finished':
-                self.sync['update'] = 'Finished'
+            if not self.sync['update'] == 'Finish':
+                self.sync['update'] = 'Finish'
                 self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
                                                                                  self.pathdir['statelog']))
                 self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
@@ -154,15 +151,15 @@ class PortageHandler:
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             
-            self.sync['elasped'] = round(current_timestamp - sync_timestamp)
-            self.sync['remain'] = self.sync['interval'] - self.sync['elasped']
+            self.sync['elapse'] = round(current_timestamp - sync_timestamp)
+            self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
             
-            self.log.debug('Update repo elasped time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elasped'])))
+            self.log.debug('Update repo elapsed time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elapse'])))
             self.log.debug('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
             self.log.debug('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
-                self.log.info('Update repo elasped time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elasped'])))
+                self.log.info('Update repo elapsed time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elapse'])))
                 self.log.info('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
                 self.log.info('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
@@ -243,8 +240,8 @@ class PortageHandler:
         mysync.stdout.close()
             
         # It's finished 
-        if not self.sync['update'] == 'Finished':
-            self.sync['update'] = 'Finished'
+        if not self.sync['update'] == 'Finish':
+            self.sync['update'] = 'Finish'
             self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
                                                                             self.pathdir['statelog']))
             self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
@@ -321,12 +318,17 @@ class PortageHandler:
                 self.log.debug('Skip saving \'sync error: {0}\' to \'{1}\': already in good state.'.format(self.sync['error'], 
                                                                                  self.pathdir['statelog'])) 
                 
-            #Count only success sync
-            old_count = self.sync['count']
+            # Count only success sync
+            old_count_global = self.sync['count']
+            old_count = self.sync['current_count']
             
             self.sync['count'] = int(self.sync['count'])
             self.sync['count'] += 1
-            self.log.debug('Incrementing sync count from \'{0}\' to \'{1}\''.format(old_count, self.sync['count']))
+            self.log.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
+                                                                                           self.sync['count']))
+            self.sync['current_count'] += 1
+            self.log.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
+                                                                                    self.sync['current_count']))
             self.log.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['count'], 
                                                                                  self.pathdir['statelog']))
             self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['count']))
@@ -354,9 +356,7 @@ class PortageHandler:
                     self.log.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
                     self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
-                
             return True
-        # BUG: last time after dopull() it's crashed just after this ...
                 
                 
     def get_last_world_update(self):
@@ -379,8 +379,8 @@ class PortageHandler:
             # keep last know timestamp
         else:
             # World is not 'In Progress':
-            if not self.world['update'] == 'Finished':
-                self.world['update'] = 'Finished'
+            if not self.world['update'] == 'Finish':
+                self.world['update'] = 'Finish'
                 self.log.debug('Saving \'world update: {0}\' to \'{1}\'.'.format(self.world['update'], 
                                                                                  self.pathdir['statelog']))
                 self.stateinfo.save('world update', 'world update: ' + self.world['update'])

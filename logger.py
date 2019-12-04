@@ -27,6 +27,8 @@ class MainLoggingHandler:
         
         self.logger = logging.getLogger(self.name)
         
+        # TODO: debug.log rotate is a REAL mess, don't know why
+        # this could be because we have one logger by module ?
         # Debug only go to file
         # Rotate the log 
         # 2.86MB, rotate 3x times
@@ -55,7 +57,7 @@ class MainLoggingHandler:
         fd_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
         fd_handler.setFormatter(fd_formatter)
         fd_handler.addFilter(LogErrorFilter(stderr=True))
-        # Level is error : See class WriteToLogger
+        # Level is error : See class LogErrorFilter
         fd_handler.setLevel(40)
         self.logger.addHandler(fd_handler)
        

@@ -21,14 +21,21 @@ from logger import MainLoggingHandler
 from itertools import chain
 
 
-
-mylocale = locale.getlocale()
+mylocale = locale.getdefaultlocale()
 # see --> https://stackoverflow.com/a/10174657/11869956 thx
-localedir = os.path.join(os.path.dirname(__file__), 'locales')
-lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]])
-lang_translations.install()
-_ = lang_translations.gettext
-
+#localedir = os.path.join(os.path.dirname(__file__), 'locales')
+# or python > 3.4:
+try:
+    localedir = pathlib.Path(__file__).parent/'locales'
+    lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]])
+    lang_translations.install()
+    _ = lang_translations.gettext
+except Exception as exc:
+    print('Error: unexcept error while initializing translation:', file=sys.stderr)
+    print(f'Error: {exc}', file=sys.stderr)
+    print(f'Error: localedir={localedir}, languages={mylocale[0]}', file=sys.stderr)
+    print('Error: translation has been disabled.', file=sys.stderr)
+    _ = gettext.gettext
 
 class StateInfo:
     """Write, edit or get info to and from state file"""
@@ -206,8 +213,11 @@ class StateInfo:
             sys.exit(1)  
  
 class FormatTimestamp:
-    """Convert seconds to, optional rounded, time depending of granularity's degrees.
+    """Convert seconds to time, optional rounded, depending of granularity's degrees.
         inspired by https://stackoverflow.com/a/24542445/11869956"""
+        # TODO : (g)ranularity = auto this mean if minutes g = 1, if hours g=2 , if days g=2, if week g=3
+        #        humm, i don't know, but when week and granularity = 2 than it display '1 week' until 1 week
+        #   and 24 hour -> 1 week and 1 day ... we could display as well hours ?
     def __init__(self):
         # For now i haven't found a way to do it better
         # TODO: optimize ?!? ;)
@@ -278,7 +288,7 @@ class FormatTimestamp:
                             next_item = True
                         elif next_item:
                             # This is the second 'real' item
-                            # Happend 'and' to key name
+                            # Happend 'and' to key punctuation
                             item['punctuation'] = ' and'
                             next_item = False
                         # If there is more than two 'real' item
@@ -348,14 +358,15 @@ class FormatTimestamp:
         # Get the length of the list
         length = len(result)
         # Don't need to compute everything / everytime
+        # added result[:granularity] for rounded
         if length < granularity or not rounded:
             if translate:
                 return ' '.join('{0} {1}{2}'.format(item['value'], _(self.translate[item['name']]), 
                                                 _(self.translate[item['punctuation']])) \
-                                                for item in _format(result))
+                                                for item in _format(result[:granularity]))
             else:
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
-                                                for item in _format(result))
+                                                for item in _format(result[:granularity]))
             
         start = length - 1
         # Reverse list so the firsts elements 
@@ -629,12 +640,3 @@ def on_parent_exit(signame='SIGTERM'):
             # mean : it raise but didn't got this error msg ...
             raise #PrCtlError('prctl failed with error code %s' % result)
     return set_parent_exit_signal
-
-
-# TODO 
-#def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
-    #if issubclass(exc_type, KeyboardInterrupt):
-        #sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        #return
-
-    #logger.exception(exc_info=(exc_type, exc_value, exc_traceback))

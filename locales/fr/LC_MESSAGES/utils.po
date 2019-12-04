@@ -38,7 +38,7 @@ msgstr "secondes"
 
 #: utils.py:246
 msgid "week"
-msgstr "semaines"
+msgstr "semaine"
 
 #: utils.py:247
 msgid "day"
