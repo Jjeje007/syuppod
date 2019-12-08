@@ -47,7 +47,6 @@ class PortageHandler:
         self.update_inprogress = UpdateInProgress(self.log) 
         # Sync attributes
         self.sync = {
-            'status'        :   False, # By default it's disable ;)
             'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
             'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finish'
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
@@ -73,6 +72,8 @@ class PortageHandler:
             'update'    :   self.stateinfo.load('world update'), # 'In Progress' / 'Finish'
             'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
             'remain'    :   30, # Check every 30s  TODO: this could be tweaked (dbus client or args ?)
+            'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
+                                   # this is for the future when async call will be implant.
             # attributes for last world update informations extract from emerge.log file
             'last'      :   {
                     'state'     :   self.stateinfo.load('world last state'), 
@@ -172,13 +173,9 @@ class PortageHandler:
                                                                                  self.pathdir['statelog']))
             
             if self.sync['remain'] <= 0:
-                self.sync['status'] = True
                 return True
-            
             return False
-        
-        else:
-            return False        
+        return False        
     
     
     def dosync(self):
@@ -201,7 +198,7 @@ class PortageHandler:
             # recheck in 10 minutes
             self.sync['remain'] = 600
             return False # 'inprogress'
-            # keep last know timestamp
+            # keep last know timestamp # Keep 'In Progress' 
                 
         self.log.debug('Will update portage repository.')
             

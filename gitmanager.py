@@ -88,6 +88,7 @@ class GitHandler:
         
         # Git branch attributes
         self.branch = {
+            'logflow'   :   True, # Flow control over log.info 
             # all means from state file
             'all'   :   {
                 # 'local' is branch locally checkout (git checkout)
@@ -108,6 +109,7 @@ class GitHandler:
         
         # Git kernel attributes
         self.kernel = {
+            'logflow'       :   True, # Flow control over log.info
             # 'all' means all kernel version from git tag command
             'all'           :   sorted(self.stateinfo.load('kernel all').split(), key=StrictVersion),
             # 'available' means update available
@@ -167,6 +169,9 @@ class GitHandler:
             
             # Don't write every time to state file 
             if not self.kernel['installed']['running'] == running:
+                # Be a little more verbose for log.info
+                self.log.info('Running kernel has change (from {0} to {1}).'.format(self.kernel['installed']['running'],
+                                                                                   running))
                 self.kernel['installed']['running'] = running
                 # Update state file
                 self.log.debug('Updating state info file.')
@@ -222,7 +227,7 @@ class GitHandler:
         # sort
         subfolders.sort(key=StrictVersion)
         
-        if self._compare_multidirect(self.kernel['installed']['all'], subfolders):
+        if self._compare_multidirect(self.kernel['installed']['all'], subfolders, 'installed kernel'):
             # Adding list to self.kernel
             self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(subfolders)))
             self.kernel['installed']['all'] = subfolders
@@ -289,7 +294,7 @@ class GitHandler:
         versionlist.sort(key=StrictVersion)
         
         # Do we need to update kernel['all'] list or is the same ?
-        if self._compare_multidirect(self.kernel['all'], versionlist):
+        if self._compare_multidirect(self.kernel['all'], versionlist, 'kernel'):
             
             self.log.debug('Adding to \'all\' list: \'{0}\'.'.format(' '.join(self.kernel['all'])))
             self.kernel['all'] = versionlist
@@ -375,7 +380,7 @@ class GitHandler:
             
             versionlist.sort(key=StrictVersion)
             
-            if self._compare_multidirect(self.branch['all'][origin], versionlist):
+            if self._compare_multidirect(self.branch['all'][origin], versionlist, 'branch'):
                 
                 self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(self.branch['all'][origin])))
                 self.branch['all'][origin] = versionlist
@@ -831,7 +836,7 @@ class GitHandler:
             self.log.debug('Added option to git config file: fetch all tags from remote repository.')
        
     
-    def _compare_multidirect(self, old_list, new_list):
+    def _compare_multidirect(self, old_list, new_list, msg):
         """Compare lists multidirectionally"""
         
         self.log.name = f'{self.logger_name}_compare_multidirect::'
@@ -863,6 +868,8 @@ class GitHandler:
                         # ... and this version is new one.
                         # Any way we will replace all the list 
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
+                        # Try to be more verbose for log.info
+                        self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
         # Ok now if nothing change
         if not ischange:
             self.log.debug('Finally, didn\'t found any change, previously data has been kept.')

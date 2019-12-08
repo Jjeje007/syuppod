@@ -21,6 +21,15 @@ from logger import MainLoggingHandler
 from itertools import chain
 
 
+try:
+    from babel.dates import format_datetime
+    from babel.dates import LOCALTZ
+except Exception as exc:
+    print(f'Got unexcept error while loading babel modules: {exc}')
+    sys.exit(1)
+
+
+
 mylocale = locale.getdefaultlocale()
 # see --> https://stackoverflow.com/a/10174657/11869956 thx
 #localedir = os.path.join(os.path.dirname(__file__), 'locales')
@@ -640,3 +649,48 @@ def on_parent_exit(signame='SIGTERM'):
             # mean : it raise but didn't got this error msg ...
             raise #PrCtlError('prctl failed with error code %s' % result)
     return set_parent_exit_signal
+
+
+def _format_timestamp(seconds, opt, translate):
+    """Client helper for formatting timestamp depending on opts"""
+    # Default values
+    rounded = True
+    granularity = 2
+    pattern = re.compile(r'^\w+(\:r|\:u)?(\:\d)?$')
+    for match in pattern.finditer(opt):
+        if match.group(1) == ':u':
+            rounded = False
+        if match.group(2):
+            granularity = match.group(2)
+            # remove ':'
+            granularity = int(granularity[1:])
+    myformatter = FormatTimestamp()
+    msg = myformatter.convert(seconds, granularity=granularity, rounded=rounded, translate=translate)
+    return msg 
+
+
+def _format_date(timestamp, opt):
+    """Client helper for formatting date"""
+    # Default value
+    display='long'
+    trans = { 
+            ':s' :   'short',
+            ':m' :   'medium',
+            ':l' :   'long',
+            ':f' :   'full'
+            }
+    # Parse opt to found if display has to be modified
+    pattern = re.compile(r'^\w+(\:\w)?')
+    for match in pattern.finditer(opt):
+        if match.group(1):
+            display = match.group(1)
+            display = trans[display]
+    
+    mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display, locale=mylocale[0])
+    if display == 'long':
+        # HACK This is a tweak, user should be aware
+        # This removed :  +0100 at the end of 'long' output
+        mydate = mydate[:-6]
+    return mydate
+
+

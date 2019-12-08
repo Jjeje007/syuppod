@@ -65,7 +65,7 @@ class MainLoopThread(threading.Thread):
     def run(self):
         while True:
             # First: check if we have to sync
-            if self.manager['portage'].sync['status'] or self.manager['portage'].sync['remain'] <= 0:
+            if self.manager['portage'].sync['remain'] <= 0:
                 # Make sure sync is not in progress
                 if self.manager['portage'].check_sync():
                     # sync
@@ -93,7 +93,7 @@ class MainLoopThread(threading.Thread):
                 self.manager['portage'].portage['remain'] = 30
             self.manager['portage'].portage['remain'] -= 1
             
-            # Last (for portage): check if we are running world update
+            # Then: check if we are running world update
             if self.manager['portage'].world['remain'] <= 0:
                 self.manager['portage'].get_last_world_update()
                 if self.manager['portage'].world['status']:
@@ -101,7 +101,16 @@ class MainLoopThread(threading.Thread):
                     self.manager['portage'].pretend_world()
             self.manager['portage'].world['remain'] -= 1
             
-            
+            # For portage, last: implant forced pretend to be called
+            # over dbus to no blocking call. 
+            # Leave other check: is sync running ? is pretend already running ? is world update is running ?
+            # to portagedbus module so it can reply to client 
+            if self.manager['portage'].world['forced']:
+                log.warning('Forcing pretend world as requested by dbus client.')
+                self.manager['portage'].pretend_world()
+                # Reset to False
+                self.manager['portage'].world['forced'] = False
+                        
             # Git stuff
             if self.manager['git'].enable:
                 # First: pull

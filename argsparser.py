@@ -10,6 +10,9 @@ from gitmanager import check_git_dir
 
 # TODO: add --dry-run opt to not write to statefile 
 # TODO  argcomplete --> https://github.com/kislyuk/argcomplete
+# TODO  make opt word not all required : like argparse default if --available you can write --a 
+#       and it's match if there nothing eles which start by --a . Same here with for exemple:
+#       --count : this can be both|session|overall -> for both you could write 'b' or 'bo' or 'bot' or ...
 
 class CustomArgsCheck:
     """Advanced arguments checker which implant specific parsing"""
@@ -44,7 +47,7 @@ class CustomArgsCheck:
                 self.parser.error(f'Got invalid interval while parsing: \'{match.string}\', ', 
                                   f'regex \'{match.re}\'.')
         # Ok so converted should be greater or equal to 86400 (mini sync/git interval)
-        if not converted >= 86400:
+        if converted < 86400:
             self.parser.error(f'Interval \'{interval}\' too small: minimum is 24 hours / 1 day !')
         return converted
         
@@ -75,7 +78,7 @@ class CustomArgsCheck:
     
     def _check_args_portage_elapse_remain(self, opt):
         """Checking portage elapse or remain argument"""
-        pattern = re.compile(r'^seconds$|^human{0}$'.format(self.shared_pattern))
+        pattern = re.compile(r'^seconds$|^human{0}$'.format(self.shared_timestamp))
         if not pattern.match(opt):
             self.parser.error(f'invalid choice: \'{opt}\' (choose from \'seconds\' or \'human\').')
         return opt
@@ -289,7 +292,12 @@ class ClientParserHandler(CustomArgsCheck):
                                   '\'[format]\' could be: [:r]ounded, [:u]nrounded and '
                                   '[:1]-5 to choose granularity level - this can be collapse, ex: [:u:3]. Default: '
                                   '\'elapse:r:2\'')
-                                  
+        portage_args.add_argument('--forced',
+                                  action = 'store_true',
+                                  help = 'Force recalculation of the packages informations. This will run '
+                                  '`emerge --pretend '
+                                  '-uvaDN --with-bdeps=yes @world`. Normally, this is done automatically when syuppod '
+                                  'sync or when world update has been run.')
         portage_args.add_argument('--all',
                                   action = 'store_true',
                                   help='Display all the informations in one time with defaults options.')

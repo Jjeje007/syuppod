@@ -25,9 +25,6 @@ class PortageDbus(PortageHandler):
                 <method name='forced_pretend'>
                     <arg type='s' name='response' direction='out'/>
                 </method>
-                <method name='forced_sync'>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
             </interface>
         </node>
     """
@@ -46,26 +43,26 @@ class PortageDbus(PortageHandler):
     ### portage attributtes
     def get_portage_attribute(self, key):
         return str(self.portage[key])
-    
-    ### forced method
-    def forced_sync(self):
-        # TODO: some idea to make this 'good'
-        # We could force sync one time every 24H 
-        # But only 2 times a week . we think it fair enough.
-        self.log.info('This is a test from portagedbus')
-        return 'ok'
-    
+        
     def forced_pretend(self):
         # Every time if not in progress and sync also 
         # TODO: this should be async also 
         # Look like pydbus is not...
         # https://github.com/ldo/dbussy
-        if not self.world['pretend']: # and not self.sync[:
-            #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
-            self.pretend_world()
-            return 'completed'
-        return 'already in progress'
-    
+        # Don't run if sync is in progress (as we will run pretend after)
+        if self.sync['update'] == 'In Progress':
+            return 'sync'
+        # Don't run if world update is in progress
+        if self.world['update'] == 'In Progress':
+            return 'world'
+        # Don't run if pretend is running
+        if self.world['pretend']:
+            return 'already'
+        #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
+        self.world['forced'] = True
+        #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
+        return 'running'
+            
     # TODO: some ideas : we could propose applied pretend update
     #       this mean lauching terminal through dbus and asking root passw / sudo ?
     
