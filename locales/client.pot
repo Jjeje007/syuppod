@@ -1,0 +1,178 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-12-05 13:41+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: client.py:65
+msgid "Success"
+msgstr ""
+
+#: client.py:66
+msgid "Failed"
+msgstr ""
+
+#: client.py:67
+msgid "In Progress"
+msgstr ""
+
+#: client.py:68
+msgid "Finish"
+msgstr ""
+
+#: client.py:69
+msgid "Last state of the repositories syncronizer:"
+msgstr ""
+
+#: client.py:70
+msgid "Current status of the repositories syncronizer:"
+msgstr ""
+
+#: client.py:83
+msgid "Current error count for the repositories syncronizer:"
+msgstr ""
+
+#: client.py:84 client.py:116
+msgid "time"
+msgstr ""
+
+#: client.py:86 client.py:118
+msgid "times"
+msgstr ""
+
+#: client.py:105
+msgid "Session"
+msgstr ""
+
+#: client.py:106
+msgid "Overall"
+msgstr ""
+
+#: client.py:109
+msgid "The repositories syncronizer run successfully:"
+msgstr ""
+
+#: client.py:178
+msgid "seconds since epoch (unix / posix time)"
+msgstr ""
+
+#: client.py:181
+msgid "The "
+msgstr ""
+
+#: client.py:187
+msgid "There is "
+msgstr ""
+
+#: client.py:188
+msgid "ago"
+msgstr ""
+
+#: client.py:191
+msgid "Last repositories synchronization:"
+msgstr ""
+
+#: client.py:212 client.py:233
+msgid "seconds"
+msgstr ""
+
+#: client.py:216
+msgid "Current repositories synchronization interval:"
+msgstr ""
+
+#: client.py:227
+msgid "Current repositories synchronization elapse time:"
+msgstr ""
+
+#: client.py:228
+msgid "Current repositories synchronization remain time:"
+msgstr ""
+
+#: client.py:251
+msgid "Portage package update status:"
+msgstr ""
+
+#: client.py:255
+msgid "Available"
+msgstr ""
+
+#: client.py:257
+msgid "Not available"
+msgstr ""
+
+#: client.py:261
+msgid "Available portage package update, version:"
+msgstr ""
+
+#: client.py:268
+#, python-brace-format
+msgid "Available (from {0} to {1})"
+msgstr ""
+
+#: client.py:270
+#, python-brace-format
+msgid "Not available ({0})"
+msgstr ""
+
+#: client.py:281 client.py:304
+msgid "None"
+msgstr ""
+
+#: client.py:285
+msgid "Available packages to update:"
+msgstr ""
+
+#: client.py:297
+msgid "Last world update state:"
+msgstr ""
+
+#: client.py:300
+msgid "Last world update packages:"
+msgstr ""
+
+#: client.py:305
+msgid "Last world update failed package:"
+msgstr ""
+
+#: client.py:308
+msgid "Last world update failed packages:"
+msgstr ""
+
+#: client.py:311 client.py:315
+#, python-brace-format
+msgid "The {0}"
+msgstr ""
+
+#: client.py:312
+msgid "Last world update started:"
+msgstr ""
+
+#: client.py:316
+msgid "Last world update stoped:"
+msgstr ""
+
+#: client.py:321
+#, python-brace-format
+msgid "There is {0} ago"
+msgstr ""
+
+#: client.py:322
+msgid "Last world update finished:"
+msgstr ""
+
+#: client.py:328
+msgid "Last world update lasted:"
+msgstr ""
