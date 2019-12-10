@@ -555,12 +555,12 @@ class PortageHandler:
                 return False
             # It's up to date 
             if self.latest == self.portage['current']:
-                mysplit = pkgsplit(self.latest)
-                if not mysplit[2] == 'r0':
-                    myversion = '-'.join(mysplit[-2:])
-                else:
-                    myversion = mysplit[1]
-                self.log.debug(f'No update to portage package is available (current version: {myversion}')
+                #mysplit = pkgsplit(self.latest)
+                #if not mysplit[2] == 'r0':
+                    #myversion = '-'.join(mysplit[-2:])
+                #else:
+                    #myversion = mysplit[1]
+                self.log.debug(f'No update to portage package is available (current version: {self.latest}')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
                 if self.portage['available'] == 'True':
@@ -613,27 +613,27 @@ class PortageHandler:
             return False
         else:
             # Split current version first
-            mysplit = pkgsplit(self.current)
-            if not mysplit[2] == 'r0':
-                current_version = '-'.join(mysplit[-2:])
-            else:
-                current_version = mysplit[1]
+            #mysplit = pkgsplit(self.current)
+            #if not mysplit[2] == 'r0':
+                #current_version = '-'.join(mysplit[-2:])
+            #else:
+                #current_version = mysplit[1]
             if self.result == 1:
                 # Split latest version
-                mysplit = pkgsplit(self.latest)
-                if not mysplit[2] == 'r0':
-                    latest_version = '-'.join(mysplit[-2:])
-                else:
-                    latest_version = mysplit[1]
+                #mysplit = pkgsplit(self.latest)
+                #if not mysplit[2] == 'r0':
+                    #latest_version = '-'.join(mysplit[-2:])
+                #else:
+                    #latest_version = mysplit[1]
             if self.result == 1:
                 # Print one time only (when program start / when update found)
                 # So this mean each time the program start and if update is available 
                 # it will print only one time.
                 if self.portage['logflow']:
-                    self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+                    self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
                     self.portage['logflow'] = False
                 else:
-                    self.log.debug(f'Found an update to portage (from {current_version} to {latest_version}).')
+                    self.log.debug(f'Found an update to portage (from {self.current} to {self.latest}).')
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
@@ -651,7 +651,7 @@ class PortageHandler:
                     # But this should print if there a new version of portage available
                     # even if there is already an older version available
                     if key == 'latest' and self.portage['logflow']:
-                        self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+                        self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
     
     
     def _get_repositories(self):
