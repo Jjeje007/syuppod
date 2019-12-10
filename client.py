@@ -87,6 +87,9 @@ def portage_parser(args):
     
     for key in mycall:
         if args.all:
+            # Skip forced for all args
+            if key == 'forced':
+                continue
             mycall[key]['func'](*mycall[key]['args'])
         elif getattr(args, key):
             mycall[key]['func'](*mycall[key]['args'])

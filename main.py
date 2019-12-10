@@ -65,7 +65,7 @@ class MainLoopThread(threading.Thread):
     def run(self):
         while True:
             # First: check if we have to sync
-            if self.manager['portage'].sync['remain'] <= 0:
+            if self.manager['portage'].sync['status'] or self.manager['portage'].sync['remain'] <= 0:
                 # Make sure sync is not in progress
                 if self.manager['portage'].check_sync():
                     # sync
@@ -186,6 +186,10 @@ def main():
         
     # Check sync
     myportmanager.check_sync(init_run=True)
+    
+    # TEST
+    myportmanager.available_portage_update()
+    
                
     if args.git:
         log.debug('Git kernel tracking has been enable.')

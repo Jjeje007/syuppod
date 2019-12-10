@@ -13,6 +13,7 @@ import portage
 import subprocess
 
 from portage.versions import pkgcmp, pkgsplit
+from portage.emaint.modules.sync.sync import SyncRepos
 from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
@@ -47,6 +48,7 @@ class PortageHandler:
         self.update_inprogress = UpdateInProgress(self.log) 
         # Sync attributes
         self.sync = {
+            'status'        :   False, # FIXME  not sure if we really need this ...
             'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
             'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finish'
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
@@ -54,9 +56,10 @@ class PortageHandler:
             'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   interval,
-            'elapse'       :   0,
+            'elapse'        :   0,
             'remain'        :   0,
-            'current_count' :   0   # Counting sync count since running (current session)
+            'current_count' :   0,   # Counting sync count since running (current session)
+            'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'name', 'count' and 'msg'
             }
         
         # Print warning about interval it's 'too big'
@@ -123,31 +126,35 @@ class PortageHandler:
         # Get the last emerge sync timestamp
         myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
         sync_timestamp = myparser.last_sync()
-        
         self.log.name = f'{self.logger_name}check_sync::'
-        
         if timestamp_only:
             return sync_timestamp
         
         current_timestamp = time.time()
         update_statefile = False
-                
+        
+        # Refresh repositories infos
+        self.sync['repos'] = self._get_repositories()
+        self.log.name = f'{self.logger_name}check_sync::'
+        
         if sync_timestamp:
             # Ok it's first run ever 
             if self.sync['timestamp'] == 0:
-                self.log.debug('Found portage update repo timestamp set to factory: \'0\'.')
+                self.log.debug('Found sync {0} timestamp set to factory: \'0\'.'.format(self.sync['repos']['msg']))
                 self.log.debug(f'Setting to: \'{sync_timestamp}\'.')
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             # This mean that sync has been run outside the program 
             elif init_run and not self.sync['timestamp'] == sync_timestamp:
-                self.log.debug('Portage repo has been update outside the program, forcing pretend world...')
+                self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
+                                                                                self.sync['repos']['msg'].capitalize()))
                 self.world['status'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             # Same here 
             elif self.sync['timestamp'] != sync_timestamp:
-                self.log.debug('Portage repo has been update outside the program, forcing pretend world...')
+                self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
+                                                                                self.sync['repos']['msg'].capitalize()))
                 self.world['status'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
@@ -155,14 +162,23 @@ class PortageHandler:
             self.sync['elapse'] = round(current_timestamp - sync_timestamp)
             self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
             
-            self.log.debug('Update repo elapsed time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elapse'])))
-            self.log.debug('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
-            self.log.debug('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
+            self.log.debug('{0} sync elapsed time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                    self.format_timestamp.convert(self.sync['elapse'])))
+            self.log.debug('{0} sync remain time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                   self.format_timestamp.convert(self.sync['remain'])))
+            self.log.debug('{0} sync interval: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
-                self.log.info('Update repo elapsed time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['elapse'])))
-                self.log.info('Update repo remain time: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['remain'])))
-                self.log.info('Update repo interval: \'{0}\'.'.format(self.format_timestamp.convert(self.sync['interval'])))
+                self.log.info('Found {0} {1} to sync: {2}'.format(self.sync['repos']['count'], 
+                                                                  self.sync['repos']['msg'],
+                                                                  self.sync['repos']['formatted']))
+                self.log.info('{0} sync elapsed time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                    self.format_timestamp.convert(self.sync['elapse'])))
+                self.log.info('{0} sync remain time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                    self.format_timestamp.convert(self.sync['remain'])))
+                self.log.info('{0} sync interval: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                                                                  self.format_timestamp.convert(self.sync['interval'])))
             
             if update_statefile:
                 self.log.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
@@ -173,6 +189,7 @@ class PortageHandler:
                                                                                  self.pathdir['statelog']))
             
             if self.sync['remain'] <= 0:
+                self.sync['status'] = True
                 return True
             return False
         return False        
@@ -198,9 +215,16 @@ class PortageHandler:
             # recheck in 10 minutes
             self.sync['remain'] = 600
             return False # 'inprogress'
-            # keep last know timestamp # Keep 'In Progress' 
+            # keep last know timestamp # Keep 'In Progress'
+            
+        # Refresh repositories infos
+        self.sync['repos'] = self._get_repositories()
+        self.log.name = f'{self.logger_name}dosync::'
                 
-        self.log.debug('Will update portage repository.')
+        self.log.debug('Will sync {0} {1}: {2}.'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
+                                                                  self.sync['repos']['names']))
+        self.log.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
+                                                                  self.sync['repos']['formatted']))
             
         # Init logging
         self.log.debug('Initializing logging handler:')
@@ -246,7 +270,7 @@ class PortageHandler:
         return_code = mysync.wait()
         
         if return_code:
-            self.log.error('Got error while updating portage repository.')
+            self.log.error('Got error while syncing {0}.'.format(self.sync['repos']['msg']))
             self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
             self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
                 
@@ -269,7 +293,7 @@ class PortageHandler:
             self.sync['error'] = int(self.sync['error'])
                               
             if int(self.sync['error']) > 3:
-                self.log.critical('This is the third error while  updating portage repository.')
+                self.log.critical('This is the third error while  syncing {0}.'.format(self.sync['repos']['msg']))
                 self.log.critical('Cannot continue, please fix the error.')
                 sys.exit(1)
             
@@ -282,7 +306,7 @@ class PortageHandler:
             self.stateinfo.save('sync error', 'sync error: ' + str(self.sync['error']))
                 
             # Retry in self.sync['interval']
-            self.log.info('Will retry update in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
+            self.log.info('Will retry sync in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
             self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             self.sync['remain'] = self.sync['interval']
                 
@@ -301,7 +325,7 @@ class PortageHandler:
                 self.log.debug('Skip saving \'sync state: {0}\' to \'{1}\': already in good state.'.format(self.sync['state'], 
                                                                                  self.pathdir['statelog']))
                 
-            self.log.info(f'Successfully update portage repository.')
+            self.log.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
             
             # Same here if no error don't rewrite
             if not self.sync['error'] == '0':
@@ -334,7 +358,7 @@ class PortageHandler:
             self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             self.sync['remain'] = self.sync['interval']
             
-            self.log.info('Will retry update in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
+            self.log.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             # Get the sync timestamp from emerge.log 
 
@@ -531,7 +555,12 @@ class PortageHandler:
                 return False
             # It's up to date 
             if self.latest == self.portage['current']:
-                self.log.debug(f'No update to portage package is available (current version: {self.latest}')
+                mysplit = pkgsplit(self.latest)
+                if not mysplit[2] == 'r0':
+                    myversion = '-'.join(mysplit[-2:])
+                else:
+                    myversion = mysplit[1]
+                self.log.debug(f'No update to portage package is available (current version: {myversion}')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
                 if self.portage['available'] == 'True':
@@ -583,19 +612,32 @@ class PortageHandler:
             # TODO: Should we reset all attributes ?
             return False
         else:
+            # Split current version first
+            mysplit = pkgsplit(self.current)
+            if not mysplit[2] == 'r0':
+                current_version = '-'.join(mysplit[-2:])
+            else:
+                current_version = mysplit[1]
+            if self.result == 1:
+                # Split latest version
+                mysplit = pkgsplit(self.latest)
+                if not mysplit[2] == 'r0':
+                    latest_version = '-'.join(mysplit[-2:])
+                else:
+                    latest_version = mysplit[1]
             if self.result == 1:
                 # Print one time only (when program start / when update found)
                 # So this mean each time the program start and if update is available 
-                # it will print.
+                # it will print only one time.
                 if self.portage['logflow']:
-                    self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
+                    self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
                     self.portage['logflow'] = False
                 else:
-                    self.log.debug(f'Found an update to portage (from {self.current} to {self.latest}).')
+                    self.log.debug(f'Found an update to portage (from {current_version} to {latest_version}).')
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
-                self.log.debug(f'No update to portage package is available (current version: {self.current}')
+                self.log.debug(f'No update to portage package is available (current version: {current_version}')
                 self.available = False
             
             # Update only if change
@@ -609,9 +651,39 @@ class PortageHandler:
                     # But this should print if there a new version of portage available
                     # even if there is already an older version available
                     if key == 'latest' and self.portage['logflow']:
-                        self.log.info(f'Found an update to portage (from {self.current} to {self.latest}).')
-            
-
+                        self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+    
+    
+    def _get_repositories(self):
+        """Get name(s) of repos to sync and return formatted"""
+        self.log.name = f'{self.logger_name}_get_repositories::'
+        # Initalise
+        sync = SyncRepos()
+        # Get repo list
+        repos = sync._get_repos()
+        if repos[0]:
+            # Get the name of each
+            names = re.findall('RepoConfig\(name=\'(.*?)\',.location', str(repos[1]), re.DOTALL)
+            if names:
+                repo_count = len(names)
+                repo_msg = 'repositories'
+                # get only first three elements if names > 3
+                if repo_count > 3:
+                    repo_name = ', '.join(names[:3]) + ' (+' + str(repo_count - 3) + ')'
+                elif repo_count == 1:
+                    repo_msg = 'repository'
+                    repo_name = ''.join(names)
+                else:
+                    repo_name = ', '.join(names)
+                self.log.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
+                # return dict
+                return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
+        # This is debug message as it's not fatal for the program
+        self.log.debug('Could\'nt found sync repositories name(s) and count...')
+        # We don't know so just return generic
+        return { 'names' : '', 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }
+    
+    
 
 class EmergeLogParser:
     """Parse emerge.log file and extract informations"""
@@ -805,7 +877,7 @@ class EmergeLogParser:
         #   BUT we get nothing in a emerge.log about that.
         #   We CAN'T have the name of the package.
         #   Just get the number and display some more informations, like:
-        #   (+n package(s) dropped) - this has to be tested more and more
+        #   (+n package(s) dropped) - this has to be TEST more and more
         
         #   --keep-going opts: restart immediatly after failed package ex:
         #       1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
