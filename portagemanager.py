@@ -13,7 +13,9 @@ import portage
 import subprocess
 
 from portage.versions import pkgcmp, pkgsplit
-from portage.emaint.modules.sync.sync import SyncRepos
+from portage.dbapi.porttree import portdbapi
+from portage.dbapi.vartree import vardbapi
+
 from utils import FormatTimestamp
 from utils import CapturedFd
 from utils import StateInfo
@@ -546,10 +548,10 @@ class PortageHandler:
             # Return list any way, see --> https://dev.gentoo.org/~zmedico/portage/doc/api/portage.dbapi-pysrc.html 
             # Function 'match' ->  Returns: 
             #                           a list of packages that match origdep 
-            portage_list = portage.db[portage.root]['vartree'].dbapi.match('portage')
-            self.latest = portage.db[portage.root]['porttree'].dbapi.xmatch('bestmatch-visible', 'portage')
+            portage_list = vardbapi().match('portage')
+            self.latest = portdbapi().xmatch('bestmatch-visible', 'portage')
         else:
-            self.latest = portage.db[portage.root]['porttree'].dbapi.xmatch('bestmatch-visible', 'portage')
+            self.latest = portdbapi().xmatch('bestmatch-visible', 'portage')
             if not self.latest:
                 self.log.error('Got not result when querying portage db for latest available portage package')
                 return False
@@ -574,7 +576,7 @@ class PortageHandler:
                     self.stateinfo.save('portage latest', 'portage latest: ' + str(self.portage['latest']))
                     return True
             else:
-                portage_list = portage.db[portage.root]['vartree'].dbapi.match('portage')
+                portage_list = vardbapi().match('portage')
         
         # Make sure current is not None
         if not portage_list:
@@ -625,7 +627,6 @@ class PortageHandler:
                     latest_version = '-'.join(mysplit[-2:])
                 else:
                     latest_version = mysplit[1]
-            if self.result == 1:
                 # Print one time only (when program start / when update found)
                 # So this mean each time the program start and if update is available 
                 # it will print only one time.
@@ -657,27 +658,22 @@ class PortageHandler:
     def _get_repositories(self):
         """Get name(s) of repos to sync and return formatted"""
         self.log.name = f'{self.logger_name}_get_repositories::'
-        # Initalise
-        sync = SyncRepos()
-        # Get repo list
-        repos = sync._get_repos()
-        if repos[0]:
-            # Get the name of each
-            names = re.findall('RepoConfig\(name=\'(.*?)\',.location', str(repos[1]), re.DOTALL)
-            if names:
-                repo_count = len(names)
-                repo_msg = 'repositories'
-                # get only first three elements if names > 3
-                if repo_count > 3:
-                    repo_name = ', '.join(names[:3]) + ' (+' + str(repo_count - 3) + ')'
-                elif repo_count == 1:
-                    repo_msg = 'repository'
-                    repo_name = ''.join(names)
-                else:
-                    repo_name = ', '.join(names)
-                self.log.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
-                # return dict
-                return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
+        names = portdbapi().getRepositories()
+        if names:
+            names = sorted(names)
+            repo_count = len(names)
+            repo_msg = 'repositories'
+            # get only first three elements if names > 3
+            if repo_count > 6:
+                repo_name = ', '.join(names[:6]) + ' (+' + str(repo_count - 6) + ')'
+            elif repo_count == 1:
+                repo_msg = 'repository'
+                repo_name = ''.join(names)
+            else:
+                repo_name = ', '.join(names)
+            self.log.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
+            # return dict
+            return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
         # This is debug message as it's not fatal for the program
         self.log.debug('Could\'nt found sync repositories name(s) and count...')
         # We don't know so just return generic
