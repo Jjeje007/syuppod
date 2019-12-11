@@ -501,9 +501,14 @@ class UpdateInProgress:
             'World'     :   0,
             'Git'       :   0
             }
+        self.msg = {
+            'Sync'  :   'Syncing',
+            'World' :   'Global update',
+            'Git'   :   'Git pull'
+            }
         
         
-    def check(self, tocheck, repogit=False, quiet=False):
+    def check(self, tocheck, additionnal_msg='', repogit=False, quiet=False):
         """...depending on tocheck var
         Arguments:
             (str) @tocheck : call with 'World' or 'Sync' or 'Git'
@@ -588,9 +593,7 @@ class UpdateInProgress:
         current_timestamp = time.time()
         
         if inprogress:
-            
-            self.log.debug(f'{tocheck} update in progress.')
-            
+            self.log.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             # We just detect 'inprogress'
             if self.timestamp[tocheck] == 0:
                 displaylog = True
@@ -615,18 +618,14 @@ class UpdateInProgress:
                         self.log.warning('Resetting all attributes')
                         self.timestamp[tocheck] = 0
                         self.logflow[tocheck] = 0
-                                
             if displaylog and not quiet:
-                self.log.info(f'{tocheck} update in progress.')
-                
+                self.log.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             return True
-        
         else:
-            self.log.debug(f'{tocheck} update is not in progress.')
+            self.log.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
             # Reset attributes
             self.timestamp[tocheck] = 0
             self.logflow[tocheck] = 0
-                       
             return False
 
 

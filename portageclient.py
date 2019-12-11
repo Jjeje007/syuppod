@@ -102,7 +102,7 @@ def portage_timestamp(myobject, formatting, machine, translate):
         print('[*]', _('Last repositories synchronization:'))
         print('    - {0}{1} {2}'.format(_(additionnal_msg[0]), _(msg), _(additionnal_msg[1])))
     else:
-        print(msg)
+        print('{0}{1} {2}'.format(_(additionnal_msg[0]), _(msg), _(additionnal_msg[1])))
 
 
 def portage_interval(myobject, interval, machine, translate):
@@ -257,8 +257,8 @@ def portage_forced(myobject, machine):
     # until it finished (~6min)
     msg = {
         'sync'      :   _('Sync is in progress, abording...'),
-        'world'     :   _('World update is in progress, abording...'),
-        'already'   :   _('Pretend already in progress, abording...'),
+        'world'     :   _('Global update is in progress, abording...'),
+        'already'   :   _('Recalculation already in progress, abording...'),
         'running'   :   _('Order has been sent, see log for more details.')
         }
     reply = myobject.forced_pretend()

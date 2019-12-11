@@ -13,6 +13,16 @@ class GitDbus(GitHandler):
                 <method name='set_enable'>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='get_kernel_attributes'>
+                    <arg type='s' name='kernel_key' direction='in'/>
+                    <arg type='s' name='kernel_subkey' direction='in'/>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
+                <method name='get_branch_attributes'>
+                    <arg type='s' name='branch_key' direction='in'/>
+                    <arg type='s' name='branch_subkey' direction='in'/>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
             </interface>
         </node>
     """
@@ -24,14 +34,8 @@ class GitDbus(GitHandler):
         if self.enable:
             super().__init__(**self.kwargs)
         
-    #def _check_enable(self):
-        #"""Check if git implantation is enable"""
-        #if self.enable:
-            #return True
-        #else:
-            #return False
-        
     def set_enable(self):
+        """Enable git manager"""
         if self.enable:
             return 'already'
         else:
@@ -53,3 +57,20 @@ class GitDbus(GitHandler):
             # can do the work :)
             self.enable = True
             return 'done'
+    
+    ### Kernel attributes
+    def get_kernel_attributes(self, key, subkey):
+        """Retrieve specific kernel attribute and return trought dbus"""
+        if not self.enable:
+            return 'disable'
+        if not subkey == 'running':
+            return str(' '.join(self.kernel[key][subkey]))
+        return str(self.kernel[key][subkey])
+    
+    ### Branch attributes
+    def get_branch_attributes(self, key, subkey):
+        """Retrieve specific branch attribute and return trought dbus"""
+        if not self.enable:
+            return 'disable'
+        return str(' '.join(self.branch[key][subkey]))
+    

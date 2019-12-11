@@ -306,8 +306,11 @@ class ClientParserHandler(CustomArgsCheck):
         self.git_parser = subparsers.add_parser('git',
                                            help='git implantation.')
         git_args = self.git_parser.add_argument_group('<Git options>')
-        git_args.add_argument('--pull',
-                              help='pull')
+        git_args.add_argument('--available',
+                              metavar = 'avl',
+                              choices = ['branch', 'kernel'],
+                              help = 'Display available \'kernel\' or \'branch\' update.')
+        
         
     def parsing(self):
         args = self.parser.parse_args()

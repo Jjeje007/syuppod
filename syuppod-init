@@ -14,4 +14,5 @@ description="Syuppod is a daemon that auto sync and guess how many package to up
 depend() {
 	# Need net to sync
 	need net
+	after logger
 }

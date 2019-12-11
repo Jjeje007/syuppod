@@ -9,7 +9,6 @@ import re
 import pathlib
 import time
 import errno
-import portage
 import subprocess
 
 from portage.versions import pkgcmp, pkgsplit
@@ -61,14 +60,15 @@ class PortageHandler:
             'elapse'        :   0,
             'remain'        :   0,
             'current_count' :   0,   # Counting sync count since running (current session)
-            'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'name', 'count' and 'msg'
+            'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
+                                                          # 'count' and 'msg'. 'names' is a list
             }
         
         # Print warning about interval it's 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
-            self.log.warning('Sync interval for portage update tree is too big (\'{0}\').'
-                             .format(self.format_timestamp.convert(self.sync['interval'], granularity=6)))
+            self.log.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
+                             self.format_timestamp.convert(self.sync['interval'], granularity=6)))
         
         # World attributes
         self.world = {
@@ -107,7 +107,7 @@ class PortageHandler:
         self.log.name = f'{self.logger_name}check_sync::'
         
         # Check if sync is running
-        if self.update_inprogress.check('Sync'):
+        if self.update_inprogress.check('Sync', additionnal_msg=self.sync['repos']['msg']):
             # Syncing is in progress keep last timestamp
             if not self.sync['update'] == 'In Progress':
                 self.sync['update'] = 'In Progress'
@@ -224,7 +224,7 @@ class PortageHandler:
         self.log.name = f'{self.logger_name}dosync::'
                 
         self.log.debug('Will sync {0} {1}: {2}.'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
-                                                                  self.sync['repos']['names']))
+                                                                  ', '.join(self.sync['repos']['names'])))
         self.log.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
             
@@ -295,7 +295,7 @@ class PortageHandler:
             self.sync['error'] = int(self.sync['error'])
                               
             if int(self.sync['error']) > 3:
-                self.log.critical('This is the third error while  syncing {0}.'.format(self.sync['repos']['msg']))
+                self.log.critical('This is the third error while syncing {0}.'.format(self.sync['repos']['msg']))
                 self.log.critical('Cannot continue, please fix the error.')
                 sys.exit(1)
             
@@ -324,8 +324,8 @@ class PortageHandler:
                                                                                 self.pathdir['statelog']))
                 self.stateinfo.save('sync state', 'sync state: Success')
             else:
-                self.log.debug('Skip saving \'sync state: {0}\' to \'{1}\': already in good state.'.format(self.sync['state'], 
-                                                                                 self.pathdir['statelog']))
+                self.log.debug('Skip saving \'sync state: {0}\''.format(self.sync['state']) +
+                               ' to \'{1}\': already in good state.'.format(self.pathdir['statelog']))
                 
             self.log.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
             
@@ -427,7 +427,7 @@ class PortageHandler:
                         #if key == 'start':
                         self.world['status'] = True
                         if to_print:
-                            self.log.info('World update has been run') # TODO: give more details
+                            self.log.info('Global update has been run') # TODO: give more details
                             to_print = False
                             
                         self.world['last'][key] = get_world_info[key]
@@ -538,7 +538,7 @@ class PortageHandler:
     def available_portage_update(self):
         """Check if an update to portage is available"""
         # TODO: be more verbose for debug !
-        
+        # TODO save only version 
         # Change name of the logger
         self.log.name = f'{self.logger_name}available_portage_update::'
         
@@ -663,7 +663,7 @@ class PortageHandler:
             names = sorted(names)
             repo_count = len(names)
             repo_msg = 'repositories'
-            # get only first three elements if names > 3
+            # get only first 6 elements if names > 6
             if repo_count > 6:
                 repo_name = ', '.join(names[:6]) + ' (+' + str(repo_count - 6) + ')'
             elif repo_count == 1:
@@ -752,7 +752,7 @@ class EmergeLogParser:
         while keep_running:
             self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             inside_group = False
-            self.log.debug('Extracting list of successfully update for main repo \'gentoo\'.')
+            self.log.debug('Extracting list of successfully sync for main repo \'gentoo\'.')
             for line in self.getlog(self.lastlines):
                 if inside_group:
                     if stop_re.match(line):
@@ -780,7 +780,7 @@ class EmergeLogParser:
             if collect:
                 keep_running = False
             else:
-                if self._keep_collecting(count, ['last update timestamp for main repo \'gentoo\'', 
+                if self._keep_collecting(count, ['last sync timestamp for main repo \'gentoo\'', 
                                             'never sync...'], 'sync'):
                     self.log.name = f'{self.logger_name}last_sync::'
                     count = count + 1
@@ -789,7 +789,7 @@ class EmergeLogParser:
                     return False
         
         # Proceed to get the latest timestamp
-        self.log.debug('Extracting latest update from: {0}'.format(', '.join(str(timestamp) for timestamp in collect)))
+        self.log.debug('Extracting latest sync from: {0}'.format(', '.join(str(timestamp) for timestamp in collect)))
         latest = collect[0]
         for timestamp in collect:
             if timestamp > latest:
@@ -1015,7 +1015,7 @@ class EmergeLogParser:
         while keep_running:
             self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             mylog = self.getlog(self.lastlines)
-            self.log.debug(f'Extracting list of completed{incompleted_msg} and partial world update'
+            self.log.debug(f'Extracting list of completed{incompleted_msg} and partial global update'
                            + ' group informations.')
             for line in mylog:
                 linecompiling += 1
@@ -1219,7 +1219,7 @@ class EmergeLogParser:
                     keep_running = False
                 else:
                     # That mean we have nothing ;)
-                    if self._keep_collecting(count, ['last world update timestamp', 
+                    if self._keep_collecting(count, ['last global update timestamp', 
                                 'have never been update using \'world\' update schema...'], 'world'):
                         self.log.name = f'{self.logger_name}last_world_update::'
                         keep_running = True
@@ -1230,7 +1230,7 @@ class EmergeLogParser:
                 if self.collect['completed'] or self.collect['partial']:
                     keep_running = False
                 else:
-                    if self._keep_collecting(count, ['last world update timestamp', 
+                    if self._keep_collecting(count, ['last global update timestamp', 
                                  'have never been update using \'world\' update schema...'], 'world'):
                         self.log.name = f'{self.logger_name}last_world_update::'
                         keep_running = True
@@ -1253,7 +1253,7 @@ class EmergeLogParser:
                 tocompare.append(latest_sublist)
         # Then compare latest from each list 
         # To find latest of latest
-        self.log.debug('Extracting latest world update informations.')
+        self.log.debug('Extracting latest global update informations.')
         if tocompare:
             latest_timestamp = tocompare[0]['start']
             latest_sublist = tocompare[0]
@@ -1263,7 +1263,7 @@ class EmergeLogParser:
                     # Ok we got latest of all latest
                     latest_sublist = sublist
         else:
-            self.log.error('Failed to found latest world update informations.')
+            self.log.error('Failed to found latest global update informations.')
             # We got error
             return False
         

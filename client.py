@@ -26,7 +26,8 @@ from portageclient import portage_available
 from portageclient import portage_packages
 from portageclient import portage_last
 from portageclient import portage_forced
-from gitclient import _check_enable
+
+from gitclient import git_available_version
 
 try:
     from pydbus import SystemBus
@@ -99,10 +100,12 @@ def git_parser(args):
     """Parser for git implentation"""
     myobject  = bus.get("net.syuppod.Manager.Git")
     mycall = {
-        ''  :   { 'func' : '', 'args' : [myobject]}
+        'available'  :   { 'func' : git_available_version, 'args' : [myobject, args.available, args.machine]}
         }
-    reply = myobject.get_set_enable('set')
-    print(f'Reply is {reply}')
+    
+    for key in mycall:
+        if getattr(args, key):
+            mycall[key]['func'](*mycall[key]['args'])
 
 
 ### MAIN ###
