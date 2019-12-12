@@ -3,7 +3,7 @@
 # -*- python -*- 
 # Copyright Jérôme Venturi: jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-# TODO git part
+# TODO extend git part
 # Good Translation 
 import time 
 import sys

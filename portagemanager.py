@@ -325,7 +325,7 @@ class PortageHandler:
                 self.stateinfo.save('sync state', 'sync state: Success')
             else:
                 self.log.debug('Skip saving \'sync state: {0}\''.format(self.sync['state']) +
-                               ' to \'{1}\': already in good state.'.format(self.pathdir['statelog']))
+                               ' to \'{0}\': already in good state.'.format(self.pathdir['statelog']))
                 
             self.log.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
             

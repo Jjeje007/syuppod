@@ -214,7 +214,7 @@ def main():
     dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     manager['portage'] = myportmanager
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
-    thread = MainLoopThread(manager, name='Main Loop Thread')
+    thread = MainLoopThread(manager, name='Main Loop Thread', daemon=True) # TEST
     thread.start()
     dbusloop.run()
     thread.join()

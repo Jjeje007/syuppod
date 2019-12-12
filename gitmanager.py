@@ -393,7 +393,8 @@ class GitHandler:
 
     def get_available_update(self, target_attr):
         """Compare lists and return all available branch or kernel update."""
-        
+        # TODO TODO this is not working you should really rewrite it 
+        #           simple is beautifull :p
         self.log.name = f'{self.logger_name}get_available_update::'
         
         # First compare latest local branch with remote branch list to get current available branch version
@@ -694,10 +695,8 @@ class GitHandler:
 
     def dopull(self):
         """Pulling git repository"""
-        
-        # TODO: thread
         # BUG : even if git pull failed it's still modify .git/FETCH_HEAD  ... 
-        
+        # We should go for subprocess to implant asyncio...
         self.log.name = f'{self.logger_name}dopull::'
         
         try:
