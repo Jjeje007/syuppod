@@ -49,12 +49,12 @@ class PortageHandler:
         self.update_inprogress = UpdateInProgress(self.log) 
         # Sync attributes
         self.sync = {
-            'status'        :   False, # FIXME  not sure if we really need this ...
+            'status'        :   False, # True when running / False when not
             'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
-            'update'        :   self.stateinfo.load('sync update'), # 'In Progress' / 'Finish'
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
             'error'         :   self.stateinfo.load('sync error'),
-            'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not int' or vice versa
+            'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
+                                                                          # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   interval,
             'elapse'        :   0,
@@ -72,8 +72,8 @@ class PortageHandler:
         
         # World attributes
         self.world = {
-            'status'    :   False,   # This mean we don't have to run pretend world update
-            'pretend'   :   False,   # False / True when running pretend (avoid running twice)
+            'status'    :   False,   # True when running / False when not
+            'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
             'update'    :   self.stateinfo.load('world update'), # 'In Progress' / 'Finish'
             'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
             'remain'    :   30, # Check every 30s  TODO: this could be tweaked (dbus client or args ?)
@@ -99,7 +99,7 @@ class PortageHandler:
             }
     
     
-    def check_sync(self, init_run=False, timestamp_only=False):
+    def check_sync(self, init_run=False):
         """ Checking if we can sync repo depending on time interval.
         Minimum is 24H. """
         
@@ -109,28 +109,25 @@ class PortageHandler:
         # Check if sync is running
         if self.update_inprogress.check('Sync', additionnal_msg=self.sync['repos']['msg']):
             # Syncing is in progress keep last timestamp
-            if not self.sync['update'] == 'In Progress':
-                self.sync['update'] = 'In Progress'
-                self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
             # Retry in ten minutes (so we got newly timestamp)
             self.sync['remain'] = 600
+            # Make sure self.sync['status'] == True
+            if not self.sync['status']:
+                self.log.error('Syncing is in progress but found status to False, please fix it')
+                self.log.error('Resetting status to True')
+                self.sync['status'] = True
             return False
         else:
-            # Reset update to 'Finished'
-            if not self.sync['update'] == 'Finish':
-                self.sync['update'] = 'Finish'
-                self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
+            # Same here make sure self.sync['status'] == False
+            if self.sync['status']:
+                self.log.error('Syncing is NOT in progress but found status to True, please fix it')
+                self.log.error('Resetting status to False')
+                self.sync['status'] = False
         
         # Get the last emerge sync timestamp
         myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
         sync_timestamp = myparser.last_sync()
         self.log.name = f'{self.logger_name}check_sync::'
-        if timestamp_only:
-            return sync_timestamp
         
         current_timestamp = time.time()
         update_statefile = False
@@ -150,7 +147,7 @@ class PortageHandler:
             elif init_run and not self.sync['timestamp'] == sync_timestamp:
                 self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
-                self.world['status'] = True # So run pretend world update
+                self.world['pretend'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             # Same here 
@@ -191,34 +188,30 @@ class PortageHandler:
                                                                                  self.pathdir['statelog']))
             
             if self.sync['remain'] <= 0:
-                self.sync['status'] = True
-                return True
+                return True # We can sync :)
             return False
         return False        
     
     
     def dosync(self):
         """ Updating repo(s) """
-        
-        # TODO: asyncio :)
-        
         # Change name of the logger
         self.log.name = f'{self.logger_name}dosync::'
         
-        # We going to sync :)
-        if not self.sync['update'] == 'In Progress':
-            self.sync['update'] = 'In Progress'
-            self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
-                                                                            self.pathdir['statelog']))
-            self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
-                
         # Check if already running
-        if self.update_inprogress.check('Sync'):
+        # BUT this shouldn't happend
+        if self.sync['status']:
+            self.log.error('We are about to sync {0}, but just found status to True,'.format(self.sync['repos']['msg']))
+            self.log.error('which mean syncing is in progress, please check and report if False')
+            # Don't touch status
             # recheck in 10 minutes
             self.sync['remain'] = 600
-            return False # 'inprogress'
-            # keep last know timestamp # Keep 'In Progress'
-            
+            return # Return will not be check as we implant asyncio and thread
+            # keep last know timestamp
+        
+        # Ok for now status is True
+        self.sync['status'] = True
+        
         # Refresh repositories infos
         self.sync['repos'] = self._get_repositories()
         self.log.name = f'{self.logger_name}dosync::'
@@ -240,9 +233,6 @@ class PortageHandler:
         myargs = ['/usr/bin/emerge', '--sync']
         mysync = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-        #mysync = await asyncio.create_subprocess_exec(myargs, stdout=asyncio.subprocess.PIPE, 
-                                                        # stderr=asyncio.subprocess.STDOUT, universal_newlines=True)
-            
         mylogfile.info('##########################################\n')
         
         for line in iter(mysync.stdout.readline, ""):
@@ -261,14 +251,6 @@ class PortageHandler:
             #Action: sync for repo: pinkpieea, returned code = 0
             mylogfile.info(line.rstrip())
         mysync.stdout.close()
-            
-        # It's finished 
-        if not self.sync['update'] == 'Finish':
-            self.sync['update'] = 'Finish'
-            self.log.debug('Saving \'sync update: {0}\' to \'{1}\'.'.format(self.sync['update'], 
-                                                                            self.pathdir['statelog']))
-            self.stateinfo.save('sync update', 'sync update: ' + self.sync['update'])
-            
         return_code = mysync.wait()
         
         if return_code:
@@ -311,9 +293,7 @@ class PortageHandler:
             self.log.info('Will retry sync in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
             self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             self.sync['remain'] = self.sync['interval']
-                
-            return False
-                
+            # We don't care about return                
         else:
             # Ok good :p
             # Don't update state file if it's already in state 'Success'
@@ -356,14 +336,7 @@ class PortageHandler:
                                                                                  self.pathdir['statelog']))
             self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['count']))
                 
-            # Reset self.sync['remain'] to interval
-            self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
-            self.sync['remain'] = self.sync['interval']
-            
-            self.log.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
-            
-            # Get the sync timestamp from emerge.log 
-
+            # Get the sync timestamp from emerge.log
             self.log.debug('Initializing emerge log parser:')
             myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
             self.log.debug('Parsing file: {0}'.format(self.pathdir['emergelog']))
@@ -379,9 +352,22 @@ class PortageHandler:
                     self.log.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
                     self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
-            return True
-                
-                
+            # At the end of successfully sync, run pretend_world()
+            self.world['pretend'] = True
+                    
+        # At the end Reset interval and set status to False (sync is Done)
+        self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
+        self.sync['remain'] = self.sync['interval']
+        self.sync['elapse'] = 0
+        self.log.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
+        if not self.sync['status']:
+            self.log.error('We are about to leave syncing process, but just found status already to False,'.format(
+                                                                                        self.sync['repos']['msg']))
+            self.log.error('which mean syncing is/was NOT in progress, please check and report if True')
+        self.sync['status'] = False
+        return                 
+            
+            
     def get_last_world_update(self):
         """Getting last world update timestamp"""
         
@@ -392,25 +378,15 @@ class PortageHandler:
         if self.update_inprogress.check('World'):
             if not self.world['update'] == 'In Progress':
                 self.world['update'] = 'In Progress'
-                self.log.debug('Saving \'world update: {0}\' to \'{1}\'.'.format(self.world['update'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('world update', 'world update: ' + self.world['update'])
             # Check every 10s
             self.world['remain'] = 10
-            self.world['status'] = False # don't run pretend_world()
-            return 'inprogress'
+            return
             # keep last know timestamp
         else:
             # World is not 'In Progress':
             if not self.world['update'] == 'Finish':
                 self.world['update'] = 'Finish'
-                self.log.debug('Saving \'world update: {0}\' to \'{1}\'.'.format(self.world['update'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('world update', 'world update: ' + self.world['update'])
-            # else: TODO: debug log level :)
-            
-            self.world['remain'] = 25
-            
+                       
             myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
             # keep default setting 
             # TODO : give the choice cf EmergeLogParser() --> last_world_update()
@@ -425,7 +401,7 @@ class PortageHandler:
                         # Ok this mean world update has been run
                         # So run pretend_world()
                         #if key == 'start':
-                        self.world['status'] = True
+                        self.world['pretend'] = True
                         if to_print:
                             self.log.info('Global update has been run') # TODO: give more details
                             to_print = False
@@ -437,12 +413,11 @@ class PortageHandler:
                         self.stateinfo.save('world last ' + key, 
                                             'world last ' + key 
                                             + ': ' + str(self.world['last'][key]))
-                return True # All good ;)
-            else:
-                # TODO : should we modified last world update attributes ?
-                return False
-                       
-            
+            # Reset remain :)
+            self.world['remain'] = 25
+            return
+        
+                                
     def pretend_world(self):
         """Check how many package to update"""
          ## TODO : This have to be run in a thread because it take long time to finish
@@ -452,17 +427,21 @@ class PortageHandler:
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
+        if not self.world['pretend']:
+            self.log.error('We are about to check available package update and found pretend to False,')
+            self.log.error('which mean this was NOT authorized, please report it')
+        # Disable pretend authorization
+        self.world['pretend'] = False
         # Make sure it's not already running        
-        if self.world['pretend']:
-            self.log.warning('Pretend world already in progress, skipping...') # Normaly this should spam 
-            return 'inprogress' # anyway at the moment we don't check return code 
-        
-        self.world['pretend'] = True
+        if self.world['status']:
+            self.log.error('We are about to check available package update and found status to True,')
+            self.log.error('which mean it is already in progress, please check and report if False')
+            return
+        self.world['status'] = True
+       
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'Total:.(\d+).packages.*')
-         # Make sure 
-        
         # Init logging 
         processlog = ProcessLoggingHandler(name='pretendlog')
         mylogfile = processlog.dolog(self.pathdir['pretendlog'])
@@ -511,12 +490,7 @@ class PortageHandler:
                 if retry < 2:
                     myargs.pop()
                     self.log.debug('Couldn\'t found how many package to update, retrying without opt \'--with bdeps\'.')
-                
-        
-        # pretend has been run then:
-        self.world['status'] = False
-        self.world['pretend'] = False
-        
+
         # Make sure we have some update_packages
         if update_packages:
             if not self.world['packages'] == update_packages:
@@ -524,15 +498,18 @@ class PortageHandler:
                 self.log.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
                                                                                  self.pathdir['statelog']))
                 self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
-            # else: debug log level
-            return True
         else:
             if not self.world['packages'] == 0:
                 self.world['packages'] = 0
                 self.log.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
                                                                                  self.pathdir['statelog']))
                 self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
-            return False
+        
+        # At the end
+        if not self.world['status']:
+            self.log.error('We are about to leave pretend process, but just found status already to False,')
+            self.log.error('which mean process is/was NOT in progress, please check and report if True')
+        self.world['status'] = False
 
 
     def available_portage_update(self):
@@ -541,6 +518,8 @@ class PortageHandler:
         # TODO save only version 
         # Change name of the logger
         self.log.name = f'{self.logger_name}available_portage_update::'
+        # Reset remain here as we return depending of the situation
+        self.portage['remain'] = 30
         
         self.available = False
         # This mean first run ever / or reset statefile 

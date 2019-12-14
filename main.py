@@ -10,7 +10,7 @@ import pathlib
 import time
 import re
 import errno
-#import utils
+import asyncio
 import threading
 
 from portagedbus import PortageDbus
@@ -56,62 +56,72 @@ pathdir = {
     
 }
 
-
-class MainLoopThread(threading.Thread):
-    def __init__(self, manager, *args, **kwargs):
+class AsyncioLoop(threading.Thread):
+    def __init__(self, loop, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.manager = manager
+        self.loop = loop
     
     def run(self):
+        """Start an asyncio loop"""
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_forever()
+        except KeyboardInterrupt:
+            # Canceling pending tasks and stopping the loop
+            asyncio.gather(*asyncio.Task.all_tasks()).cancel()
+            # Stopping the loop
+            self.loop.stop()
+            # Received Ctrl+C
+            self.loop.close()
+
+
+class MainDaemon(threading.Thread):
+    def __init__(self, manager, scheduler, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.manager = manager
+        self.scheduler = scheduler
+    
+    def run(self):
+        log.info('... now running.')
         while True:
-            # First: check if we have to sync
-            if self.manager['portage'].sync['remain'] <= 0:
+            ### Portage stuff
+            if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
                 if self.manager['portage'].check_sync():
-                    # sync
-                    if self.manager['portage'].dosync():
-                        # Check if we are running world update and
-                        # abord pretend world and check portage update
-                        # if this is the case.
-                        myupdate = UpdateInProgress(log)
-                        if not myupdate.check(tocheck='World', quiet=True):
-                            # pretend world update as sync is ok :)
-                            self.manager['portage'].pretend_world()
-                            # check portage update
-                            self.manager['portage'].available_portage_update()
-            self.manager['portage'].sync['remain'] -= 1  # For the moment this will not exactly be one second
-            self.manager['portage'].sync['elapse'] += 1 # Because all this stuff take more time - specially
-                                                         # pretend_world()
+                    # sync not blocking using class AsyncioLoop
+                    # pushing to asyncio loop 
+                    self.scheduler.call_soon_threadsafe(self.manager['portage'].dosync,)
+            self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
+            self.manager['portage'].sync['elapse'] += 1 # 
+            
+            # Then: run pretend_world() if authorized 
+            # Leave other check: is sync running ? is pretend already running ? is world update is running ?
+            # to portagedbus module so it can reply to client 
+            # TODO we should kill the pretend_world() if world update is detected
+            if self.manager['portage'].world['pretend']:
+                if self.manager['portage'].world['forced']:
+                    log.warning('Forcing pretend world as requested by dbus client.')
+                    self.manager['portage'].world['forced'] = False
+                # Making async and non blocking
+                self.scheduler.call_soon_threadsafe(self.manager['portage'].pretend_world,)  
             
             # Then: check available portage update
             if self.manager['portage'].portage['remain'] <= 0:
-                #if self.manager['portage'].portage['available']:
                 # We have to check every time
-                # Because you can make the update and then go back 
+                # Because you can make the update and then go back
+                # And after sync / world update
                 self.manager['portage'].available_portage_update()
-                # reset remain 
-                self.manager['portage'].portage['remain'] = 30
             self.manager['portage'].portage['remain'] -= 1
             
-            # Then: check if we are running world update
+            # Last: check if we are running world update 
+            # do we need to run pretend_world() ?
             if self.manager['portage'].world['remain'] <= 0:
                 self.manager['portage'].get_last_world_update()
-                if self.manager['portage'].world['status']:
-                    # So pretend has to be run 
-                    self.manager['portage'].pretend_world()
             self.manager['portage'].world['remain'] -= 1
             
-            # For portage, last: implant forced pretend to be called
-            # over dbus to no blocking call. 
-            # Leave other check: is sync running ? is pretend already running ? is world update is running ?
-            # to portagedbus module so it can reply to client 
-            if self.manager['portage'].world['forced']:
-                log.warning('Forcing pretend world as requested by dbus client.')
-                self.manager['portage'].pretend_world()
-                # Reset to False
-                self.manager['portage'].world['forced'] = False
+                          
                         
-            # Git stuff
+            ### Git stuff
             if self.manager['git'].enable:
                 # First: pull
                 if self.manager['git'].pull['status'] or self.manager['git'].pull['remain'] <= 0:
@@ -179,6 +189,11 @@ def main():
     # Init dbus service
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
+    
+    # Init asyncio loop
+    scheduler = asyncio.new_event_loop()
+    
+    # Init manager
     manager = { }
     
     # Init portagemanager
@@ -207,19 +222,27 @@ def main():
     else:
         mygitmanager = GitDbus(enable=False, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
                                loglevel=log.level)
-        
-   
-    log.info('... now running.')
+    
+    # Adding objets to manager
     manager['git'] = mygitmanager
-    dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     manager['portage'] = myportmanager
+    
+    # Adding dbus publisher
+    dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
-    thread = MainLoopThread(manager, name='Main Loop Thread', daemon=True) # TEST
-    thread.start()
+    
+    # Init threads
+    daemon_thread = MainDaemon(manager, scheduler, name='Main Daemon Thread', daemon=True)
+    scheduler_thread = AsyncioLoop(scheduler, name='Asyncio Loop Scheduler') # daemon ?
+    
+    # Start threads and dbus
+    scheduler_thread.start()
+    daemon_thread.start()
     dbusloop.run()
-    thread.join()
-   
-    log.info('Nothing left to do, exiting')
+    
+    daemon_thread.join()
+    scheduler_thread.join()
+    
     
     
     
