@@ -10,6 +10,7 @@ import pathlib
 import time
 import errno
 import subprocess
+import io
 
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
@@ -29,6 +30,7 @@ except Exception as exc:
     print(f'Got unexcept error while loading numpy module: {exc}')
     sys.exit(1)
 
+# TODO Make the program faster / more responsible to make pulling shorter (10s ?)
 
 class PortageHandler:
     """Portage tracking class"""
@@ -63,7 +65,6 @@ class PortageHandler:
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
-        
         # Print warning about interval it's 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
@@ -74,11 +75,14 @@ class PortageHandler:
         self.world = {
             'status'    :   False,   # True when running / False when not
             'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
-            'update'    :   self.stateinfo.load('world update'), # 'In Progress' / 'Finish'
+            'update'    :   False,   # True when global update is in progress / False if not
+            'updated'   :   False,   # True if system has been updated / False otherwise
             'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
-            'remain'    :   30, # Check every 30s  TODO: this could be tweaked (dbus client or args ?)
+            'remain'    :   5, # TEST Check every 5s  TODO: this could be tweaked (dbus client or args ?)
             'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
-                                   # this is for the future when async call will be implant.
+                                    # this is for async call implantation.
+            'cancel'    :   False,  # this is for cancelling pretend_world subprocess when it detect an world update
+            'cancelled' :   False,  # same here so we know it has been cancelled if True
             # attributes for last world update informations extract from emerge.log file
             'last'      :   {
                     'state'     :   self.stateinfo.load('world last state'), 
@@ -154,7 +158,7 @@ class PortageHandler:
             elif self.sync['timestamp'] != sync_timestamp:
                 self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
-                self.world['status'] = True # So run pretend world update
+                self.world['pretend'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
             
@@ -376,17 +380,17 @@ class PortageHandler:
         
         # Check if we are running world update right now
         if self.update_inprogress.check('World'):
-            if not self.world['update'] == 'In Progress':
-                self.world['update'] = 'In Progress'
-            # Check every 10s
-            self.world['remain'] = 10
+            self.world['update'] = True
+            # Check every 2s
+            self.world['remain'] = 2
             return
             # keep last know timestamp
         else:
             # World is not 'In Progress':
-            if not self.world['update'] == 'Finish':
-                self.world['update'] = 'Finish'
-                       
+            self.world['update'] = False
+            # Reset state of updated
+            self.world['updated'] = False
+            
             myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
             # keep default setting 
             # TODO : give the choice cf EmergeLogParser() --> last_world_update()
@@ -400,8 +404,8 @@ class PortageHandler:
                     if not self.world['last'][key] == get_world_info[key]:
                         # Ok this mean world update has been run
                         # So run pretend_world()
-                        #if key == 'start':
                         self.world['pretend'] = True
+                        self.world['updated'] = True
                         if to_print:
                             self.log.info('Global update has been run') # TODO: give more details
                             to_print = False
@@ -414,34 +418,55 @@ class PortageHandler:
                                             'world last ' + key 
                                             + ': ' + str(self.world['last'][key]))
             # Reset remain :)
-            self.world['remain'] = 25
+            self.world['remain'] = 5
             return
-        
-                                
+    
+    
     def pretend_world(self):
         """Check how many package to update"""
-         ## TODO : This have to be run in a thread because it take long time to finish
-        # and we didn't really need to wait as will be in a forever loop ...
-        # Ok TODO: asyncio give a try :)
-        
+        # TODO more verbose for debug
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
+        # Auto cancel if world update is in progress
+        if self.world['update']:
+            self.log.warning('The available package(s) update\'s search has been call.')
+            self.log.warning('But a global update is in progress, skipping...')
+            self.world['cancel'] = False
+            self.world['cancelled'] = True
+            self.world['status'] = False
+            # stop running pretend !
+            self.world['pretend'] = False
+            return
+        
         if not self.world['pretend']:
-            self.log.error('We are about to check available package update and found pretend to False,')
-            self.log.error('which mean this was NOT authorized, please report it')
+            self.log.error('We are about to search available package(s) update and found pretend to False,')
+            self.log.error('which mean this was NOT authorized, please report it.')
         # Disable pretend authorization
         self.world['pretend'] = False
         # Make sure it's not already running        
         if self.world['status']:
-            self.log.error('We are about to check available package update and found status to True,')
-            self.log.error('which mean it is already in progress, please check and report if False')
+            self.log.error('We are about to search available package(s) update and found status to True,')
+            self.log.error('which mean it is already in progress, please check and report if False.')
             return
         self.world['status'] = True
+        
+        # Don't need to run if cancel just received
+        if self.world['cancel']:
+            self.log.warning('Stop searching available package(s) update as global update has been detected.')
+            # Do we have already cancelled ?
+            if self.world['cancelled']:
+                self.log.warning('The previously task was already cancelled, check and report if False.')
+            self.world['cancelled'] = True
+            self.world['cancel'] = False
+            self.world['status'] = False
+            return
        
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'Total:.(\d+).packages.*')
+        skip_line_with_dot_only = re.compile(r'^\.$')
+        
         # Init logging 
         processlog = ProcessLoggingHandler(name='pretendlog')
         mylogfile = processlog.dolog(self.pathdir['pretendlog'])
@@ -451,26 +476,46 @@ class PortageHandler:
                   '--newuse', '--update', 'world', '--with-bdeps=y' ]
                
         while retry < 2:
-            mypretend = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
-                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
             mylogfile.info('##########################################\n')
-            for line in iter(mypretend.stdout.readline, ""):
-                    # Write the log
-                    mylogfile.info(line.rstrip())
-                    if find_build_packages.match(line):
-                        # Ok so we got packages then don't retry
-                        retry = 2
-                        update_packages = int(find_build_packages.match(line).group(1))
+            sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
+            while not self.world['cancel']:
+                buf = sout.read1(1024).decode('utf-8')
+                if len(buf) == 0: 
+                    break
+                if not skip_line_with_dot_only.match(buf):
+                    mylogfile.info(buf)
+                if find_build_packages.match(buf):
+                    # Ok so we got packages then don't retry
+                    retry = 2
+                    update_packages = int(find_build_packages.match(buf).group(1))
+            # FIXME workaround to cancel this process when running in thread with asyncio
+            # calling asyncio.Task.cancel() won't work 
+            if self.world['cancel']:
+                self.log.warning('Stop searching available package(s) update as global update has been detected.')
+                process.terminate()
+                if self.world['cancelled']:
+                    self.log.warning('The previously task was already cancelled, check and report if False.')
+                if not self.world['status']:
+                    self.log.error('We are about to leave pretend process, but just found status already to False,')
+                    self.log.error('which mean process is/was NOT in progress, please check and report if True')
+                
+                self.world['cancelled'] = True
+                self.world['cancel'] = False
+                self.world['status'] = False
+                # skip every thing else
+                return
             mypretend.stdout.close()
             
             # Check if return code is ok
-            return_code = mypretend.wait()
+            return_code = mypretend.poll()
             
             # We can have return_code > 0 and matching packages to update.
             # This can arrived when there is, for exemple, packages conflict (solved by skipping).
             # if this is the case, continue anyway.
             if return_code:
-                self.log.error('Got error while pretending world update.')
+                self.log.error('Got error while searching for available package(s) update.')
                 self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
                 self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['pretendlog'])) 
                 if retry < 2:
@@ -506,6 +551,10 @@ class PortageHandler:
                 self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
         
         # At the end
+        if self.world['cancelled']:
+            self.log.debug('The previously task has been cancelled, resetting state to False (as this one is ' +
+                           'completed.')
+        self.world['cancelled'] = False
         if not self.world['status']:
             self.log.error('We are about to leave pretend process, but just found status already to False,')
             self.log.error('which mean process is/was NOT in progress, please check and report if True')

@@ -53,13 +53,13 @@ class PortageDbus(PortageHandler):
         if self.sync['status']:
             return 'sync'
         # Don't run if world update is in progress
-        if self.world['update'] == 'In Progress':
+        if self.world['update']:
             return 'world'
         # Don't run if pretend is running
         if self.world['status']:
             return 'already'
         #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
-        self.world['status'] = True
+        self.world['pretend'] = True
         self.world['forced'] = True
         #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
         return 'running'

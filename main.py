@@ -73,13 +73,21 @@ class AsyncioLoop(threading.Thread):
             self.loop.stop()
             # Received Ctrl+C
             self.loop.close()
+    
+    def all_job(self):
+        return asyncio.Task.all_tasks(loop=self.loop)
+    
+    def current_job(self):
+        return asyncio.Task.current_task(loop=self.loop)
+    
 
 
 class MainDaemon(threading.Thread):
-    def __init__(self, manager, scheduler, *args, **kwargs):
+    def __init__(self, manager, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.manager = manager
-        self.scheduler = scheduler
+        # Init asyncio loop
+        self.scheduler = asyncio.new_event_loop()
     
     def run(self):
         log.info('... now running.')
@@ -88,9 +96,11 @@ class MainDaemon(threading.Thread):
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
                 if self.manager['portage'].check_sync():
-                    # sync not blocking using class AsyncioLoop
-                    # pushing to asyncio loop 
-                    self.scheduler.call_soon_threadsafe(self.manager['portage'].dosync,)
+                    # sync not blocking using asyncio and thread 
+                    # this is python for 3.5+ / None -> default ThreadPoolExecutor 
+                    # where max_wokers = n processors * 5
+                    # TODO FIXME should we need all ?
+                    self.scheduler.run_in_executor(None, self.manager['portage'].dosync,)
             self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
             self.manager['portage'].sync['elapse'] += 1 # 
             
@@ -103,7 +113,7 @@ class MainDaemon(threading.Thread):
                     log.warning('Forcing pretend world as requested by dbus client.')
                     self.manager['portage'].world['forced'] = False
                 # Making async and non blocking
-                self.scheduler.call_soon_threadsafe(self.manager['portage'].pretend_world,)  
+                self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world,)
             
             # Then: check available portage update
             if self.manager['portage'].portage['remain'] <= 0:
@@ -113,10 +123,31 @@ class MainDaemon(threading.Thread):
                 self.manager['portage'].available_portage_update()
             self.manager['portage'].portage['remain'] -= 1
             
+            
             # Last: check if we are running world update 
             # do we need to run pretend_world() ?
+            # shutdown pretend_world() if world update just lauched / is in progress 
             if self.manager['portage'].world['remain'] <= 0:
                 self.manager['portage'].get_last_world_update()
+                # Global update is in progress
+                if self.manager['portage'].world['update']:
+                    if self.manager['portage'].world['status']:
+                        # Force cancel pretend 
+                        self.manager['portage'].world['cancel'] = True
+                else:
+                    if self.manager['portage'].world['updated'] and self.manager['portage'].world['cancelled'] and \
+                       self.manager['portage'].world['pretend']:
+                        # Ok so just reset cancelled as system has been updated, pretend has been cancelled 
+                        # but pretend is already schedule 
+                        self.manager['portage'].world['cancelled'] = False
+                    elif not self.manager['portage'].world['updated'] and self.manager['portage'].world['cancelled']:
+                        # Normally we just check as well pretend but we'll schedule it so...
+                        # This is when pretend has been cancelled (just detected Global update) but system 
+                        # has been updated (this has been aborded in fact) - So force pretend
+                        # TODO we should implant an timer
+                        log.warning('Recalling the package(s) update\'s search as it has been cancelled')
+                        self.manager['portage'].world['pretend'] = True
+                        self.manager['portage'].world['cancelled'] = False
             self.manager['portage'].world['remain'] -= 1
             
                           
@@ -191,7 +222,7 @@ def main():
     dbus_session = SystemBus()
     
     # Init asyncio loop
-    scheduler = asyncio.new_event_loop()
+    #scheduler = asyncio.new_event_loop()
     
     # Init manager
     manager = { }
@@ -231,17 +262,17 @@ def main():
     dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
     
-    # Init threads
-    daemon_thread = MainDaemon(manager, scheduler, name='Main Daemon Thread', daemon=True)
-    scheduler_thread = AsyncioLoop(scheduler, name='Asyncio Loop Scheduler') # daemon ?
+    # Init thread
+    daemon_thread = MainDaemon(manager, name='Main Daemon Thread', daemon=True)
+    #scheduler_thread = AsyncioLoop(scheduler, name='Asyncio Loop Scheduler') # daemon ?
     
-    # Start threads and dbus
-    scheduler_thread.start()
+    # Start thread and dbus
+    #scheduler_thread.start()
     daemon_thread.start()
     dbusloop.run()
     
     daemon_thread.join()
-    scheduler_thread.join()
+    #scheduler_thread.join()
     
     
     
