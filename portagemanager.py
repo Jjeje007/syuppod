@@ -30,7 +30,7 @@ except Exception as exc:
     print(f'Got unexcept error while loading numpy module: {exc}')
     sys.exit(1)
 
-# TODO Make the program faster / more responsible to make pulling shorter (10s ?)
+# TODO pretend_world()
 
 class PortageHandler:
     """Portage tracking class"""
@@ -464,8 +464,8 @@ class PortageHandler:
        
         update_packages = False
         retry = 0
-        find_build_packages = re.compile(r'Total:.(\d+).packages.*')
-        skip_line_with_dot_only = re.compile(r'^\.$')
+        find_build_packages = re.compile(r'^Total:.(\d+).packages.*$', re.MULTILINE) # As we read by chunk not by line
+        skip_line_with_dot_only = re.compile(r'^\.$', re.MULTILINE)
         
         # Init logging 
         processlog = ProcessLoggingHandler(name='pretendlog')
@@ -478,23 +478,33 @@ class PortageHandler:
         while retry < 2:
             process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
-            mylogfile.info('##########################################\n')
+            mylogfile.info('Running {0}\n'.format(' '.join(myargs)))
+            # Disable timestamp for logging
+            processlog.set_formatter('short')
+            # TODO for now i haven't found a simple and better way
+            # thx to https://stackoverflow.com/a/28019908/11869956
+            # The only problem is it's not line by line so we cannot write logfile with timestamp
+            # so logfile is little bit a mess
             sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
             while not self.world['cancel']:
                 buf = sout.read1(1024).decode('utf-8')
                 if len(buf) == 0: 
                     break
-                if not skip_line_with_dot_only.match(buf):
+                if not skip_line_with_dot_only.search(buf):
                     mylogfile.info(buf)
-                if find_build_packages.match(buf):
-                    # Ok so we got packages then don't retry
+                if find_build_packages.search(buf):
+                    #Ok so we got packages then don't retry
                     retry = 2
-                    update_packages = int(find_build_packages.match(buf).group(1))
+                    update_packages = int(find_build_packages.search(buf).group(1))
             # FIXME workaround to cancel this process when running in thread with asyncio
             # calling asyncio.Task.cancel() won't work 
-            if self.world['cancel']:
+            if self.world['cancel']:                
                 self.log.warning('Stop searching available package(s) update as global update has been detected.')
                 process.terminate()
+                # Enable logging timestamp
+                processlog.set_formatter('normal')
+                mylogfile.info('Terminate process: global update has been detected.')
+                mylogfile.info('##### END ####')
                 if self.world['cancelled']:
                     self.log.warning('The previously task was already cancelled, check and report if False.')
                 if not self.world['status']:
@@ -506,10 +516,16 @@ class PortageHandler:
                 self.world['status'] = False
                 # skip every thing else
                 return
-            mypretend.stdout.close()
+            process.stdout.close()
             
-            # Check if return code is ok
-            return_code = mypretend.poll()
+            # get return code (see --> https://docs.python.org/3/library/subprocess.html#subprocess.Popen.poll)
+            # better to use poll() over wait()
+            return_code = process.poll()
+            
+            # Enable logging timestamp
+            processlog.set_formatter('normal')
+            mylogfile.info(f'Terminate process: exit with status {return_code}')
+            mylogfile.info('##### END ####')
             
             # We can have return_code > 0 and matching packages to update.
             # This can arrived when there is, for exemple, packages conflict (solved by skipping).

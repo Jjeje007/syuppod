@@ -86,21 +86,33 @@ class ProcessLoggingHandler:
         self.name = name
         self.logging = logging
         self.logger = logging.getLogger(name)
+        self.timestamp = True
         
     def dolog(self, log):
         """Write Specific log"""
         # Same here : 2.86MB, rotate 3x times 
-        file_handler     = logging.handlers.RotatingFileHandler(log, maxBytes=3000000, backupCount=3)
+        self.file_handler     = logging.handlers.RotatingFileHandler(log, maxBytes=3000000, backupCount=3)
         datefmt = '%Y-%m-%d %H:%M:%S'
-        file_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
-        file_handler.setFormatter(file_formatter)
-        file_handler.setLevel(self.logging.INFO)
+        self.normal_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
+        # Disable timestamp (for now this is for pretend_world process only)
+        self.short_formatter   = logging.Formatter('%(message)s')
+        self.file_handler.setFormatter(self.normal_formatter)
+        self.file_handler.setLevel(self.logging.INFO)
         if not self.logger.handlers:
-            self.logger.addHandler(file_handler)
+            self.logger.addHandler(self.file_handler)
         
         return self.logger
+    
+    def set_formatter(self, formatter):
+        """Set formatter to enable or disable timestamp"""
+        if formatter == 'short':
+            self.file_handler.setFormatter(self.short_formatter)
+            #self.logging.Handler.setFormatter(self.short_formatter)
+        elif formatter == 'normal':
+            self.file_handler.setFormatter(self.normal_formatter)
+            #self.logging.Handler.setFormatter(self.normal_formatter)
 
-
+    
 
 class LogLevelFilter(logging.Filter):
     """https://stackoverflow.com/a/7447596/190597 (robert)."""
