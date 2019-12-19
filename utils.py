@@ -3,14 +3,12 @@
 # -*- coding: utf-8 -*-
 # -*- python -*- 
 
-# Version: 0.1
-
 import os
 import pathlib
 import re
 import errno
 import sys
-import tempfile
+#import tempfile
 import time
 import signal
 import gettext
@@ -18,7 +16,6 @@ import locale
 
 from ctypes import cdll
 from logger import MainLoggingHandler
-from itertools import chain
 
 
 try:
@@ -70,16 +67,16 @@ class StateInfo:
             # TODO : '# Branch Opts',
             'branch all local: 0.0',
             'branch all remote: 0.0',
-            'branch available all: 0.0',
-            'branch available know: 0.0',
-            'branch available new: 0.0', 
+            'branch available: 0.0',
+            #'branch available know: 0.0',
+            #'branch available new: 0.0', 
             # TODO : '# Kernel Opts',
             'kernel all: 0.0',
             'kernel installed all: 0.0',
             'kernel installed running: 0.0',
-            'kernel available all: 0.0',
-            'kernel available know: 0.0',
-            'kernel available new: 0.0',
+            'kernel available: 0.0',
+            #'kernel available know: 0.0',
+            #'kernel available new: 0.0',
             # TODO : '# Sync Opts',
             'sync count: 0',
             'sync error: 0',
@@ -87,7 +84,6 @@ class StateInfo:
             'sync update: unknow',
             'sync timestamp: 0',
             # TODO: '# World Opts
-            'world update: unknow',
             'world packages: 0',
             'world last start: 0',
             'world last stop: 0',
@@ -330,9 +326,9 @@ class FormatTimestamp:
         
         # For seconds only don't need to compute
         if seconds < 0:
-            return 'any time now.'
+            return _('any time now.')
         elif seconds < 60:
-            return 'less than a minute.'
+            return _('less than a minute.')
                 
         result = []
         for name, count in self.intervals.items():
@@ -459,28 +455,29 @@ class FormatTimestamp:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
 
-class CapturedFd:
-    """Pipe the specified fd to an temporary file
-    https://stackoverflow.com/a/41301870/11869956
-    Modified to capture both stdout and stderr.
-    Need a list as argument ex: fd=[1,2]"""
-    # TODO : not sure about that still thinking :p
-    def __init__(self, fd):
-        self.fd = fd
-        self.prevfd = [ ]
+# Depreciate
+#class CapturedFd:
+    #"""Pipe the specified fd to an temporary file
+    #https://stackoverflow.com/a/41301870/11869956
+    #Modified to capture both stdout and stderr.
+    #Need a list as argument ex: fd=[1,2]"""
+    #TODO : not sure about that still thinking :p
+    #def __init__(self, fd):
+        #self.fd = fd
+        #self.prevfd = [ ]
 
-    def __enter__(self):
-        mytmp = tempfile.NamedTemporaryFile()
-        for fid in self.fd:
-            self.prevfd.append(os.dup(fid))
-            os.dup2(mytmp.fileno(), fid)
-        return mytmp
+    #def __enter__(self):
+        #mytmp = tempfile.NamedTemporaryFile()
+        #for fid in self.fd:
+            #self.prevfd.append(os.dup(fid))
+            #os.dup2(mytmp.fileno(), fid)
+        #return mytmp
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        i = 0
-        for fid in self.fd:
-            os.dup2(self.prevfd[i], fid)
-            i = i + 1
+    #def __exit__(self, exc_type, exc_value, traceback):
+        #i = 0
+        #for fid in self.fd:
+            #os.dup2(self.prevfd[i], fid)
+            #i = i + 1
 
 
 class UpdateInProgress:

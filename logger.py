@@ -27,7 +27,7 @@ class MainLoggingHandler:
         
         self.logger = logging.getLogger(self.name)
         
-        # TODO: debug.log rotate is a REAL mess, don't know why
+        # TODO FIXME debug.log rotate is a REAL mess, don't know why
         # this could be because we have one logger by module ?
         # Debug only go to file
         # Rotate the log 
@@ -100,17 +100,14 @@ class ProcessLoggingHandler:
         self.file_handler.setLevel(self.logging.INFO)
         if not self.logger.handlers:
             self.logger.addHandler(self.file_handler)
-        
         return self.logger
     
     def set_formatter(self, formatter):
         """Set formatter to enable or disable timestamp"""
         if formatter == 'short':
             self.file_handler.setFormatter(self.short_formatter)
-            #self.logging.Handler.setFormatter(self.short_formatter)
         elif formatter == 'normal':
             self.file_handler.setFormatter(self.normal_formatter)
-            #self.logging.Handler.setFormatter(self.normal_formatter)
 
     
 
@@ -133,6 +130,7 @@ class LogErrorFilter(logging.Filter):
     def filter(self, record):
         if self.stderr:
             try:
+                # See RedirectFdToLogger class 
                 if record.__dict__['STDERR']:
                     return record
                 else:

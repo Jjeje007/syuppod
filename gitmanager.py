@@ -68,23 +68,25 @@ class GitHandler:
                        
         # Pull attributes
         self.pull = {
-            'status'    :   False,
-            'state'     :   self.stateinfo.load('pull state'),
+            'status'        :   False, # False when not running / True otherwise
+            'state'         :   self.stateinfo.load('pull state'),
             # TODO: expose log throught dbus
             # So we have to make an objet which will get last log from 
             # git.log file (and other log file)
-            'log'       :   'TODO',             
-            'error'     :   self.stateinfo.load('pull error'),
-            'count'     :   str(self.stateinfo.load('pull count')),   # str() or get 'TypeError: must be str, not int' or vice versa
-            'last'      :   int(self.stateinfo.load('pull last')),   # last pull timestamp
-            'remain'    :   0,
-            'elapsed'   :   0,
-            'interval'  :   kwargs.get('interval'),
-            'forced'    :   False
-        }
+            'log'           :   'TODO',             
+            'error'         :   self.stateinfo.load('pull error'),
+            'count'         :   str(self.stateinfo.load('pull count')),   # str() or get 'TypeError: must be str
+                                                                          #  not int' or  vice versa
+            'current_count' :   0,   
+            'last'          :   int(self.stateinfo.load('pull last')),   # last pull timestamp
+            'remain'        :   0,
+            'elapsed'       :   0,
+            'interval'      :   kwargs.get('interval'),
+            'update_all'    :   False   # True after pull or if detected pull's outside run
+            }
         
         # Main remain for checking local branch checkout and local kernel installed
-        self.remain = 35
+        self.remain = 20
         
         # Git branch attributes
         self.branch = {
@@ -95,17 +97,10 @@ class GitHandler:
                 'local'     :   sorted(self.stateinfo.load('branch all local').split(), key=StrictVersion),
                 # 'remote' is all available branch from remote repo (so including 'local' as well).
                 'remote'    :   sorted(self.stateinfo.load('branch all remote').split(), key=StrictVersion)
-            },
+                },
             # available means after pulling repo (so when running).
-            'available'   :   {
-                    # know means available since more than one pull (but didn't locally checkout)
-                    'know'      :   sorted(self.stateinfo.load('branch available know').split(), key=StrictVersion),
-                    # new means available since last pull and until next pull
-                    'new'       :   sorted(self.stateinfo.load('branch available new').split(), key=StrictVersion),
-                    # all means all available update branch.
-                    'all'       :   sorted(self.stateinfo.load('branch available all').split(), key=StrictVersion)
+            'available'   :  sorted(self.stateinfo.load('branch available').split(), key=StrictVersion) # {
             }
-        }
         
         # Git kernel attributes
         self.kernel = {
@@ -113,14 +108,7 @@ class GitHandler:
             # 'all' means all kernel version from git tag command
             'all'           :   sorted(self.stateinfo.load('kernel all').split(), key=StrictVersion),
             # 'available' means update available
-            'available'     :   {
-                # 'know' means already know from state file (so from an old pull)
-                'know'      :   sorted(self.stateinfo.load('kernel available know').split(), key=StrictVersion),
-                # 'new' means available from the last pull and until next pull
-                'new'       :   sorted(self.stateinfo.load('kernel available new').split(), key=StrictVersion),
-                # 'all' means all available for update (so contain both 'know' and 'new')
-                'all'       :   sorted(self.stateinfo.load('kernel available all').split(), key=StrictVersion)
-            },
+            'available'     :   sorted(self.stateinfo.load('kernel available').split(), key=StrictVersion),
             # 'installed' means compiled and installed into the system
             'installed'     :   {
                 # 'running' is from `uname -r' command
@@ -130,9 +118,9 @@ class GitHandler:
                 # TODO: get mtime for each folder in /lib/modules and print an warning if folder is older than ???
                 # with mtime we can know when 
                 'all'       :   sorted(self.stateinfo.load('kernel installed all').split(), key=StrictVersion)
-            }
+                }
             # TODO : add 'compiled' key : to get last compiled kernel (time)
-        }
+            }
     
     
     def get_running_kernel(self):
@@ -381,7 +369,7 @@ class GitHandler:
             versionlist.sort(key=StrictVersion)
             
             if self._compare_multidirect(self.branch['all'][origin], versionlist, 'branch'):
-                
+                self.log.name = f'{self.logger_name}get_branch::'
                 self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(self.branch['all'][origin])))
                 self.branch['all'][origin] = versionlist
             
@@ -397,7 +385,6 @@ class GitHandler:
         #           simple is beautifull :p
         self.log.name = f'{self.logger_name}get_available_update::'
         
-        # First compare latest local branch with remote branch list to get current available branch version
         target = getattr(self, target_attr)
         if target_attr == 'branch':
             origin = self.branch['all']['local'][-1]
@@ -406,7 +393,7 @@ class GitHandler:
             origin = self.kernel['installed']['all'][-1]
             versionlist = target['all']
         
-        self.log.debug(f'Checking available \'{target_attr}\' update :')
+        self.log.debug(f'Checking available \'{target_attr}\' update.')
         current_available = [ ]
         for version in versionlist:
             try:
@@ -425,177 +412,29 @@ class GitHandler:
             # Sorting 
             current_available.sort(key=StrictVersion)
             self.log.debug('Found version(s): \'{0}\'.'.format(' '.join(current_available)))
-                      
-            # First run and will call dopull() or just first run or calling dopull()
-            if target['available']['new'][0] == '0.0' or self.pull['status']:
-                if target['available']['new'][0] == '0.0' and self.pull['status']:
-                    self.log.debug('First run and pull setup:')
-                elif target['available']['new'][0] == '0.0':
-                    self.log.debug('First run setup:')
-                elif self.pull['status']:
-                    self.log.debug('Pull run setup:')
-                
-                for switch in 'all', 'know', 'new':
-                    self.log.debug(f'Clearing list \'{switch}\'.')
-                    target['available'][switch].clear()
-                    
-                    if switch == 'new':
-                        self.log.debug(f'Adding to \'{switch}\' list: \'0.0.0\' (means nothing available).')
-                        target['available'][switch].append('0.0.0')
-                    else:
-                        self.log.debug('Adding to \'{1}\' list: {0}\'.'.format(' '.join(current_available), switch))
-                        target['available'][switch] = current_available
-                    
-                    self.log.debug(f'Updating state file for list \'{switch}\'.')
-                    self.stateinfo.save(target_attr + ' available ' + switch, 
-                                      target_attr + ' available ' + switch + 
-                                      ': ' + ' '.join(target['available'][switch]))
-                    
-            # When running - bewteen two pull 
-            else:
-                # No previously update list
-                if target['available']['all'][0] == '0.0.0':
-                    # So every thing should go to new list
-                    self.log.debug('No previously update found.')
-                    
-                    for switch in 'all', 'know', 'new':
-                        if switch == 'know':
-                            if target['available'][switch][0] == '0.0.0':
-                                self.log.debug(f'List \'{switch}\' already setup, skipping.')
-                                continue
-                            else:
-                                self.log.debug(f'Clearing list \'{switch}\'.')
-                                target['available'][switch].clear()
-                                self.log.debug(f'Adding to \'{switch}\' list: \'0.0.0\' (means nothing available).')
-                                target['available'][switch].append('0.0.0')
-                        else:
-                            self.log.debug(f'\Clearing list \'{switch}\'.')
-                            target['available'][switch].clear()
-                            self.log.debug('Adding to \'{1}\' list: {0}\'.'.format(' '.join(current_available), switch))
-                            target['available'][switch] = current_available
-                        
-                        self.log.debug(f'Updating state file for list \'{switch}\'.')
-                        self.stateinfo.save(target_attr + ' available ' + switch, 
-                                        target_attr + ' available ' + switch + 
-                                        ': ' + ' '.join(target['available'][switch]))
-                # We had already an update.
-                else:
-                    self.log.debug('Found previously update list.')
-                    
-                    ischange = 'no'
-                                        
-                    # compare 'previously all list' with 'current all list' and vice versa :
-                    # self.branch['available']['all'] against current_available
-                    tocompare = {
-                        'firstpass'     :   [ current_available, target['available']['all'], 
-                                         'previously and current update list.', 'previously' ],
-                        'secondpass'    :   [ target['available']['all'], current_available,
-                                         'current and previously update list.', 'current']
-                        }
-                    
-                    
-                    self.log.debug('Tracking change multidirectionally:')
-                    
-                    for value in tocompare.values():
-                        self.log.debug('Between {0}'.format(value[2]))
-                        
-                        for upper_version in value[0]:
-                            isfound = 'no'
-                            for lower_version in value[1]:
-                                if StrictVersion(upper_version) == StrictVersion(lower_version):
-                                    isfound = 'yes'
-                                    # We know that this version is in both list so keep it
-                                    # And search over self.branch['available']['new'] and self.branch['available']['know']
-                                    # To know if it is in one of them (and it should!!)
-                                    for version in target['available']['know']:
-                                        if StrictVersion(upper_version) == StrictVersion(version):
-                                            self.log.debug(f'Keeping version \'{upper_version}\': already in list \'all\' and \'know\'.')
-                                    for version in target['available']['new']:
-                                        if StrictVersion(upper_version) == StrictVersion(version):
-                                            self.log.debug(f'Keeping version \'{upper_version}\': already in list \'all\' and \'new\'.')
-                                    break
-                            if isfound == 'no':
-                                # So something has change - 'hard' thing start here
-                                ischange = 'yes'
-                                self.log.debug(f'Version \'{upper_version}\' not found in {value[3]} list.')
-                                # So now we have to know if this version is new or old (so to remove)
-                                # So first compare with latest local branch
-                                if StrictVersion(origin) >= StrictVersion(upper_version):
-                                    # This mean the version is old (already checkout) so 
-                                    # first remove from self.branch['available']['all']
-                                    self.log.debug(f'Removing already checkout version \'{upper_version}\' from:')
-                                    #self.log.debug('List \'all\'.')
-                                    target['available']['all'].remove(upper_version)
-                                    # Now search over self.branch['available']['new'] and self.branch['available']['know']
-                                    # and remove 
-                                    # Normaly if version is found in both than it's a bug !
-                                    for version in target['available']['know']:
-                                        if StrictVersion(upper_version) == StrictVersion(version):
-                                            self.log.debug('List \'all\' and \'know\'.')
-                                            target['available']['know'].remove(upper_version)
-                                        # Normally there is only one version because we remove duplicate
-                                        break
-                                    for version in target['available']['new']:
-                                        if StrictVersion(upper_version) == StrictVersion(version):
-                                            self.log.debug('List \'all\' and \'new\'.')
-                                            target['available']['new'].remove(upper_version)
-                                        break
-                                # So here it's a new version so it goes to ['available']['new']
-                                # And also to ['available']['all'] 
-                                elif StrictVersion(origin) < StrictVersion(upper_version):
-                                    # Search over the list and remove '0.0.0' or '0.0' - got a 'bug' like that when testing 
-                                    # it was '0.0.0' but add '0.0' in case ;)
-                                    for switch in 'all', 'new':
-                                        if '0.0' in target['available'][switch]:
-                                            self.log.debug(f'Removing wrong option \'0.0\' from list \'{switch}\'.')
-                                            target['available'][switch].remove('0.0')
-                                        elif '0.0.0' in target['available'][switch]:
-                                            self.log.debug(f'Removing wrong option \'0.0.0\' from list \'{switch}\'.')
-                                            target['available'][switch].remove('0.0.0')
-                                    # Add to both list 'all' and 'new' - i forgot to add to 'all' list ...
-                                    self.log.debug(f'Adding new version \'{upper_version}\' to list \'new\' and \'all\'.')
-                                    target['available']['new'].append(upper_version)
-                                    target['available']['all'].append(upper_version)
-                
-                    # Nothing change - don't write to state file 
-                    if ischange == 'no':
-                        self.log.debug('Finally, didn\'t found any change, previously data has been keep.')
-                    # Something change - write to the disk 
-                    elif ischange == 'yes':
-                        
-                        for switch in 'all', 'know', 'new':
-                            # Check if list is empty
-                            if not target['available'][switch]:
-                                self.log.debug(f'Adding to the empty list \'{switch}\': \'0.0.0\' (means nothing available).')
-                                target['available'][switch] = [ ] # To make sure it's recognise as a list.
-                                target['available'][switch].append('0.0.0')
-                            else:
-                                # Remove duplicate in case
-                                self.log.debug(f'Removing duplicate entry (if any) from list \'{switch}\'.')
-                                target['available'][switch] =  list(dict.fromkeys(target['available'][switch]))
-                            # Then write to the state file 
-                            self.log.debug(f'Updating state file for list \'{switch}\'.')
-                            self.stateinfo.save(target_attr + ' available ' + switch, 
-                                              target_attr + ' available ' + switch + 
-                                              ': ' + ' '.join(target['available'][switch]))
             
+            # Any way we will replace the whole list
+            # Now compare new available list with old available list 
+            if self._compare_multidirect(target['available'], current_available, target_attr):
+                self.log.name = f'{self.logger_name}get_available_update::'
+                # So this mean rewrite it 
+                self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(current_available)))
+                target['available'] = current_available
+                # Write to state file
+                #self.log.debug('Updating state file.')
+                self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' + 
+                                    ' '.join(target['available']))
+            # else keep previously list
+        # Nothing available so reset to '0.0.0' if necessary
         else:
-            self.log.debug('No update found.')
-            
-            for switch in 'all', 'know', 'new':
-                # No need to write to state file if already in good state...
-                if target['available'][switch][0] == '0.0.0':
-                    self.log.debug(f'List \'{switch}\' already setup, skipping.')
-                else:
-                    self.log.debug(f'Clearing list \'{switch}\'.')
-                    target['available'][switch].clear()
-                    self.log.debug(f'Adding to the list \'{switch}\': \'0.0.0\' (means nothing available).')
-                    target['available'][switch].append('0.0.0')
-                    self.log.debug(f'Updating state file for list \'{switch}\'.')
-                    self.stateinfo.save(target_attr + ' available ' + switch, 
-                                      target_attr + ' available ' + switch + 
-                                      ': ' + ' '.join(target['available'][switch]))
-
+            self.log.debug(f'No available {target_attr} update.')
+            if not target['available'][0] == '0.0.0' or not target['available'][0] == '0.0':
+                self.log.debug(f'Clearing list.')
+                target['available'].clear()
+                target['available'].append('0.0.0')
+                self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' + 
+                                    ' '.join(target['available']))
+        
 
     def get_last_pull(self, timestamp_only=False):
         """Get last git pull timestamp"""
@@ -625,7 +464,7 @@ class GitHandler:
                 self.log.debug('Current git pull timestamp: \'{0}\', last: \'{1}\'.'.format(self.pull['last'],
                                                                                             lastpull))
                 self.log.debug('Forcing all update.')
-                self.pull['forced'] = True
+                self.pull['update_all'] = True
                 
                 # Saving timestamp
                 self.pull['last'] = lastpull
@@ -641,7 +480,7 @@ class GitHandler:
         path = pathlib.Path(self.repo + '.git/refs/remotes/origin/HEAD')
         if path.is_file():
             self.log.debug(f'Repository \'{self.repo}\' has never been updated (pull).')
-            self.pull['status'] = True
+            #self.pull['status'] = True
             
             return True
         
@@ -657,13 +496,10 @@ class GitHandler:
         # git pull already running ?
         if self.update_inprogress.check('Git', repogit=self.repo):
             # Update in progress 
-            # retry in 3 minutes
-            if self.pull['remain'] <= 180:
-                self.pull['remain'] = 180
-                return False
-            else:
-                # don't touch
-                return False
+            # retry in 10 minutes
+            if self.pull['remain'] <= 600:
+                self.pull['remain'] = 600
+            return False
         
         # Call get_last_pull()
         if self.get_last_pull():
@@ -688,7 +524,7 @@ class GitHandler:
             
             
             if self.pull['remain'] <= 0:
-                self.pull['status'] = True
+                #self.pull['status'] = True
                 return True
         return False
     
@@ -699,6 +535,11 @@ class GitHandler:
         # We should go for subprocess to implant asyncio...
         self.log.name = f'{self.logger_name}dopull::'
         
+        if self.pull['status']:
+            self.log.error('We are about to update git repository and found status to True,')
+            self.log.error('which mean it is already in progress, please check and report if False.')
+            return
+        self.pull['status'] = True        
         try:
             gitlog = git.Repo(self.repo).git.pull()
         except Exception as exc:
@@ -725,13 +566,6 @@ class GitHandler:
             # Write 'state' to state file as well
             self.stateinfo.save('pull error', 'pull error: 1')
             self.stateinfo.save('pull state', 'pull state: Failed')
-            
-            # Reset remain to interval and status
-            self.pull['remain'] = self.pull['interval']
-            self.pull['status'] = False
-                        
-            return False
-        
         else:
             self.pull['state'] = 'Success'
             # Update 'state' status to state file
@@ -744,9 +578,18 @@ class GitHandler:
             
             # Append one more pull to git state file section 'pull'
             # Convert to integrer
+            old_count_global = self.sync['count']
+            old_count = self.pull['current_count']
             self.pull['count'] = int(self.pull['count'])
             self.pull['count'] += 1
-            self.stateinfo.save('pull count', 'pull count: ' + str(self.pull['count'])) # Same here str() or 'TypeError: must be str, not int'
+            self.log.debug('Incrementing global pull count from \'{0}\' to \'{1}\''.format(old_count_global,
+                                                                                           self.pull['count']))
+            self.pull['current_count'] += 1
+            self.log.debug('Incrementing current pull count from \'{0}\' to \'{1}\''.format(old_count,
+                                                                                    self.pull['current_count']))
+            
+            self.stateinfo.save('pull count', 'pull count: ' + str(self.pull['count'])) # Same here str() or 'TypeError: 
+                                                                                        # must be str, not int'
             
             # Append log to git.log file 
             processlog = ProcessLoggingHandler(name='gitlog')
@@ -763,12 +606,12 @@ class GitHandler:
             # Save
             self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
                                                                           self.pathdir['statelog']))
-        
+        finally:
             # Reset remain to interval and status
             self.pull['remain'] = self.pull['interval']
             self.pull['status'] = False
-            
-            return True
+            # Force update all 
+            self.pull['update_all'] = True
                     
 
     def _check_config(self):

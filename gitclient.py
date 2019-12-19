@@ -21,7 +21,7 @@ def git_available_version(myobject, opt, machine):
                     'none'      :   _('not available')
                     }
         }
-    reply = getattr(myobject, switch[opt]['caller'])('available', 'all')
+    reply = getattr(myobject, switch[opt]['caller'])('available', 'None')
     if reply == 'disable':
         print('Error: git implantation is disable')
         return

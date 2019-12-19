@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
-# Starting : 08 aout 2019
+# Starting : 2019-08-08
+
+# This is a SYnc UPdate POrtage Daemon
+# Copyright © Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Distributed under the terms of the GNU General Public License v3
 
 import sys
 import os
@@ -19,7 +23,6 @@ from gitmanager import check_git_dir
 from logger import MainLoggingHandler
 from logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
-from utils import UpdateInProgress
 from utils import StateInfo
 
 # To remimber : http://stackoverflow.com/a/11887885
@@ -39,7 +42,6 @@ except Exception as exc:
     sys.exit(1)
 
 __version__ = "dev"
-# DONT change this or dbus service won't work (client part)
 name = 'syuppod'  
 
 pathdir = {
@@ -56,32 +58,6 @@ pathdir = {
     
 }
 
-class AsyncioLoop(threading.Thread):
-    def __init__(self, loop, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.loop = loop
-    
-    def run(self):
-        """Start an asyncio loop"""
-        asyncio.set_event_loop(self.loop)
-        try:
-            self.loop.run_forever()
-        except KeyboardInterrupt:
-            # Canceling pending tasks and stopping the loop
-            asyncio.gather(*asyncio.Task.all_tasks()).cancel()
-            # Stopping the loop
-            self.loop.stop()
-            # Received Ctrl+C
-            self.loop.close()
-    
-    def all_job(self):
-        return asyncio.Task.all_tasks(loop=self.loop)
-    
-    def current_job(self):
-        return asyncio.Task.current_task(loop=self.loop)
-    
-
-
 class MainDaemon(threading.Thread):
     def __init__(self, manager, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -95,25 +71,26 @@ class MainDaemon(threading.Thread):
             ### Portage stuff
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
+                # TODO we should get_last_sync (this method exist before - so rewrite it) to know 
+                # if sync has been update outside the program then we could run pretend_world()
                 if self.manager['portage'].check_sync():
                     # sync not blocking using asyncio and thread 
                     # this is python for 3.5+ / None -> default ThreadPoolExecutor 
-                    # where max_wokers = n processors * 5
+                    # where max_workers = n processors * 5
                     # TODO FIXME should we need all ?
-                    self.scheduler.run_in_executor(None, self.manager['portage'].dosync,)
+                    self.scheduler.run_in_executor(None, self.manager['portage'].dosync, ) # -> ', )' = No args
             self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
-            self.manager['portage'].sync['elapse'] += 1 # 
+            self.manager['portage'].sync['elapse'] += 1  
             
             # Then: run pretend_world() if authorized 
             # Leave other check: is sync running ? is pretend already running ? is world update is running ?
             # to portagedbus module so it can reply to client 
-            # TODO we should kill the pretend_world() if world update is detected
             if self.manager['portage'].world['pretend']:
                 if self.manager['portage'].world['forced']:
                     log.warning('Forcing pretend world as requested by dbus client.')
                     self.manager['portage'].world['forced'] = False
-                # Making async and non blocking
-                self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world,)
+                # Making async and non-blocking
+                self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world, ) # -> ', )' = same here
             
             # Then: check available portage update
             if self.manager['portage'].portage['remain'] <= 0:
@@ -122,8 +99,7 @@ class MainDaemon(threading.Thread):
                 # And after sync / world update
                 self.manager['portage'].available_portage_update()
             self.manager['portage'].portage['remain'] -= 1
-            
-            
+                        
             # Last: check if we are running world update 
             # do we need to run pretend_world() ?
             # shutdown pretend_world() if world update just lauched / is in progress 
@@ -143,8 +119,8 @@ class MainDaemon(threading.Thread):
                     elif not self.manager['portage'].world['updated'] and self.manager['portage'].world['cancelled']:
                         # Normally we just check as well pretend but we'll schedule it so...
                         # This is when pretend has been cancelled (just detected Global update) but system 
-                        # has been updated (this has been aborded in fact) - So force pretend
-                        # TODO we should implant an timer
+                        # hasn't been updated (this has been aborded in fact) - So force pretend
+                        # TODO we should implant an timer ? - Avoid cancelling / running multiple time
                         log.warning('Recalling the package(s) update\'s search as it has been cancelled')
                         self.manager['portage'].world['pretend'] = True
                         self.manager['portage'].world['cancelled'] = False
@@ -154,40 +130,31 @@ class MainDaemon(threading.Thread):
                         
             ### Git stuff
             if self.manager['git'].enable:
+                
                 # First: pull
-                if self.manager['git'].pull['status'] or self.manager['git'].pull['remain'] <= 0:
+                if self.manager['git'].pull['remain'] <= 0 and not self.manager['git'].pull['status']:
                     # Is git in progress ?
                     if self.manager['git'].check_pull():
-                        # This is necessary to move all kernel / branch 
-                        # from new list to know list
-                        self.manager['git'].get_available_update('kernel')
-                        self.manager['git'].get_available_update('branch')
-                        # Pull 
-                        if self.manager['git'].dopull():
-                            # Pull is ok
-                            # Then update all kernel / remote branch
-                            self.manager['git'].get_all_kernel()
-                            self.manager['git'].get_available_update('kernel')
-                            self.manager['git'].get_branch('remote')
-                            self.manager['git'].get_available_update('branch')
+                        # Pull async and non blocking 
+                        self.scheduler.run_in_executor(None, self.manager['git'].dopull, ) # -> ', )' = same here
                 self.manager['git'].pull['remain'] -= 1
-                # Then : update all local info
-                if self.manager['git'].remain <= 0:
+                
+                # Then : update all info
+                if self.manager['git'].remain <= 0 or self.manager['git'].pull['update_all']:
+                    # get last pull so we can know if it has been update outside the program
+                    self.manager['git'].get_last_pull()
+                    # For forced and pull
+                    if self.manager['git'].pull['update_all']:
+                        self.manager['git'].get_all_kernel()
+                        self.manager['git'].get_branch('remote')
+                        self.manager['git'].pull['update_all'] = False
                     # This is a regular info update
                     self.manager['git'].get_installed_kernel()
-                    self.manager['git'].get_available_update('kernel')
                     self.manager['git'].get_branch('local')
-                    self.manager['git'].get_available_update('branch')
-                    self.manager['git'].remain = 35
-                self.manager['git'].remain -= 1
-                # Last: forced all kernel / remote branch update 
-                # as git pull was run outside the program
-                if self.manager['git'].pull['forced']:
-                    self.manager['git'].get_all_kernel()
                     self.manager['git'].get_available_update('kernel')
-                    self.manager['git'].get_branch('remote')
                     self.manager['git'].get_available_update('branch')
-                    self.manager['git'].pull['forced'] = False
+                    self.manager['git'].remain = 20
+                self.manager['git'].remain -= 1
                         
             time.sleep(1)
 
@@ -195,7 +162,7 @@ class MainDaemon(threading.Thread):
 
 
 def main():
-    """Main daemon."""
+    """Main init"""
     
     # Check or create basedir and logdir directories
     for directory in 'basedir', 'logdir':
@@ -258,32 +225,27 @@ def main():
     manager['git'] = mygitmanager
     manager['portage'] = myportmanager
     
-    # Adding dbus publisher
+    # Adding dbus publishers
     dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
     
     # Init thread
     daemon_thread = MainDaemon(manager, name='Main Daemon Thread', daemon=True)
-    #scheduler_thread = AsyncioLoop(scheduler, name='Asyncio Loop Scheduler') # daemon ?
     
     # Start thread and dbus
-    #scheduler_thread.start()
     daemon_thread.start()
     dbusloop.run()
     
     daemon_thread.join()
-    #scheduler_thread.join()
-    
-    
-    
+       
     
 if __name__ == '__main__':
 
-    ### Parse arguments ###
+    # Parse arguments
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
         
-    ### Creating log ###
+    # Creating log
     mainlog = MainLoggingHandler('::main::', pathdir['debuglog'], pathdir['fdlog'])
     
     if sys.stdout.isatty():
@@ -319,7 +281,7 @@ if __name__ == '__main__':
     if sys.stdout.isatty():
         log.info('Interactive mode detected, all logs go to terminal.')
     
-    ### MAIN ###
+    # run MAIN
     main()
     
     

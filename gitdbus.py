@@ -64,6 +64,8 @@ class GitDbus(GitHandler):
         if not self.enable:
             return 'disable'
         if not subkey == 'running':
+            if subkey == 'None':
+                return str(' '.join(self.kernel[key]))
             return str(' '.join(self.kernel[key][subkey]))
         return str(self.kernel[key][subkey])
     
@@ -72,5 +74,7 @@ class GitDbus(GitHandler):
         """Retrieve specific branch attribute and return trought dbus"""
         if not self.enable:
             return 'disable'
+        if subkey == 'None':
+            return str(' '.join(self.branch[key]))
         return str(' '.join(self.branch[key][subkey]))
     

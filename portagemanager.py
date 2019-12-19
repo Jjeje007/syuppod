@@ -17,7 +17,6 @@ from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
 
 from utils import FormatTimestamp
-from utils import CapturedFd
 from utils import StateInfo
 from utils import UpdateInProgress
 from utils import on_parent_exit
@@ -473,7 +472,7 @@ class PortageHandler:
         mylogfile.setLevel(processlog.logging.INFO)
         
         myargs = [ '/usr/bin/emerge', '--verbose', '--pretend', '--deep', 
-                  '--newuse', '--update', 'world', '--with-bdeps=y' ]
+                  '--newuse', '--update', '@world', '--with-bdeps=y' ]
                
         while retry < 2:
             process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
@@ -954,7 +953,7 @@ class EmergeLogParser:
         #       Elapsed Time: 0.40 seconds.  Collected 118 stack frames (82 unique)
         #       For last 3000 lines.
         
-        # BUGFIX   This is detected :
+        # BUG FIX?? This is detected :
         #           1563019245:  >>> emerge (158 of 165) kde-plasma/powerdevil-5.16.3 to /
         #           1563025365: Started emerge on: juil. 13, 2019 15:42:45
         #           1563025365:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
@@ -1039,7 +1038,16 @@ class EmergeLogParser:
                             + 'failed: {0}'.format(self.group['failed']))
             
         def _saved_completed():
-            """Saving world update completed state""" 
+            """Saving world update completed state"""
+            # workaround BUG describe just below
+            for key in 'start', 'stop', 'total':
+                try:
+                    self.group.get(key)
+                except KeyError:
+                    self.log.error('While saving completed world update informations,')
+                    self.log.error(f'got KeyError for key {key}, skip saving but please report it.')
+                    # Ok so return and don't save
+                    return
             self.group['state'] = 'completed'
             # For comptability 
             # Make str() because:
@@ -1052,6 +1060,21 @@ class EmergeLogParser:
             self.group['failed'] = '0'
             self.collect['completed'].append(self.group)
             self.packages_count = 1
+            # FIXME BUG : got this in stderr.log : 
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/main.py", line 131, in run
+            # 2019-12-19 12:09:49      self.manager['portage'].get_last_world_update()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 397, in get_last_world_update
+            # 2019-12-19 12:09:49      get_world_info = myparser.last_world_update()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1207, in last_world_update
+            # 2019-12-19 12:09:49      _saved_completed()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1056, in _saved_completed
+            # 2019-12-19 12:09:49      .format(self.group['start'], self.group['stop'], self.group['total']))
+            # 2019-12-19 12:09:49  KeyError: 'start'
+            # This is strange and shouldn't arrived 
+            # TODO This has been called succeeded.match BUT there were no succeeded world update (it failed immediatly
+            # 5 times without any package compiled) ...
+            # The most important thing it's this screew up the whole program ...
+            # First workaround should be try / except : don't record this and print a warning !
             self.log.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
                            .format(self.group['start'], self.group['stop'], self.group['total']))
         
