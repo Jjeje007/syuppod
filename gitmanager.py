@@ -98,7 +98,6 @@ class GitHandler:
                 # 'remote' is all available branch from remote repo (so including 'local' as well).
                 'remote'    :   sorted(self.stateinfo.load('branch all remote').split(), key=StrictVersion)
                 },
-            # available means after pulling repo (so when running).
             'available'   :  sorted(self.stateinfo.load('branch available').split(), key=StrictVersion) # {
             }
         
@@ -136,7 +135,7 @@ class GitHandler:
         except ValueError as err:
             self.log.error(f'Got invalid version number while getting current running kernel:')
             self.log.error(f'\'{err}\'.')
-            if self.kernel['installed']['running'] == '0.0':
+            if StrictVersion(self.kernel['installed']['running']) == StrictVersion('0.0'):
                 self.log.error(f'Previously know running kernel version is set to factory.')
                 self.log.error(f'The list of available update kernel version should be false.')
             else:
@@ -145,7 +144,7 @@ class GitHandler:
         except Exception as exc:
             self.log.error(f'Got unexcept error while getting current running kernel version:')
             self.log.error(f'\'{exc}\'')
-            if self.kernel['installed']['running'] == '0.0':
+            if StrictVersion(self.kernel['installed']['running']) == StrictVersion('0.0'):
                 self.log.error(f'Previously know running kernel version is set to factory.')
                 self.log.error(f'The list of available update kernel version should be false.')
             else:
@@ -156,7 +155,7 @@ class GitHandler:
             self.log.debug(f'Got base version: \'{running}\'.')
             
             # Don't write every time to state file 
-            if not self.kernel['installed']['running'] == running:
+            if not StrictVersion(self.kernel['installed']['running']) == StrictVersion(running):
                 # Be a little more verbose for log.info
                 self.log.info('Running kernel has change (from {0} to {1}).'.format(self.kernel['installed']['running'],
                                                                                    running))
@@ -164,7 +163,6 @@ class GitHandler:
                 # Update state file
                 self.log.debug('Updating state info file.')
                 self.stateinfo.save('kernel installed running', 'kernel installed running: ' + self.kernel['installed']['running'])
-                #return True
     
 
     def get_installed_kernel(self):
@@ -205,7 +203,8 @@ class GitHandler:
         except Exception as exc:
             self.log.error(f'Got unexcept error while getting installed kernel version list:')
             self.log.error(f'\'{exc}\'.')
-            if self.kernel['installed']['all'] == '0.0' or self.kernel['installed']['all'] == '0.0.0':
+            if StrictVersion(self.kernel['installed']['all'][0]) == StrictVersion('0.0') \
+                or StrictVersion(self.kernel['installed']['all'][0]) == StrictVersion('0.0.0'):
                 self.log.error('Previously list is empty.')
             else:
                 self.log.error('Keeping previously list.')
@@ -245,7 +244,8 @@ class GitHandler:
             self.log.error(f'Got unexcept error while getting available git kernel version:')
             self.log.error(f'{err}.')
             # Don't exit just keep previously list
-            if self.kernel['available']['all'][0] == '0.0' or self.kernel['available']['all'][0] == '0.0.0':
+            if StrictVersion(self.kernel['available']['all'][0]) == StrictVersion('0.0') \
+                or StrictVersion(self.kernel['available']['all'][0]) == StrictVersion('0.0.0'):
                 self.log.error('Previously list is empty, available git kernel update list should be wrong.')
             else:
                 self.log.error('Keeping previously list.')
@@ -265,7 +265,8 @@ class GitHandler:
                     versionlist.append(version)
         
         if not versionlist:
-            if self.kernel['available']['all'][0] == '0.0' or self.kernel['available']['all'][0] == '0.0.0':
+            if StrictVersion(self.kernel['available']['all'][0]) == StrictVersion('0.0') \
+                or StrictVersion(self.kernel['available']['all'][0]) == StrictVersion('0.0.0'):
                 self.log.error('Current and previously git kernel list version are empty.')
                 self.log.error('Available git kernel update list should be wrong.')
             else:
@@ -375,7 +376,8 @@ class GitHandler:
             
                 # Write to state file
                 self.log.debug('Updating state file.')
-                self.stateinfo.save('branch all ' + origin, 'branch all ' + origin + ': ' + ' '.join(self.branch['all'][origin]))
+                self.stateinfo.save('branch all ' + origin, 'branch all ' + origin + ': ' + 
+                                    ' '.join(self.branch['all'][origin]))
             # Else keep data, save ressource, enjoy :)
             
 
@@ -402,12 +404,11 @@ class GitHandler:
                     current_available.append(version)
             except ValueError as err:
                 # This shouldn't append
-                # self.branch['all']['local'] (and ['remote']) is check in get_branch()
-                # So print an error and continue with next item in the self.branch['all']['remote'] list
-                self.log.error(f'Got unexcept error while checking available update {target_attr}:')
+                # lists are checked in get_branch() and get_installed_kernel()
+                # So print an error and continue with next item
+                self.log.error(f'Got unexcept error while checking available {target_attr} update:')
                 self.log.error(f'{err} skipping...')
                 continue
-        
         if current_available:
             # Sorting 
             current_available.sort(key=StrictVersion)
@@ -428,10 +429,12 @@ class GitHandler:
         # Nothing available so reset to '0.0.0' if necessary
         else:
             self.log.debug(f'No available {target_attr} update.')
-            if not target['available'][0] == '0.0.0' or not target['available'][0] == '0.0':
+            if not StrictVersion(target['available'][0]) == StrictVersion('0.0.0') \
+               or not StrictVersion(target['available'][0]) == StrictVersion('0.0'):
                 self.log.debug(f'Clearing list.')
                 target['available'].clear()
                 target['available'].append('0.0.0')
+                self.log.debug('After target available[0]: {0}'.format(target['available'][0]))
                 self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' + 
                                     ' '.join(target['available']))
         
@@ -708,7 +711,7 @@ class GitHandler:
                         self.log.debug(f'Removing old version \'{upper_version}\'.')
                     elif StrictVersion(origin) < StrictVersion(upper_version):
                         # ... and this version is new one.
-                        # Any way we will replace all the list 
+                        # Any way we will replace all the list if lists are different
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
                         # Try to be more verbose for log.info
                         self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
