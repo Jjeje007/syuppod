@@ -383,8 +383,6 @@ class GitHandler:
 
     def get_available_update(self, target_attr):
         """Compare lists and return all available branch or kernel update."""
-        # TODO TODO this is not working you should really rewrite it 
-        #           simple is beautifull :p
         self.log.name = f'{self.logger_name}get_available_update::'
         
         target = getattr(self, target_attr)
@@ -714,6 +712,7 @@ class GitHandler:
                         # Any way we will replace all the list if lists are different
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
                         # Try to be more verbose for log.info
+                        # TODO avoid printing twice !
                         self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
         # Ok now if nothing change
         if not ischange:

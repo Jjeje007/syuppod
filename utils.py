@@ -499,7 +499,7 @@ class UpdateInProgress:
             'Git'       :   0
             }
         self.msg = {
-            'Sync'  :   'Syncing',
+            'Sync'  :   'Syncing ',
             'World' :   'Global update',
             'Git'   :   'Git pull'
             }

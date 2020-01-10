@@ -30,8 +30,10 @@ from utils import StateInfo
 # If dbus is disable (default is enable) then the user should be warn that it won't get any output
 # it has to get info from state file
 # TODO : exit gracefully 
-
 # TODO : debug log level ! 
+# TODO TODO : what if no internet connexion ? analyse return code for git pull and emerge --sync 
+#             if no connexion then retry every N seconds (this could be decrease)
+
 try:
     from gi.repository import GLib
     from pydbus import SystemBus # Changing to SystemBus (when run as root/sudo)
@@ -71,16 +73,29 @@ class MainDaemon(threading.Thread):
             ### Portage stuff
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
-                # TODO we should get_last_sync (this method exist before - so rewrite it) to know 
-                # if sync has been update outside the program then we could run pretend_world()
-                if self.manager['portage'].check_sync():
+                # recompute time remain
+                if self.manager['portage'].check_sync(recompute=True):
                     # sync not blocking using asyncio and thread 
-                    # this is python for 3.5+ / None -> default ThreadPoolExecutor 
+                    # this is for python 3.5+ / None -> default ThreadPoolExecutor 
                     # where max_workers = n processors * 5
                     # TODO FIXME should we need all ?
                     self.scheduler.run_in_executor(None, self.manager['portage'].dosync, ) # -> ', )' = No args
             self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
-            self.manager['portage'].sync['elapse'] += 1  
+            self.manager['portage'].sync['elapse'] += 1
+            
+            # Check sync timestamp so we can know if it has been run outside
+            # the program and we can recompute every 31s the sync['remain'] timestamp
+            if self.manager['portage'].remain <= 0:
+                # DONT recompute each time
+                # TEST recompute at the half of time interval  
+                if self.manager['portage'].sync['remain'] <= self.manager['portage'].sync['interval'] // 2 and not \
+                   self.manager['portage'].sync['recompute_done']:
+                    self.manager['portage'].check_sync(recompute=True)
+                    self.manager['portage'].sync['recompute_done'] = True
+                else:
+                    self.manager['portage'].check_sync()
+                self.manager['portage'].remain = 31
+            self.manager['portage'].remain -= 1
             
             # Then: run pretend_world() if authorized 
             # Leave other check: is sync running ? is pretend already running ? is world update is running ?
@@ -130,7 +145,6 @@ class MainDaemon(threading.Thread):
                         
             ### Git stuff
             if self.manager['git'].enable:
-                
                 # First: pull
                 if self.manager['git'].pull['remain'] <= 0 and not self.manager['git'].pull['status']:
                     # Is git in progress ?
@@ -198,7 +212,7 @@ def main():
     myportmanager = PortageDbus(args.sync, pathdir, runlevel, log.level)
         
     # Check sync
-    myportmanager.check_sync(init_run=True)
+    myportmanager.check_sync(init_run=True, recompute=True)
                
     if args.git:
         log.debug('Git kernel tracking has been enable.')
