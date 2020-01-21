@@ -31,6 +31,7 @@ except Exception as exc:
 
 
 # TODO : be more verbose for log.info !
+# TODO 
 
 class GitHandler:
     """Git tracking class."""
@@ -82,7 +83,7 @@ class GitHandler:
             'last'          :   int(self.stateinfo.load('pull last')),   # last pull timestamp
             'remain'        :   0,
             'elapsed'       :   0,
-            'interval'      :   60,       # TEST #kwargs.get('interval'),
+            'interval'      :   kwargs.get('interval'),
             'update_all'    :   False   # True after pull or if detected pull's outside run
             }
         
