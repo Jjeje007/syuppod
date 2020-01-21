@@ -310,6 +310,9 @@ class ClientParserHandler(CustomArgsCheck):
                               metavar = 'avl',
                               choices = ['branch', 'kernel'],
                               help = 'Display available \'kernel\' or \'branch\' update.')
+        git_args.add_argument('--reset',
+                              action = 'store_true',
+                              help = 'Reset pull error so daemon can resume is operation and forced pull.')
         
         
     def parsing(self):

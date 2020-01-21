@@ -59,7 +59,8 @@ class StateInfo:
             # '# Wrote by syuppod version: __version__' TODO : Writing version so we can know which version wrote the state file 
             # TODO : '# Pull Opts',
             'pull count: 0', 
-            'pull error: 0',
+            'pull network_error: 0',
+            'pull retry: 0',
             'pull state: never pull',
             'pull last: 0',
             # Setting default to '0.0' as StrictVersion compare will failed if only '0' or string

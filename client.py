@@ -28,6 +28,7 @@ from portageclient import portage_last
 from portageclient import portage_forced
 
 from gitclient import git_available_version
+from gitclient import reset_pull_error
 
 try:
     from pydbus import SystemBus
@@ -100,7 +101,8 @@ def git_parser(args):
     """Parser for git implentation"""
     myobject  = bus.get("net.syuppod.Manager.Git")
     mycall = {
-        'available'  :   { 'func' : git_available_version, 'args' : [myobject, args.available, args.machine]}
+        'available'  :   { 'func' : git_available_version, 'args' : [myobject, args.available, args.machine]},
+        'reset'      :   { 'func' : reset_pull_error, 'args' : [myobject, args.machine ] }
         }
     
     for key in mycall:

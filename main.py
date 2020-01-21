@@ -147,7 +147,7 @@ class MainDaemon(threading.Thread):
             if self.manager['git'].enable:
                 # First: pull
                 if self.manager['git'].pull['remain'] <= 0 and not self.manager['git'].pull['status']:
-                    # Is git in progress ?
+                    # Is an external git command in progress ? / recompute remain / bypass if network problem
                     if self.manager['git'].check_pull():
                         # Pull async and non blocking 
                         self.scheduler.run_in_executor(None, self.manager['git'].dopull, ) # -> ', )' = same here

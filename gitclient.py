@@ -4,6 +4,7 @@
 # Distributed under the terms of the GNU General Public License v3
 
 # TODO other attributes and many more :)
+# TODO enable git if not enable 
 
 def git_available_version(myobject, opt, machine):
     """Display available git kernel or branch version, if any"""
@@ -40,3 +41,24 @@ def git_available_version(myobject, opt, machine):
         print(f'    - {msg}')
     else:
         print(msg)
+
+def reset_pull_error(myobject, machine):
+    """Reset pull error and forced pull"""
+    msg = {
+        'done'      :   _('Done.'),
+        'no_error'  :   _('No error found.'),
+        'network'   :   _('Found a network error which is not blocking.'),
+        'running'   :   _('Git pull is running, skipping...')
+        }
+    reply = myobject.reset_pull_error()
+    if reply == 'disable':
+        print('Error: git implantation is disable')
+        return
+        
+    if not machine:
+        print('[*] Resetting pull error:')
+        print('    - {0}'.format(msg[reply]))
+    else:
+        print(msg[reply])
+    
+    

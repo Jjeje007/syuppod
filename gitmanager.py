@@ -38,9 +38,9 @@ class GitHandler:
         # Check we got all required kwargs
         for key in 'interval', 'repo', 'pathdir', 'runlevel', 'loglevel':
             if not key in kwargs:
-                # Print to stderr as when running in init mode 
-                # stderr is redirect to a log file
-                # And also because logger is NOT initialized 
+                # Print to stderr :
+                # when running in init mode stderr is redirect to a log file
+                # logger is not yet initialized 
                 print(f'Error: missing argument \'{key}\' when calling gitmanager module.', file=sys.stderr)
                 print('Error: exiting with status \'1\'.', file=sys.stderr)
                 sys.exit(1)
@@ -74,14 +74,15 @@ class GitHandler:
             # So we have to make an objet which will get last log from 
             # git.log file (and other log file)
             'log'           :   'TODO',             
-            'error'         :   self.stateinfo.load('pull error'),
+            'network_error' :   int(self.stateinfo.load('pull network_error')),
+            'retry'         :   int(self.stateinfo.load('pull retry')),
             'count'         :   str(self.stateinfo.load('pull count')),   # str() or get 'TypeError: must be str
                                                                           #  not int' or  vice versa
             'current_count' :   0,   
             'last'          :   int(self.stateinfo.load('pull last')),   # last pull timestamp
             'remain'        :   0,
             'elapsed'       :   0,
-            'interval'      :   kwargs.get('interval'),
+            'interval'      :   60,       # TEST #kwargs.get('interval'),
             'update_all'    :   False   # True after pull or if detected pull's outside run
             }
         
@@ -233,14 +234,13 @@ class GitHandler:
         # First get all tags from git (tags = versions)
         try:
             self.log.debug('Getting all git kernel version (not sorted):')
-            stdout = git.Repo(self.repo).git.tag('-l').splitlines()
+            myprocess = git.Repo(self.repo).git.tag('-l').splitlines()
         except Exception as exc:
             err = exc.stderr
             # Try to strip off the formatting GitCommandError puts on stderr
             match = re.search(r"stderr: '(.*)'", err)
             if match:
                 err = match.group(1)
-            # TODO: same as pull : count the error
             self.log.error(f'Got unexcept error while getting available git kernel version:')
             self.log.error(f'{err}.')
             # Don't exit just keep previously list
@@ -252,7 +252,7 @@ class GitHandler:
             return
 
         versionlist = [ ]
-        for line in stdout:
+        for line in myprocess:
             if re.match(r'^v([\d\.]+)-zen.*$', line):
                 version = re.match(r'^v([\d\.]+)-zen.*$', line).group(1)
                 try:
@@ -362,7 +362,7 @@ class GitHandler:
             
             if not versionlist:
                 self.log.error(f'Couldn\'t find any valid {origin} branch version.')
-                # TODO : error or critical ? exit or no ?
+                # TEST : error or critical ? exit or no ?
                 # For now we have to test...
                 # Don't update the list - so keep the last know or maybe the factory '0.0'
                 break 
@@ -439,9 +439,7 @@ class GitHandler:
 
     def get_last_pull(self, timestamp_only=False):
         """Get last git pull timestamp"""
-        
-         # BUG : even if git pull failed it's still modify .git/FETCH_HEAD  ...
-        
+                
         self.log.name = f'{self.logger_name}get_last_pull::'
         
         path = pathlib.Path(self.repo + '/.git/FETCH_HEAD')
@@ -467,6 +465,16 @@ class GitHandler:
                 self.log.debug('Forcing all update.')
                 self.pull['update_all'] = True
                 
+                # TEST This has to be TEST !
+                if self.pull['state'] == 'Failed' and not self.pull['network_error']:
+                    # Ok so assume this has been fix (because pull has been run outside the program)
+                    self.log.warning('Git pull has been run outside the program.')
+                    self.log.warning('Found current pull state to Failed.')
+                    self.log.warning('Assuming that this has been fixed, please report if not.')
+                    self.pull['state'] = 'Success'
+                    self.stateinfo.save('pull state', 'pull state: Success')
+                    
+                
                 # Saving timestamp
                 self.pull['last'] = lastpull
                 saving = True
@@ -481,8 +489,6 @@ class GitHandler:
         path = pathlib.Path(self.repo + '.git/refs/remotes/origin/HEAD')
         if path.is_file():
             self.log.debug(f'Repository \'{self.repo}\' has never been updated (pull).')
-            #self.pull['status'] = True
-            
             return True
         
         # Got problem 
@@ -525,58 +531,108 @@ class GitHandler:
             
             
             if self.pull['remain'] <= 0:
-                #self.pull['status'] = True
+                return True
+            # TEST Bypass remain as it's a network_error
+            # This should be good but keep more testing
+            if self.pull['network_error']:
+                self.log.debug('Bypassing remain timestamp ({0}) as network error found.'.format(self.pull['remain']))
                 return True
         return False
     
 
     def dopull(self):
         """Pulling git repository"""
-        # BUG : even if git pull failed it's still modify .git/FETCH_HEAD  ... 
-        # We should go for subprocess to implant asyncio...
         self.log.name = f'{self.logger_name}dopull::'
         
         if self.pull['status']:
             self.log.error('We are about to update git repository and found status to True,')
             self.log.error('which mean it is already in progress, please check and report if False.')
             return
+        # Skip pull if state is Failed and it's not an network error
+        if self.pull['state'] == 'Failed' and not self.pull['network_error']:
+            self.log.error('Skipping git repository update due to previously error.')
+            self.log.error('Fix the error and reset using syuppod dbus client.')
+            return
+        
         self.pull['status'] = True        
         try:
-            gitlog = git.Repo(self.repo).git.pull()
+            myprocess = git.Repo(self.repo).git.pull()
         except Exception as exc:
             err = exc.stderr
             # Try to strip off the formatting GitCommandError puts on stderr
             match = re.search("stderr: '(.*)'$", err)
             if match:
                 err = match.group(1)
-            self.log.error('Error while pulling git repository:')
-            self.log.error(f'{err}')
+            network_error = re.search('.*Couldn.t.resolve.host.*', err)
             
-            # Just mark the first error and exit if second error 
-            if self.pull['error'] == '1':
-                # Look like it's not possible to get the error number
-                # So it's not possible to know that is the same error...
-                self.log.critical('This is the second error while pulling git repository.')
-                self.log.critical('Cannot continue, please fix the error.')
-                sys.exit(1)
-            self.pull['state'] = 'Failed'
-            self.pull['error'] = 1
+            if network_error:
+                # TEST TEST
+                # 10 times @ 600s (10min)
+                # after 10 times @ 3600s (1h)
+                # then reset to interval (so mini is 24H)
+                msg_on_retry = ''
+                self.pull['remain'] = 600
+                if self.pull['retry'] == 1:
+                    msg_on_retry = ' (1 time already)'
+                elif 2 <= self.pull['retry'] <= 10:
+                    msg_on_retry = ' ({0} times already)'.format(self.pull['retry'])
+                elif 11 <= self.pull['retry'] <= 20:
+                    msg_on_retry = ' ({0} times already)'.format(self.pull['retry'])
+                    self.pull['remain'] = 3600
+                elif self.pull['retry'] > 20:
+                    msg_on_retry = ' ({0} times already)'.format(self.pull['retry'])
+                    self.pull['remain'] = self.pull['interval']
+                self.log.error('Got network error while pulling git repository.')
+                self.log.error(err)
+                # This is normal 'retry{0}' see --> _set_remain_on_network_error()
+                self.log.error('Will retry{0} pulling in {1}.'.format(msg_on_retry,
+                                                                     self.format_timestamp.convert(self.pull['remain'])))
+                
+                old_count = self.pull['retry']
+                self.pull['retry'] += 1
+                self.log.debug('Incrementing pull retry from {0} to {1}.'.format(old_count, self.pull['retry']))
+                # Save
+                self.stateinfo.save('pull retry', 'pull retry: ' + str(self.pull['retry']))
+                                
+                if not self.pull['network_error']:
+                    # Set network_error
+                    self.pull['network_error'] = '1'
+                    self.stateinfo.save('pull network_error', 'pull network_error: 1')
+            else:
+                self.log.error('Got unexcept error while pulling git repository.')
+                self.log.error(err)
+                # Reset retry and network_error
+                if not self.pull['retry']:
+                    self.pull['retry'] = 0
+                    self.stateinfo.save('pull retry', 'pull retry: 0')
+                if not self.pull['network_error']:
+                    self.pull['network_error'] = 0
+                    self.stateinfo.save('pull network_error', 'pull network_error: 0')
+                                
+                # Reset remain to interval 
+                # But if no action then pull will be skipped
+                self.pull['remain'] = self.pull['interval']
+                
+            if not self.pull['state'] == 'Failed':
+                self.pull['state'] = 'Failed'
+                self.stateinfo.save('pull state', 'pull state: Failed')
             
-            # Write error status to state file so if the program is stop and restart
-            # it will know that it was already an error
-            # Write 'state' to state file as well
-            self.stateinfo.save('pull error', 'pull error: 1')
-            self.stateinfo.save('pull state', 'pull state: Failed')
         else:
-            self.pull['state'] = 'Success'
-            # Update 'state' status to state file
-            self.stateinfo.save('pull state', 'pull state: Success')
             self.log.info('Successfully update git kernel repository.')
+     
+               # Update 'state' status to state file
+            if not self.pull['state'] == 'Success':
+                self.pull['state'] = 'Success'
+                self.stateinfo.save('pull state', 'pull state: Success')
             
-            # Erase status of git pull error in git.state file and reset self.pull error to 0
-            self.pull['error'] = 0
-            self.stateinfo.save('pull error', 'pull error: 0')
-            
+            # Reset retry and network_error
+            if self.pull['retry']:
+                self.pull['retry'] = 0
+                self.stateinfo.save('pull retry', 'pull retry: 0')
+            if self.pull['network_error']:
+                self.pull['network_error'] = 0
+                self.stateinfo.save('pull network_error', 'pull network_error: 0')
+
             # Append one more pull to git state file section 'pull'
             # Convert to integrer
             old_count_global = self.sync['count']
@@ -597,22 +653,25 @@ class GitHandler:
             mylogfile = processlog.dolog(self.pathdir['gitlog'])
             mylogfile.setLevel(processlog.logging.INFO)
             mylogfile.info('##################################')
-            for line in gitlog.splitlines():
+            for line in myprocess.splitlines():
                 mylogfile.info(line)
-            self.log.debug(f'Successfully wrote git pull log to \'{0}\'.'.format(self.pathdir['gitlog']))
-            
-            # Get last timestamp
-            self.pull['last'] = self.get_last_pull(timestamp_only=True)
-            
-            # Save
-            self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
-                                                                          self.pathdir['statelog']))
-        finally:
-            # Reset remain to interval and status
+            self.log.debug('Successfully wrote git pull log to {0}.'.format(self.pathdir['gitlog']))
+                        
             self.pull['remain'] = self.pull['interval']
-            self.pull['status'] = False
             # Force update all 
             self.pull['update_all'] = True
+        finally:
+            # Reset status
+            self.pull['status'] = False
+            # Get last timestamp 
+            # Any way even if git pull failed it will write to .git/FETCH_HEAD 
+            # So get the timestamp any way
+            self.pull['last'] = self.get_last_pull(timestamp_only=True)
+            # Save
+            self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
+                                                                                 self.pathdir['statelog']))
+            self.stateinfo.save('pull last', 'pull last: ' + str(self.pull['last']))
+            
                     
 
     def _check_config(self):
@@ -691,6 +750,7 @@ class GitHandler:
             'first pass'    :   [ old_list, new_list, 'previously and current update list.', 'previously'],
             'second pass'   :   [ new_list, old_list, 'current and previously update list.', 'current' ]
             }
+        current_version = '0.0.0'
         
         for value in tocompare.values():
             self.log.debug('Between {0}'.format(value[2]))
@@ -712,15 +772,17 @@ class GitHandler:
                         # Any way we will replace all the list if lists are different
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
                         # Try to be more verbose for log.info
-                        # TODO avoid printing twice !
-                        self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
+                        # TEST avoid printing twice - should be good :)
+                        if not StrictVersion(current_version) == StrictVersion(upper_version):
+                            self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
+                            current_version = upper_version
         # Ok now if nothing change
         if not ischange:
             self.log.debug('Finally, didn\'t found any change, previously data has been kept.')
             return False
         else:
             return True
-            
+        
 
 
 def check_git_dir(directory):

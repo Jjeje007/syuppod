@@ -23,6 +23,9 @@ class GitDbus(GitHandler):
                     <arg type='s' name='branch_subkey' direction='in'/>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='reset_pull_error'>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
             </interface>
         </node>
     """
@@ -77,4 +80,21 @@ class GitDbus(GitHandler):
         if subkey == 'None':
             return str(' '.join(self.branch[key]))
         return str(' '.join(self.branch[key][subkey]))
+    
+    ### Other attributes
+    def reset_pull_error(self):
+        """Reset pull error and forced pull"""
+        if not self.enable:
+            return 'disable'
+        if self.pull['status']:
+            return 'running'
+        if not self.pull['state'] == 'Failed':
+            return 'no_error'
+        if self.pull['state'] == 'Failed' and self.pull['network_error']:
+           return 'network'
+        # Ok everything should be good ;)
+        self.log.warning('Resetting pull error as requested by dbus client.')
+        self.pull['state'] = 'Success'
+        self.stateinfo.save('pull state', 'pull state: Success')
+        return 'done'
     
