@@ -31,7 +31,7 @@ from utils import StateInfo
 # it has to get info from state file
 # TODO : exit gracefully 
 # TODO : debug log level ! 
-# TODO TODO : what if no internet connexion ? analyse return code for git pull and emerge --sync 
+# TODO TODO : what if no internet connexion ? analyse return code for emerge --sync 
 #             if no connexion then retry every N seconds (this could be decrease)
 
 try:

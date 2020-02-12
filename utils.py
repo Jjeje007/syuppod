@@ -80,8 +80,10 @@ class StateInfo:
             #'kernel available new: 0.0',
             # TODO : '# Sync Opts',
             'sync count: 0',
-            'sync error: 0',
+            #'sync error: 0',
             'sync state: never sync',
+            'sync network_error: 0',
+            'sync retry: 0',
             'sync update: unknow',
             'sync timestamp: 0',
             # TODO: '# World Opts

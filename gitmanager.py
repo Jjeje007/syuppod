@@ -254,6 +254,7 @@ class GitHandler:
 
         versionlist = [ ]
         for line in myprocess:
+            # TEST make 'zen' independent 
             if re.match(r'^v([\d\.]+)-zen.*$', line):
                 version = re.match(r'^v([\d\.]+)-zen.*$', line).group(1)
                 try:
@@ -552,7 +553,7 @@ class GitHandler:
         # Skip pull if state is Failed and it's not an network error
         if self.pull['state'] == 'Failed' and not self.pull['network_error']:
             self.log.error('Skipping git repository update due to previously error.')
-            self.log.error('Fix the error and reset using syuppod dbus client.')
+            self.log.error('Fix the error and reset using syuppod\'s dbus client.')
             return
         
         self.pull['status'] = True        

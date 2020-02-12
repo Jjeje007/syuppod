@@ -28,6 +28,7 @@ class MainLoggingHandler:
         self.logger = logging.getLogger(self.name)
         
         # TODO FIXME debug.log rotate is a REAL mess, don't know why
+        # FIXME debug message should have ALL level message ?!?
         # this could be because we have one logger by module ?
         # Debug only go to file
         # Rotate the log 

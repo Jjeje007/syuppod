@@ -55,8 +55,10 @@ class PortageHandler:
             'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
             'recompute_done':   False, # True when recompute already done / False when not
                                        # reset in method dosync()
+            'network_error' :   int(self.stateinfo.load('sync network_error')),
+            'retry'         :   int(self.stateinfo.load('sync retry')),
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
-            'error'         :   self.stateinfo.load('sync error'),
+            #'error'         :   self.stateinfo.load('sync error'),
             'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
                                                                           # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
@@ -151,14 +153,7 @@ class PortageHandler:
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
                 recompute = True
-            #This mean that sync has been run outside the program 
-            #elif init_run and not self.sync['timestamp'] == sync_timestamp:
-                #self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
-                                                                                #self.sync['repos']['msg'].capitalize()))
-                #self.world['pretend'] = True # So run pretend world update
-                #self.sync['timestamp'] = sync_timestamp
-                #update_statefile = True
-            # Same here 
+            # Detected out of program sync
             elif not self.sync['timestamp'] == sync_timestamp:
                 self.log.debug('{0} has been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
@@ -211,6 +206,16 @@ class PortageHandler:
         # Change name of the logger
         self.log.name = f'{self.logger_name}dosync::'
         
+        # Check if sync is disable
+        if self.sync['state'] == 'Failed' and not self.sync['network_error']:
+            self.log.error('Skipping sync update due to previously error.')
+            self.log.error('Fix the error and reset using syuppod\'s dbus client.')
+            # Make sure to not recompute
+            self.sync['recompute_done'] = True
+            # Reset remain to interval otherwise it will call every seconds
+            self.sync['remain'] = self.sync['interval']
+            return
+        
         # Check if already running
         # BUT this shouldn't happend
         if self.sync['status']:
@@ -245,96 +250,146 @@ class PortageHandler:
         self.log.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
+        # Network failure related
+        # main gentoo repo
+        manifest_failure = re.compile(r'^!!!.Manifest.verification.impossible.due.to.keyring.problem:$')
+        found_manifest_failure = False
+        gpg_network_unreachable = re.compile(r'^gpg:.keyserver.refresh.failed:.Network.is.unreachable$')
+        repo_gentoo_network_unreachable = False
+        # Get return code for each repo
+        failed_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),.returned.code.=.1$')
+        success_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),.returned.code.=.0$')
+        self.sync['repos']['failed'] = [ ]
+        self.sync['repos']['success'] = [ ]
+        # Set default values
+        self.network_error = self.sync['network_error']
+        self.retry = self.sync['retry']
+        self.state = self.sync['state']
+        
         myargs = ['/usr/bin/emerge', '--sync']
-        mysync = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
+        myprocess = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         mylogfile.info('##########################################\n')
         
-        for line in iter(mysync.stdout.readline, ""):
+        for line in iter(myprocess.stdout.readline, ""):
             #TODO : get info messages as well
             #exemple : 
             #* An update to portage is available. It is _highly_ recommended
             #* that you update portage now, before any other packages are updated.
             
             #* To update portage, run 'emerge --oneshot portage' now.
-            
-            #TODO: as the log print successfully / failed sync by repo like :
-            #Action: sync for repo: gentoo, returned code = 0
-            #Action: sync for repo: steam-overlay, returned code = 0
-            #Action: sync for repo: reagentoo, returned code = 0
-            #Action: sync for repo: rage, returned code = 0
-            #Action: sync for repo: pinkpieea, returned code = 0
-            mylogfile.info(line.rstrip())
-        mysync.stdout.close()
-        return_code = mysync.poll()
+            rstrip_line = line.rstrip()
+            # write log             
+            mylogfile.info(rstrip_line)
+            # TEST detected network failure for main gentoo repo 
+            if found_manifest_failure:
+                # So make sure it's network related 
+                if gpg_network_unreachable.match(rstrip_line):
+                    repo_gentoo_network_unreachable = True
+            if manifest_failure.match(rstrip_line):
+                found_manifest_failure = True
+            # TEST  get return code for each repo
+            if failed_sync.match(rstrip_line):
+                self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
+            if success_sync.match(rstrip_line):
+                self.sync['repos']['success'].append(success_sync.match(rstrip_line).group(1))                   
+        myprocess.stdout.close()
+        return_code = myprocess.poll()
+        
+        self.log.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
+        self.log.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
         
         if return_code:
-            self.log.error('Got error while syncing {0}.'.format(self.sync['repos']['msg']))
-            self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
-            self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
+            list_len = len(self.sync['repos']['failed'])
+            msg = 'This repository'
+            additionnal_msg = ''
+            if list_len - 1 > 1:
+                msg = 'These repositories'
+            # Check out if we have an network failure for repo gentoo
+            if repo_gentoo_network_unreachable:
+                self.network_error = 1
+                self.state = 'Failed'
+                # TEST TEST Cannot be same as module gitmanager because:
+                # sync will make ALOT more time to fail.
+                # See : /etc/portage/repos.conf/gentoo.conf 
+                # @2020-23-01 (~30min): 
+                # sync-openpgp-key-refresh-retry-count = 40
+                # sync-openpgp-key-refresh-retry-overall-timeout = 1200
+                # first 5 times @ 600s (10min) - real is : 40min
+                # after 5 times @ 3600s (1h) - real is : 1h30
+                # then reset to interval (so mini is 24H)
+                msg_on_retry = ''
+                self.sync['remain'] = 600
+                if self.retry == 1:
+                    msg_on_retry = ' (1 time already)'
+                elif 2 <= self.retry <= 5:
+                    msg_on_retry = ' ({0} times already)'.format(self.retry)
+                elif 6 <= self.retry <= 10:
+                    msg_on_retry = ' ({0} times already)'.format(self.retry)
+                    self.sync['remain'] = 3600
+                elif self.retry > 10:
+                    msg_on_retry = ' ({0} times already)'.format(self.retry)
+                    self.sync['remain'] = self.sync['interval']
                 
-            # don't write if state is already in 'Failed'
-            if not self.sync['state'] == 'Failed':
-                self.sync['state'] = 'Failed'
-                self.log.debug('Saving \'sync state: {0}\' to \'{1}\'.'.format(self.sync['state'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('sync state', 'sync state: Failed')
+                if not self.sync['repos']['success']:
+                    # All the repos failed
+                    self.log.error('{0} sync failed: network is unreachable.'.format(
+                                                    self.sync['repos']['msg'].capitalize()))
+                else:
+                    self.log.error('Main gentoo repository failed to sync: network is unreachable.')
+                    additionnal_msg = 'also'
+                    if list_len - 1 > 0:
+                        self.log.error('{0} {1}failed to sync: {2}.'.format(msg, additionnal_msg, 
+                            ', '.join([name for name in self.sync['repos']['failed'] if not name == 'gentoo'])))
+                # Increment retry
+                old_sync_retry = self.retry
+                self.retry += 1
+                self.log.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
+                                                                                 self.retry))
+                self.log.error('Will retry{0} syncing in {1}.'.format(msg_on_retry,
+                                                                      self.format_timestamp.convert(
+                                                                          self.sync['remain'])))
+                # Make sure to not recompute
+                self.sync['recompute_done'] = True
             else:
-                self.log.debug('Skip saving \'sync state: {0}\' to \'{1}\': already in good state.'.format(self.sync['state'], 
-                                                                                 self.pathdir['statelog']))
-                    
-            # We mark the error and we exit after 3 retry
-            #TODO : check this and pull['error'] as well and print an warning at startup 
-            # or we can stop if error > max count and add an opts to reset the error (when fix)
-            # then the option could be add to dbus client - thinking about this ;)
-            old_count = self.sync['error']
-            
-            self.sync['error'] = int(self.sync['error'])
-                              
-            if int(self.sync['error']) > 3:
-                self.log.critical('This is the third error while syncing {0}.'.format(self.sync['repos']['msg']))
-                self.log.critical('Cannot continue, please fix the error.')
-                sys.exit(1)
-            
-            # Increment error count
-            self.sync['error'] += 1
-            self.log.debug('Incrementing sync error from \'{0}\' to \'{1}\''.format(old_count, 
-                                                                                    self.sync['error']))
-            self.log.debug('Saving \'sync error: {0}\' to \'{1}\'.'.format(self.sync['error'], 
-                                                                                 self.pathdir['statelog']))
-            self.stateinfo.save('sync error', 'sync error: ' + str(self.sync['error']))
+                # Ok so this is not an network problem for main gentoo repo
+                # Disable sync only if main gentoo repo have problem
+                if 'gentoo' in self.sync['repos']['failed']:
+                    self.log.error('Main gentoo repository failed to sync with a unexcept error !!.')
+                    self.log.error('Auto sync has been disable. To reenable it, use syuppod\'s dbus client.')
+                    additionnal_msg = 'also'
+                    # State is Failed only if main gentoo repo failed
+                    self.state = 'Failed'
+                    # reset values
+                    self.network_error = 0
+                    self.retry = 0
+                # Other repo
+                if list_len - 1 > 0:
+                    self.log.error('{0} {1}failed to sync: {2}.'.format(msg, additionnal_msg, 
+                        ', '.join(name for name in self.sync['repos']['failed'] if not name == 'gentoo')))
                 
-            # Retry in self.sync['interval']
-            self.log.info('Will retry sync in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
-            self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
-            self.sync['remain'] = self.sync['interval']
-            # We don't care about return                
+                self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
+                
+                if not additionnal_msg == 'also':
+                    self.log.info('Will retry sync in {0}'.format(self.format_timestamp.convert(
+                                                                                    self.sync['interval'])))
+                    # Reset remain to interval
+                    self.log.debug('Only {0} failed to sync: {1}.'.format(msg.lower(),
+                                                                        ', '.join(self.sync['repos']['failed'])))
+                self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
+                # Any way reset remain to interval
+                self.sync['remain'] = self.sync['interval']
+                # Make sure to not recompute
+                self.sync['recompute_done'] = True
         else:
             # Ok good :p
-            # Don't update state file if it's already in state 'Success'
-            if not self.sync['state'] == 'Success':
-                self.sync['state'] = 'Success'
-                # Update state file
-                self.log.debug('Saving \'sync state: {0}\' to \'{1}\'.'.format(self.sync['state'], 
-                                                                                self.pathdir['statelog']))
-                self.stateinfo.save('sync state', 'sync state: Success')
-            else:
-                self.log.debug('Skip saving \'sync state: {0}\''.format(self.sync['state']) +
-                               ' to \'{0}\': already in good state.'.format(self.pathdir['statelog']))
-                
+            self.state = 'Success'
+            # Reset values
+            self.retry = 0
+            self.network_error = 0
+            # Ok here we can recompute
+            self.sync['recompute_done'] = False
             self.log.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
-            
-            # Same here if no error don't rewrite
-            if not self.sync['error'] == '0':
-                # Erase error 
-                self.log.debug('Resetting sync error to \'0\'')
-                self.sync['error'] = 0
-                self.log.debug('Saving \'sync error: {0}\' to \'{1}\'.'.format(self.sync['error'], 
-                                                                                self.pathdir['statelog']))
-                self.stateinfo.save('sync error', 'sync error: 0')
-            else:
-                self.log.debug('Skip saving \'sync error: {0}\' to \'{1}\': already in good state.'.format(self.sync['error'], 
-                                                                                 self.pathdir['statelog'])) 
             # BUG : found this in the log :
             #2020-01-10 09:10:39  ::portagemanager::PortageHandler::get_last_world_update::  Global update not in progress.
             #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Loading last '3000' lines from '/var/log/emerge.log'.
@@ -385,12 +440,18 @@ class PortageHandler:
                     self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
             # At the end of successfully sync, run pretend_world()
             self.world['pretend'] = True
+            self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
+            # Reset remain to interval
+            self.sync['remain'] = self.sync['interval']
+            self.log.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
-        # At the end Reset interval and set status to False (sync is Done)
-        self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
-        self.sync['remain'] = self.sync['interval']
+        # At the end
         self.sync['elapse'] = 0
-        self.log.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
+        # Write / mod value only if change
+        for value in 'state', 'retry', 'network_error':
+            if not self.sync[value] == getattr(self, value):
+                self.sync[value] = getattr(self, value)
+                self.stateinfo.save(f'sync {value}', f'sync {value}: ' + str(getattr(self, value)))
         if not self.sync['status']:
             self.log.error('We are about to leave syncing process, but just found status already to False,'.format(
                                                                                         self.sync['repos']['msg']))
@@ -452,7 +513,7 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
-        # TODO this crashed @ 2020 01 10 :: 09:10:40 without any reason AND no log ...
+        # TODO BUG crashed @ 2020 01 10 :: 09:10:40 without any reason AND no log ...
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
@@ -735,7 +796,7 @@ class PortageHandler:
     
     
     def _get_repositories(self):
-        """Get name(s) of repos to sync and return formatted"""
+        """Get repos informations and return formatted"""
         self.log.name = f'{self.logger_name}_get_repositories::'
         names = portdbapi().getRepositories()
         if names:
@@ -841,7 +902,6 @@ class EmergeLogParser:
                         # Ok so with have all the line
                         # search over group list to check if sync for repo gentoo is in 'completed' state
                         # and add timestamp line '=== sync ' to collect list
-                        # TODO: should we warn about an overlay which failed to sync ?
                         for value in group:
                             if completed_re.match(value):
                                 collect.append(current_timestamp)
@@ -855,7 +915,7 @@ class EmergeLogParser:
                     if with_delimiting_lines:
                         group.append(line)
             # Collect is finished.
-            # If we got nothing then extend by 100 last lines to self.getlog()
+            # If we got nothing then extend  last lines to self.getlog()
             if collect:
                 keep_running = False
             else:
@@ -1164,28 +1224,40 @@ class EmergeLogParser:
                         elif keepgoing and start_compiling.match(line):
                             # Try to fix BUG describe upstair
                             unexcept_start = False
+                            #unexcept_terminating = False
                             for saved_line in record:
+                                # This is also a 'BUG'
+                                # 1581349345:  === (2 of 178) Compiling/Merging (kde-apps/pimcommon-19.12.2::/usr/portage/kde-apps/pimcommon/pimcommon-19.12.2.ebuild)
+                                # 1581349360:  *** terminating.
+                                # 1581349366: Started emerge on: févr. 10, 2020 16:42:46
+                                # 1581349366:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
+                                #if re.match(r'^\d+:\s{2}\*\*\*.terminating\.$', saved_line):
+                                    #unexcept_terminating = True
                                 if start_opt.match(saved_line):
                                     unexcept_start = saved_line
                                     break
+                                    # don't break we need to make sure we didn't get terminating
+                                    # so this could be slower...
                             if unexcept_start:
-                                self.log.error(f'While parsing {self.emergelog}, got unexcept'
+                                # FIXME for now avoid logging this as error because it's spam a LOT /var/log/messages
+                                # TODO maybe we -could- log only once this error...
+                                self.log.debug(f'While parsing {self.emergelog}, got unexcept'
                                                 f' world update start opt:')
-                                self.log.error(f'{unexcept_start}')
+                                self.log.debug(f'{unexcept_start}')
                                 # Except first element in a list is a stop match
                                 self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', record[0]).group(1))
                                 if not 'failed' in self.group:
                                     self.group['failed'] = f'at {self.packages_count} ({package_name})'
                                 # First try if it was an keepgoing restart
                                 if keepgoing and 'total' in self.group['saved']:
-                                    self.log.error('Forcing save of current world update group.')
+                                    self.log.debug('Forcing save of current world update group.')
                                     _saved_partial()
                                 # if incompleted is enable
                                 elif incompleted:
-                                    self.log.error('Forcing save of current world update group.')
+                                    self.log.debug('Forcing save of current world update group.')
                                     _saved_incompleted()
                                 else:
-                                    self.log.error('Skipping save of current world update group '
+                                    self.log.debug('Skipping save of current world update group '
                                                    + '(unmet conditions).')
                                 # Ok now we have to restart everything
                                 self.group = { }
