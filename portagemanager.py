@@ -208,14 +208,15 @@ class PortageHandler:
         self.log.name = f'{self.logger_name}dosync::'
         
         # Check if sync is disable
-        if self.sync['state'] == 'Failed' and not self.sync['network_error']:
-            self.log.error('Skipping sync update due to previously error.')
-            self.log.error('Fix the error and reset using syuppod\'s dbus client.')
-            # Make sure to not recompute
-            self.sync['recompute_done'] = True
-            # Reset remain to interval otherwise it will call every seconds
-            self.sync['remain'] = self.sync['interval']
-            return
+        # TEST no no no don't disable just reset to 'interval'
+        #if self.sync['state'] == 'Failed' and not self.sync['network_error']:
+            #self.log.error('Skipping sync update due to previously error.')
+            #self.log.error('Fix the error and reset using syuppod\'s dbus client.')
+            #Make sure to not recompute
+            #self.sync['recompute_done'] = True
+            #Reset remain to interval otherwise it will call every seconds
+            #self.sync['remain'] = self.sync['interval']
+            #return
         
         # Check if already running
         # BUT this shouldn't happend
@@ -354,14 +355,10 @@ class PortageHandler:
                 self.sync['recompute_done'] = True
             else:
                 # Ok so this is not an network problem for main gentoo repo
-                # Disable sync only if main gentoo repo have problem
-                # Ok but this should be retry one time because of this :
-                #   * Verifying /usr/portage/.tmp-unverified-download-quarantine ...!!! Manifest verification failed:
-                # TODO TODO this should be retry with a different server ?! 
-                # Keep TEST before  
+                # TEST DONT disable sync just keep syncing every 'interval'
                 if 'gentoo' in self.sync['repos']['failed']:
                     self.log.error('Main gentoo repository failed to sync with a unexcept error !!.')
-                    self.log.error('Auto sync has been disable. To reenable it, use syuppod\'s dbus client.')
+                    #self.log.error('Auto sync has been disable. To reenable it, use syuppod\'s dbus client.')
                     additionnal_msg = 'also'
                     # State is Failed only if main gentoo repo failed
                     self.state = 'Failed'
@@ -369,8 +366,8 @@ class PortageHandler:
                     self.network_error = 0
                     self.retry = 0
                 # Other repo
-                if list_len - 1 > 0:
-                    self.log.error('{0} {1}failed to sync: {2}.'.format(msg, additionnal_msg, 
+                if list_len - 1 >= 0:
+                    self.log.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                         ', '.join(name for name in self.sync['repos']['failed'] if not name == 'gentoo')))
                 
                 self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
