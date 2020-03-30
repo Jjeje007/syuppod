@@ -26,6 +26,7 @@ from portageclient import portage_available
 from portageclient import portage_packages
 from portageclient import portage_last
 from portageclient import portage_forced
+from portageclient import portage_reset
 
 from gitclient import git_available_version
 from gitclient import reset_pull_error
@@ -69,7 +70,7 @@ except Exception as exc:
 def portage_parser(args):
     """Parser for portage implentation"""
     myobject  = bus.get("net.syuppod.Manager.Portage")
-    mycall = {
+    portcaller = {
         'state'     :   { 'func' : portage_state_status, 'args' : [myobject, 'state', args.machine] },
                                                                 # Attribute is 'update' not 'status'
         'status'    :   { 'func' : portage_state_status, 'args' : [myobject, 'update', args.machine] },
@@ -84,30 +85,31 @@ def portage_parser(args):
         'available' :   { 'func' : portage_available, 'args' : [myobject, args.available, args.machine] },
         'packages'  :   { 'func' : portage_packages, 'args' : [myobject, args.machine] },
         'last'      :   { 'func' : portage_last, 'args' : [myobject, args.last, args.machine, translate] },
-        'forced'    :   { 'func' : portage_forced, 'args' : [myobject, args.machine] }
+        'forced'    :   { 'func' : portage_forced, 'args' : [myobject, args.machine] },
+        'reset'     :   { 'func' : portage_reset, 'args' : [myobject, args.machine] }
         }
     
-    for key in mycall:
+    for key in portcaller:
         if args.all:
             # Skip forced for all args
             if key == 'forced':
                 continue
-            mycall[key]['func'](*mycall[key]['args'])
+            portcaller[key]['func'](*portcaller[key]['args'])
         elif getattr(args, key):
-            mycall[key]['func'](*mycall[key]['args'])
+            portcaller[key]['func'](*portcaller[key]['args'])
 
 
 def git_parser(args):
     """Parser for git implentation"""
     myobject  = bus.get("net.syuppod.Manager.Git")
-    mycall = {
+    gitcaller = {
         'available'  :   { 'func' : git_available_version, 'args' : [myobject, args.available, args.machine]},
         'reset'      :   { 'func' : reset_pull_error, 'args' : [myobject, args.machine ] }
         }
     
-    for key in mycall:
+    for key in gitcaller:
         if getattr(args, key):
-            mycall[key]['func'](*mycall[key]['args'])
+            gitcaller[key]['func'](*gitcaller[key]['args'])
 
 
 ### MAIN ###

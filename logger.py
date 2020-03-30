@@ -33,7 +33,7 @@ class MainLoggingHandler:
         # Debug only go to file
         # Rotate the log 
         # 2.86MB, rotate 3x times
-        debug_handler = logging.handlers.RotatingFileHandler(self.debuglog, maxBytes=3000000, backupCount=3)
+        debug_handler = logging.handlers.RotatingFileHandler(self.debuglog, maxBytes=31457280, backupCount=3)
         datefmt = '%Y-%m-%d %H:%M:%S'
         debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s', datefmt)
         debug_handler.setFormatter(debug_formatter)

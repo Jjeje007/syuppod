@@ -69,7 +69,7 @@ class PortageHandler:
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
-        # Print warning about interval it's 'too big'
+        # Print warning if interval 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
             self.log.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
@@ -105,6 +105,7 @@ class PortageHandler:
             'remain'    :   30,     # check every 30s when 'available' is True
             'logflow'   :   True    # Control log info flow to avoid spamming syslog
             }
+
        
     def check_sync(self, init_run=False, recompute=False):
         """ Checking if we can sync repo depending on time interval.
@@ -339,7 +340,7 @@ class PortageHandler:
                     self.log.error('Main gentoo repository failed to sync: network is unreachable.')
                     additionnal_msg = 'also'
                     if list_len - 1 > 0:
-                        self.log.error('{0} {1}failed to sync: {2}.'.format(msg, additionnal_msg, 
+                        self.log.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                             ', '.join([name for name in self.sync['repos']['failed'] if not name == 'gentoo'])))
                 # Increment retry
                 old_sync_retry = self.retry
@@ -354,6 +355,10 @@ class PortageHandler:
             else:
                 # Ok so this is not an network problem for main gentoo repo
                 # Disable sync only if main gentoo repo have problem
+                # Ok but this should be retry one time because of this :
+                #   * Verifying /usr/portage/.tmp-unverified-download-quarantine ...!!! Manifest verification failed:
+                # TODO TODO this should be retry with a different server ?! 
+                # Keep TEST before  
                 if 'gentoo' in self.sync['repos']['failed']:
                     self.log.error('Main gentoo repository failed to sync with a unexcept error !!.')
                     self.log.error('Auto sync has been disable. To reenable it, use syuppod\'s dbus client.')
@@ -555,7 +560,8 @@ class PortageHandler:
                 
         update_packages = False
         retry = 0
-        find_build_packages = re.compile(r'^Total:.(\d+).packages.*$', re.MULTILINE) # As we read by chunk not by line
+        # Removed .packages.* 
+        find_build_packages = re.compile(r'^Total:.(\d+).*$', re.MULTILINE) # As we read by chunk not by line
         skip_line_with_dot_only = re.compile(r'^\.$', re.MULTILINE)
         
         # Init logging
@@ -581,6 +587,13 @@ class PortageHandler:
             # thx to https://stackoverflow.com/a/28019908/11869956
             # The only problem is it's not line by line so we cannot write logfile with timestamp
             # so logfile is little bit a mess
+            # BUG TODO Found this in a log :
+            #   Total: 163 pa
+            #   ckages (149 upgrades, 2 new, 6 in new slots, 6 reinstalls, 1 uninstall), Size of downloads: 1 304 240 KiB
+            # So this is NOT the right way to read and write !!!
+            # TODO have a look --> https://pypi.org/project/sarge/
+            #       see also pexpect 
+
             sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
             while not self.world['cancel']:
                 buf = sout.read1(1024).decode('utf-8')
@@ -636,11 +649,14 @@ class PortageHandler:
             # Ok so do we got update package ?
             if retry == 2:
                 if update_packages > 1:
-                    to_print = 'packages'
+                    msg = f'Found {update_packages} packages to update.'
+                elif update_packages == 1:
+                    msg = f'Found only one package to update.'
+                # no package found
                 else:
-                    to_print = 'package'
+                    msg = f'System is up to date.'
                 self.log.debug(f'Successfully search for packages update ({update_packages})')
-                self.log.info(f'Found {update_packages} {to_print} to update.')
+                self.log.info(msg)
             else:
                 # Remove --with-bdeps and retry one more time.
                 retry += 1
@@ -788,8 +804,7 @@ class PortageHandler:
                     self.log.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
                                                                                  self.pathdir['statelog']))
                     self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
-                    # TODO: We need to test that
-                    # But this should print if there a new version of portage available
+                    # This print if there a new version of portage available
                     # even if there is already an older version available
                     if key == 'latest' and self.portage['logflow']:
                         self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
@@ -1224,22 +1239,18 @@ class EmergeLogParser:
                         elif keepgoing and start_compiling.match(line):
                             # Try to fix BUG describe upstair
                             unexcept_start = False
-                            #unexcept_terminating = False
                             for saved_line in record:
-                                # This is also a 'BUG'
+                                # This is also a handled :
                                 # 1581349345:  === (2 of 178) Compiling/Merging (kde-apps/pimcommon-19.12.2::/usr/portage/kde-apps/pimcommon/pimcommon-19.12.2.ebuild)
                                 # 1581349360:  *** terminating.
                                 # 1581349366: Started emerge on: févr. 10, 2020 16:42:46
                                 # 1581349366:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
-                                #if re.match(r'^\d+:\s{2}\*\*\*.terminating\.$', saved_line):
-                                    #unexcept_terminating = True
                                 if start_opt.match(saved_line):
                                     unexcept_start = saved_line
                                     break
-                                    # don't break we need to make sure we didn't get terminating
-                                    # so this could be slower...
                             if unexcept_start:
-                                # FIXME for now avoid logging this as error because it's spam a LOT /var/log/messages
+                                # FIXME for now avoid logging this as error because 
+                                # it's spam a LOT /var/log/messages (every self.world['remain'] seconds - 5s (2020-02-12))
                                 # TODO maybe we -could- log only once this error...
                                 self.log.debug(f'While parsing {self.emergelog}, got unexcept'
                                                 f' world update start opt:')
@@ -1250,15 +1261,17 @@ class EmergeLogParser:
                                     self.group['failed'] = f'at {self.packages_count} ({package_name})'
                                 # First try if it was an keepgoing restart
                                 if keepgoing and 'total' in self.group['saved']:
-                                    self.log.debug('Forcing save of current world update group.')
+                                    self.log.debug('Forcing save of current world update group'
+                                                + ' using partial (start: {0}).'.format(self.group['start']))
                                     _saved_partial()
-                                # if incompleted is enable
+                                # incompleted is enable ?
                                 elif incompleted:
-                                    self.log.debug('Forcing save of current world update group.')
+                                    self.log.debug('Forcing save of current world update group'
+                                                + ' using incompleted (start: {0}).'.format(self.group['start']))
                                     _saved_incompleted()
                                 else:
-                                    self.log.debug('Skipping save of current world update group '
-                                                   + '(unmet conditions).')
+                                    self.log.debug('Skipping save of current world update group'
+                                                   + ' (unmet conditions).')
                                 # Ok now we have to restart everything
                                 self.group = { }
                                 # Get the timestamp

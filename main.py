@@ -68,7 +68,7 @@ class MainDaemon(threading.Thread):
         self.scheduler = asyncio.new_event_loop()
     
     def run(self):
-        log.info('... now running.')
+        log.info('Start up completed.')
         while True:
             ### Portage stuff
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
@@ -290,7 +290,7 @@ if __name__ == '__main__':
     elif args.quiet:
         log.setLevel(mainlog.logging.ERROR)
     
-    log.info('Starting up...')
+    #log.info('Starting up...')
     
     if sys.stdout.isatty():
         log.info('Interactive mode detected, all logs go to terminal.')

@@ -673,9 +673,8 @@ class GitHandler:
             self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
                                                                                  self.pathdir['statelog']))
             self.stateinfo.save('pull last', 'pull last: ' + str(self.pull['last']))
-            
+        
                     
-
     def _check_config(self):
         """Check git config file options"""
         
@@ -774,7 +773,7 @@ class GitHandler:
                         # Any way we will replace all the list if lists are different
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
                         # Try to be more verbose for log.info
-                        # TEST avoid printing twice - should be good :)
+                        # TEST avoid printing twice BUG TODO this is NOT working :(
                         if not StrictVersion(current_version) == StrictVersion(upper_version):
                             self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
                             current_version = upper_version
