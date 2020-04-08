@@ -570,17 +570,17 @@ class PortageHandler:
         self.log.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
-        myargs = [ '--verbose', '--pretend', '--deep', 
+        myargs = [ '/usr/bin/emerge',  '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
                
         while retry < 2:
-            #process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
-                                       #stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
-            process = pexpect.spawn('/usr/bin/emerge', args=myargs, encoding='utf-8', preexec_fn=on_parent_exit())
-            self.log.debug('Running {0} {1}'.format('/usr/bin/emerge', ' '.join(myargs)))
-            mylogfile.info('Running {0} {1}\n'.format('/usr/bin/emerge', ' '.join(myargs)))
+            process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
+            #process = pexpect.spawn('/usr/bin/emerge', args=myargs, encoding='utf-8', preexec_fn=on_parent_exit())
+            self.log.debug('Running {0}'.format(' '.join(myargs)))
+            mylogfile.info('Running {0}\n'.format(' '.join(myargs)))
             # Disable timestamp for logging
-            #processlog.set_formatter('short')
+            processlog.set_formatter('short')
             # TODO for now i haven't found a simple and better way
             # thx to https://stackoverflow.com/a/28019908/11869956
             # The only problem is it's not line by line so we cannot write logfile with timestamp
@@ -591,20 +591,19 @@ class PortageHandler:
             # So this is NOT the right way to read and write !!!
             # TODO have a look --> https://pypi.org/project/sarge/
             #       see also pexpect 
-
-            #sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
+            sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
             while not self.world['cancel']:
                 # Log all read
-                process.logfile_send = 
-                #buf = sout.read1(1024).decode('utf-8')
-                #if len(buf) == 0: 
-                    #break
-                #if not skip_line_with_dot_only.search(buf):
-                    #mylogfile.info(buf)
-                #if find_build_packages.search(buf):
+                #process.logfile_send = 
+                buf = sout.read1(1024).decode('utf-8')
+                if len(buf) == 0: 
+                    break
+                if not skip_line_with_dot_only.search(buf):
+                    mylogfile.info(buf)
+                if find_build_packages.search(buf):
                     #Ok so we got packages then don't retry
-                    #retry = 2
-                    #update_packages = int(find_build_packages.search(buf).group(1))
+                    retry = 2
+                    update_packages = int(find_build_packages.search(buf).group(1))
                     
             # FIXME workaround to cancel this process when running in thread with asyncio
             # calling asyncio.Task.cancel() won't work 
