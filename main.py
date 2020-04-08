@@ -159,6 +159,7 @@ class MainDaemon(threading.Thread):
                     self.manager['git'].get_last_pull()
                     # For forced and pull
                     if self.manager['git'].pull['update_all']:
+                        log.debug('Found update_all to True, forcing all update.')
                         self.manager['git'].get_all_kernel()
                         self.manager['git'].get_branch('remote')
                         self.manager['git'].pull['update_all'] = False

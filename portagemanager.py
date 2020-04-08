@@ -339,7 +339,7 @@ class PortageHandler:
                                                     self.sync['repos']['msg'].capitalize()))
                 else:
                     self.log.error('Main gentoo repository failed to sync: network is unreachable.')
-                    additionnal_msg = 'also'
+                    additionnal_msg = ' also'
                     if list_len - 1 > 0:
                         self.log.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                             ', '.join([name for name in self.sync['repos']['failed'] if not name == 'gentoo'])))
@@ -348,7 +348,7 @@ class PortageHandler:
                 self.retry += 1
                 self.log.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
                                                                                  self.retry))
-                self.log.error('Will retry{0} syncing in {1}.'.format(msg_on_retry,
+                self.log.error('Anyway will retry{0} sync in {1}.'.format(msg_on_retry,
                                                                       self.format_timestamp.convert(
                                                                           self.sync['remain'])))
                 # Make sure to not recompute
@@ -357,9 +357,9 @@ class PortageHandler:
                 # Ok so this is not an network problem for main gentoo repo
                 # TEST DONT disable sync just keep syncing every 'interval'
                 if 'gentoo' in self.sync['repos']['failed']:
-                    self.log.error('Main gentoo repository failed to sync with a unexcept error !!.')
+                    self.log.error('Main gentoo repository failed to sync with an unexcepted error !!.')
                     #self.log.error('Auto sync has been disable. To reenable it, use syuppod\'s dbus client.')
-                    additionnal_msg = 'also'
+                    additionnal_msg = ' also'
                     # State is Failed only if main gentoo repo failed
                     self.state = 'Failed'
                     # reset values
@@ -367,18 +367,18 @@ class PortageHandler:
                     self.retry = 0
                 # Other repo
                 if list_len - 1 >= 0:
-                    self.log.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
+                    self.log.error('{0}{1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                         ', '.join(name for name in self.sync['repos']['failed'] if not name == 'gentoo')))
                 
                 self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
                 
                 if not additionnal_msg == 'also':
-                    self.log.info('Will retry sync in {0}'.format(self.format_timestamp.convert(
+                    self.log.info('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
                                                                                     self.sync['interval'])))
                     # Reset remain to interval
                     self.log.debug('Only {0} failed to sync: {1}.'.format(msg.lower(),
                                                                         ', '.join(self.sync['repos']['failed'])))
-                self.log.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
+                self.log.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
                 # Any way reset remain to interval
                 self.sync['remain'] = self.sync['interval']
                 # Make sure to not recompute
@@ -570,16 +570,17 @@ class PortageHandler:
         self.log.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
-        myargs = [ '/usr/bin/emerge', '--verbose', '--pretend', '--deep', 
+        myargs = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
                
         while retry < 2:
-            process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
-            self.log.debug('Running {0}'.format(' '.join(myargs)))
-            mylogfile.info('Running {0}\n'.format(' '.join(myargs)))
+            #process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
+                                       #stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
+            process = pexpect.spawn('/usr/bin/emerge', args=myargs, encoding='utf-8', preexec_fn=on_parent_exit())
+            self.log.debug('Running {0} {1}'.format('/usr/bin/emerge', ' '.join(myargs)))
+            mylogfile.info('Running {0} {1}\n'.format('/usr/bin/emerge', ' '.join(myargs)))
             # Disable timestamp for logging
-            processlog.set_formatter('short')
+            #processlog.set_formatter('short')
             # TODO for now i haven't found a simple and better way
             # thx to https://stackoverflow.com/a/28019908/11869956
             # The only problem is it's not line by line so we cannot write logfile with timestamp
@@ -591,17 +592,20 @@ class PortageHandler:
             # TODO have a look --> https://pypi.org/project/sarge/
             #       see also pexpect 
 
-            sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
+            #sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
             while not self.world['cancel']:
-                buf = sout.read1(1024).decode('utf-8')
-                if len(buf) == 0: 
-                    break
-                if not skip_line_with_dot_only.search(buf):
-                    mylogfile.info(buf)
-                if find_build_packages.search(buf):
+                # Log all read
+                process.logfile_send = 
+                #buf = sout.read1(1024).decode('utf-8')
+                #if len(buf) == 0: 
+                    #break
+                #if not skip_line_with_dot_only.search(buf):
+                    #mylogfile.info(buf)
+                #if find_build_packages.search(buf):
                     #Ok so we got packages then don't retry
-                    retry = 2
-                    update_packages = int(find_build_packages.search(buf).group(1))
+                    #retry = 2
+                    #update_packages = int(find_build_packages.search(buf).group(1))
+                    
             # FIXME workaround to cancel this process when running in thread with asyncio
             # calling asyncio.Task.cancel() won't work 
             if self.world['cancel']:                

@@ -556,7 +556,9 @@ class GitHandler:
             self.log.error('Fix the error and reset using syuppod\'s dbus client.')
             return
         
-        self.pull['status'] = True        
+        self.pull['status'] = True 
+        # ALERT Be really carfull with this kind of thing because python will NOT trow Exception
+        # in the else block (so make sure it's well written (not like me ;) )
         try:
             myprocess = git.Repo(self.repo).git.pull()
         except Exception as exc:
@@ -621,8 +623,7 @@ class GitHandler:
             
         else:
             self.log.info('Successfully update git kernel repository.')
-     
-               # Update 'state' status to state file
+            # Update 'state' status to state file
             if not self.pull['state'] == 'Success':
                 self.pull['state'] = 'Success'
                 self.stateinfo.save('pull state', 'pull state: Success')
@@ -637,7 +638,7 @@ class GitHandler:
 
             # Append one more pull to git state file section 'pull'
             # Convert to integrer
-            old_count_global = self.sync['count']
+            old_count_global = self.pull['count']
             old_count = self.pull['current_count']
             self.pull['count'] = int(self.pull['count'])
             self.pull['count'] += 1
@@ -662,17 +663,19 @@ class GitHandler:
             self.pull['remain'] = self.pull['interval']
             # Force update all 
             self.pull['update_all'] = True
+            self.log.debug('Setting update_all to True')
         finally:
-            # Reset status
-            self.pull['status'] = False
             # Get last timestamp 
             # Any way even if git pull failed it will write to .git/FETCH_HEAD 
             # So get the timestamp any way
             self.pull['last'] = self.get_last_pull(timestamp_only=True)
             # Save
+            self.log.name = f'{self.logger_name}dopull::'
             self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
                                                                                  self.pathdir['statelog']))
             self.stateinfo.save('pull last', 'pull last: ' + str(self.pull['last']))
+            # Reset status
+            self.pull['status'] = False
         
                     
     def _check_config(self):
