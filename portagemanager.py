@@ -29,6 +29,9 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
+# TODO to avoid reading every N seconds (at the time of writing : 5s) emerge.log 
+# we could watched this file and reading only if new line is added (so reading every N seconds) TODO 
+
 
 class PortageHandler:
     """Portage tracking class"""

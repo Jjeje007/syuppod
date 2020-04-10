@@ -26,7 +26,6 @@ from portageclient import portage_available
 from portageclient import portage_packages
 from portageclient import portage_last
 from portageclient import portage_forced
-from portageclient import portage_reset
 
 from gitclient import git_available_version
 from gitclient import reset_pull_error
