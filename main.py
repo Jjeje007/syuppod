@@ -203,9 +203,6 @@ def main():
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
     
-    # Init asyncio loop
-    #scheduler = asyncio.new_event_loop()
-    
     # Init manager
     manager = { }
     
@@ -290,8 +287,6 @@ if __name__ == '__main__':
         log.debug('Message are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
         log.setLevel(mainlog.logging.ERROR)
-    
-    #log.info('Starting up...')
     
     if sys.stdout.isatty():
         log.info('Interactive mode detected, all logs go to terminal.')

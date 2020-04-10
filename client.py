@@ -85,8 +85,7 @@ def portage_parser(args):
         'available' :   { 'func' : portage_available, 'args' : [myobject, args.available, args.machine] },
         'packages'  :   { 'func' : portage_packages, 'args' : [myobject, args.machine] },
         'last'      :   { 'func' : portage_last, 'args' : [myobject, args.last, args.machine, translate] },
-        'forced'    :   { 'func' : portage_forced, 'args' : [myobject, args.machine] },
-        'reset'     :   { 'func' : portage_reset, 'args' : [myobject, args.machine] }
+        'forced'    :   { 'func' : portage_forced, 'args' : [myobject, args.machine] }
         }
     
     for key in portcaller:

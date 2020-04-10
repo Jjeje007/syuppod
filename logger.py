@@ -82,7 +82,7 @@ class MainLoggingHandler:
 
 
 class ProcessLoggingHandler:
-    """Specific logging which handle process logging"""
+    """Specific logger which handle external process logging"""
     def __init__(self, name):
         self.name = name
         self.logging = logging

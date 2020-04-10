@@ -24,8 +24,9 @@ from logger import ProcessLoggingHandler
 
 try:
     import numpy
+    import pexpect
 except Exception as exc:
-    print(f'Got unexcept error while loading numpy module: {exc}')
+    print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
 
@@ -557,11 +558,9 @@ class PortageHandler:
                 
         update_packages = False
         retry = 0
-        # Removed .packages.* 
-        find_build_packages = re.compile(r'^Total:.(\d+).*$', re.MULTILINE) # As we read by chunk not by line
-        skip_line_with_dot_only = re.compile(r'^\.$', re.MULTILINE)
+        find_build_packages = re.compile(r'^Total:.(\d+).packages.*$')        
         
-        # Init logging
+        # Init logger
         self.log.debug('Initializing logging handler.')
         self.log.debug('Name: pretendlog')
         processlog = ProcessLoggingHandler(name='pretendlog')
@@ -570,50 +569,47 @@ class PortageHandler:
         self.log.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
-        myargs = [ '/usr/bin/emerge',  '--verbose', '--pretend', '--deep', 
+        mycommand = '/usr/bin/emerge'
+        myargs = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
-               
+        
         while retry < 2:
-            process = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, universal_newlines=True) #bufsize=1
-            #process = pexpect.spawn('/usr/bin/emerge', args=myargs, encoding='utf-8', preexec_fn=on_parent_exit())
-            self.log.debug('Running {0}'.format(' '.join(myargs)))
-            mylogfile.info('Running {0}\n'.format(' '.join(myargs)))
-            # Disable timestamp for logging
-            processlog.set_formatter('short')
-            # TODO for now i haven't found a simple and better way
-            # thx to https://stackoverflow.com/a/28019908/11869956
-            # The only problem is it's not line by line so we cannot write logfile with timestamp
-            # so logfile is little bit a mess
-            # BUG TODO Found this in a log :
-            #   Total: 163 pa
-            #   ckages (149 upgrades, 2 new, 6 in new slots, 6 reinstalls, 1 uninstall), Size of downloads: 1 304 240 KiB
-            # So this is NOT the right way to read and write !!!
-            # TODO have a look --> https://pypi.org/project/sarge/
-            #       see also pexpect 
-            sout = io.open(process.stdout.fileno(), 'rb', buffering=1, closefd=False)
-            while not self.world['cancel']:
-                # Log all read
-                #process.logfile_send = 
-                buf = sout.read1(1024).decode('utf-8')
-                if len(buf) == 0: 
+            self.log.debug('Running {0} {1}'.format(mycommand, ' '.join(myargs)))
+            
+            child = pexpect.spawn(mycommand, args=myargs, encoding='utf-8', preexec_fn=on_parent_exit(),
+                                    timeout=None)
+            # We capture log
+            mycapture = io.StringIO()
+            child.logfile = mycapture
+            # Wait non blocking 
+            while not child.closed and child.isalive():
+                try:
+                    # timeout is 10s because 1s could reach to timeout
+                    child.read_nonblocking(size=1, timeout=10)
+                    # We don't care about recording what ever 
+                    # We wait until reach EOF
+                except pexpect.EOF:
+                    # Don't close here
                     break
-                if not skip_line_with_dot_only.search(buf):
-                    mylogfile.info(buf)
-                if find_build_packages.search(buf):
-                    #Ok so we got packages then don't retry
-                    retry = 2
-                    update_packages = int(find_build_packages.search(buf).group(1))
-                    
-            # FIXME workaround to cancel this process when running in thread with asyncio
-            # calling asyncio.Task.cancel() won't work 
+                except pexpect.TIMEOUT:
+                    # This shouldn't arrived
+                    self.log.error('Got unexcept timeout while running {0} {1}'.format(mycommand, 
+                                                                                       ' '.join(myargs)))
+                    # TODO
+                    break
+                if self.world['cancel']:
+                    # So we want to cancel
+                    # Just break 
+                    # child still alive
+                    break
+            
+            # This has to be more TEST because we could cancel at the very end of child process ??
             if self.world['cancel']:                
                 self.log.warning('Stop searching available package(s) update as global update has been detected.')
-                process.terminate()
-                # Enable logging timestamp
-                processlog.set_formatter('normal')
-                mylogfile.info('Terminate process: global update has been detected.')
-                mylogfile.info('##### END ####')
+                child.terminate(force=True)
+                # Don't really know but to make sure :)
+                child.close(force=True)
+                # Don't write log because it's has been cancelled (log is only partial)
                 if self.world['cancelled']:
                     self.log.warning('The previously task was already cancelled, check and report if False.')
                 if not self.world['status']:
@@ -625,14 +621,24 @@ class PortageHandler:
                 self.world['status'] = False
                 # skip every thing else
                 return
-            process.stdout.close()
             
-            # get return code (see --> https://docs.python.org/3/library/subprocess.html#subprocess.Popen.poll)
-            # better to use poll() over wait()
-            return_code = process.poll()
+            # Ok it's not cancelled
+            # First get log and close
+            mylog = mycapture.getvalue()
+            mycapture.close()
+            child.close()
+            # get return code
+            return_code = child.wait()
+            # Get package number and write log in the same time
+            mylogfile.info('##### START ####')
+            mylogfile.info('Command: {0} {1}'.format(mycommand, ' '.join(myargs)))
+            for line in mylog.splitlines():
+                mylogfile.info(line)
+                if find_build_packages.match(line):
+                    update_packages = int(find_build_packages.match(line).group(1))
+                    # don't retry we got packages
+                    retry = 2
             
-            # Enable logging timestamp
-            processlog.set_formatter('normal')
             mylogfile.info(f'Terminate process: exit with status {return_code}')
             mylogfile.info('##### END ####')
             
@@ -641,7 +647,8 @@ class PortageHandler:
             # if this is the case, continue anyway.
             if return_code:
                 self.log.error('Got error while searching for available package(s) update.')
-                self.log.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
+                self.log.error('Command: {0} {1}, return code: {2}'.format(mycommand,
+                                                                           ' '.join(myargs), return_code))
                 self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['pretendlog'])) 
                 if retry < 2:
                     self.log.error('Retrying without opts \'--with-bdeps\'...')

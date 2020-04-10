@@ -267,8 +267,3 @@ def portage_forced(myobject, machine):
         print('    - {0}'.format(_(msg[reply])))
     else:
         print(_(msg[reply]))
-        
-def portage_reset(myobject, machine):
-    """Reset portage error and force sync"""
-    # TODO TODO !!!!
-        
