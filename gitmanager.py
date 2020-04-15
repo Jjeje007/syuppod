@@ -777,6 +777,10 @@ class GitHandler:
                         self.log.debug(f'Adding new version \'{upper_version}\'.')
                         # Try to be more verbose for log.info
                         # TEST avoid printing twice BUG TODO this is NOT working :(
+                        # Yes this is really NOT working 
+                        # when just checkout new branch got this :
+                        # Apr 14 16:42:16 Gentoo syuppod[26934]: [Info ]  Found new branch version: '5.6'.
+                        # ....... 
                         if not StrictVersion(current_version) == StrictVersion(upper_version):
                             self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
                             current_version = upper_version

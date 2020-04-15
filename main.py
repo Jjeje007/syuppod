@@ -99,8 +99,9 @@ class MainDaemon(threading.Thread):
             
             # Then: run pretend_world() if authorized 
             # Leave other check: is sync running ? is pretend already running ? is world update is running ?
-            # to portagedbus module so it can reply to client 
-            if self.manager['portage'].world['pretend']:
+            # to portagedbus module so it can reply to client
+            # TEST Disable pretend_world() if sync is in progress other wise will run twice 
+            if self.manager['portage'].world['pretend'] and not self.manager['portage'].sync['status']:
                 if self.manager['portage'].world['forced']:
                     log.warning('Forcing pretend world as requested by dbus client.')
                     self.manager['portage'].world['forced'] = False

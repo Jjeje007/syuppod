@@ -11,6 +11,7 @@ import time
 import errno
 import subprocess
 import io
+import threading
 
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
@@ -31,6 +32,8 @@ except Exception as exc:
 
 # TODO to avoid reading every N seconds (at the time of writing : 5s) emerge.log 
 # we could watched this file and reading only if new line is added (so reading every N seconds) TODO 
+# This could be good  --> https://inotify-simple.readthedocs.io/en/latest/ ;)
+# See ./test.py
 
 
 class PortageHandler:
@@ -153,8 +156,8 @@ class PortageHandler:
         if sync_timestamp:
             # Ok it's first run ever 
             if self.sync['timestamp'] == 0:
-                self.log.debug('Found sync {0} timestamp set to factory: \'0\'.'.format(self.sync['repos']['msg']))
-                self.log.debug(f'Setting to: \'{sync_timestamp}\'.')
+                self.log.debug('Found sync {0} timestamp set to factory: 0.'.format(self.sync['repos']['msg']))
+                self.log.debug(f'Setting to: {sync_timestamp}.')
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
                 recompute = True
@@ -174,30 +177,30 @@ class PortageHandler:
                 self.sync['elapse'] = round(current_timestamp - sync_timestamp)
                 self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
             
-            self.log.debug('{0} sync elapsed time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+            self.log.debug('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                     self.format_timestamp.convert(self.sync['elapse'])))
-            self.log.debug('{0} sync remain time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+            self.log.debug('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                    self.format_timestamp.convert(self.sync['remain'])))
-            self.log.debug('{0} sync interval: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+            self.log.debug('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                 self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
                 self.log.info('Found {0} {1} to sync: {2}'.format(self.sync['repos']['count'], 
                                                                   self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
-                self.log.info('{0} sync elapsed time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                self.log.info('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                     self.format_timestamp.convert(self.sync['elapse'])))
-                self.log.info('{0} sync remain time: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                self.log.info('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                     self.format_timestamp.convert(self.sync['remain'])))
-                self.log.info('{0} sync interval: \'{1}\'.'.format(self.sync['repos']['msg'].capitalize(),
+                self.log.info('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                                   self.format_timestamp.convert(self.sync['interval'])))
             
             if update_statefile:
-                self.log.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
+                self.log.debug('Saving \'sync timestamp: {0}\' to {1}.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
                 self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
             else:
-                self.log.debug('Skip saving \'sync timestamp: {0}\' to \'{1}\': already in good state.'.format(self.sync['timestamp'], 
+                self.log.debug('Skip saving \'sync timestamp: {0}\' to {1}: already in good state.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
             
             if self.sync['remain'] <= 0:
@@ -249,7 +252,7 @@ class PortageHandler:
             
         # Init logging
         self.log.debug('Initializing logging handler:')
-        self.log.debug('Name: \'synclog\'')
+        self.log.debug('Name: synclog')
         processlog = ProcessLoggingHandler(name='synclog')
         self.log.debug('Writing to: {0}'.format(self.pathdir['synclog']))
         mylogfile = processlog.dolog(self.pathdir['synclog'])
@@ -302,8 +305,10 @@ class PortageHandler:
         myprocess.stdout.close()
         return_code = myprocess.poll()
         
-        self.log.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
-        self.log.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
+        if self.sync['repos']['success']:
+            self.log.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
+        if self.sync['repos']['failed']:
+            self.log.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
         
         if return_code:
             list_len = len(self.sync['repos']['failed'])
@@ -374,11 +379,10 @@ class PortageHandler:
                     self.log.error('{0}{1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                         ', '.join(name for name in self.sync['repos']['failed'] if not name == 'gentoo')))
                 
-                self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['synclog']))
-                
+                self.log.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
+                self.log.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
+                                                                            self.sync['interval'])))
                 if not additionnal_msg == 'also':
-                    self.log.info('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
-                                                                                    self.sync['interval'])))
                     # Reset remain to interval
                     self.log.debug('Only {0} failed to sync: {1}.'.format(msg.lower(),
                                                                         ', '.join(self.sync['repos']['failed'])))
@@ -519,7 +523,6 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
-        # TODO BUG crashed @ 2020 01 10 :: 09:10:40 without any reason AND no log ...
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
@@ -561,7 +564,7 @@ class PortageHandler:
                 
         update_packages = False
         retry = 0
-        find_build_packages = re.compile(r'^Total:.(\d+).packages.*$')        
+        find_build_packages = re.compile(r'^Total:.(\d+).package.*$')        
         
         # Init logger
         self.log.debug('Initializing logging handler.')
@@ -588,7 +591,7 @@ class PortageHandler:
             while not child.closed and child.isalive():
                 try:
                     # timeout is 10s because 1s could reach to timeout
-                    child.read_nonblocking(size=1, timeout=10)
+                    child.read_nonblocking(size=1, timeout=30)
                     # We don't care about recording what ever 
                     # We wait until reach EOF
                 except pexpect.EOF:
@@ -648,23 +651,28 @@ class PortageHandler:
             # We can have return_code > 0 and matching packages to update.
             # This can arrived when there is, for exemple, packages conflict (solved by skipping).
             # if this is the case, continue anyway.
+            msg_on_return_code = 'Found'
             if return_code:
+                msg_on_return_code = 'Anyway found'
                 self.log.error('Got error while searching for available package(s) update.')
                 self.log.error('Command: {0} {1}, return code: {2}'.format(mycommand,
                                                                            ' '.join(myargs), return_code))
-                self.log.error('You can retrieve log from: \'{0}\'.'.format(self.pathdir['pretendlog'])) 
+                self.log.error('You can retrieve log from: {0}.'.format(self.pathdir['pretendlog'])) 
                 if retry < 2:
                     self.log.error('Retrying without opts \'--with-bdeps\'...')
         
             # Ok so do we got update package ?
             if retry == 2:
                 if update_packages > 1:
-                    msg = f'Found {update_packages} packages to update.'
+                    msg = f'{msg_on_return_code} {update_packages} packages to update.'
                 elif update_packages == 1:
-                    msg = f'Found only one package to update.'
+                    msg = f'{msg_on_return_code} only one package to update.'
                 # no package found
                 else:
-                    msg = f'System is up to date.'
+                    if 'Anyway' in msg_on_return_code: 
+                        msg = f'Anyway system is up to date.'
+                    else:
+                        msg = f'System is up to date.'
                 self.log.debug(f'Successfully search for packages update ({update_packages})')
                 self.log.info(msg)
             else:
@@ -728,7 +736,7 @@ class PortageHandler:
                     myversion = '-'.join(mysplit[-2:])
                 else:
                     myversion = mysplit[1]
-                self.log.debug(f'No update to portage package is available (current version: {myversion}')
+                self.log.debug(f'No update to portage package is available (current version: {myversion})')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
                 if self.portage['available'] == 'True':
@@ -771,13 +779,19 @@ class PortageHandler:
                 self.log.error('Got no result when comparing latest available with installed portage package version.')
             else:
                 self.log.error('Got unexcept result when comparing latest available with installed portage package version.')
-                self.log.error('Result indicate that the latest available portage package version is lower than the installed one...') 
+                self.log.error('Result indicate that the latest available portage package version is lower than the installed one...')
             
             self.log.error(f'Installed portage: \'{self.current}\', latest: \'{self.latest}\'.')
             if len(portage_list) > 1:
                 self.log.error('As we got more than one result when querying portage db for installed portage package,')
                 self.log.error('this could explain strange result.')
             # TODO: Should we reset all attributes ?
+            # Ok reset logflow to try to fix bug :
+            # 2020-04-15 09:55:38    File "/data/01/src/syuppod/portagemanager.py", line 820, in available_portage_update
+            # 2020-04-15 09:55:38      self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+            # 2020-04-15 09:55:38  UnboundLocalError: local variable 'latest_version' referenced before assignment
+
+            self.portage['logflow'] = False
             return False
         else:
             # Split current version first
@@ -804,7 +818,7 @@ class PortageHandler:
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
-                self.log.debug(f'No update to portage package is available (current version: {current_version}')
+                self.log.debug(f'No update to portage package is available (current version: {current_version})')
                 self.available = False
             
             # Update only if change
@@ -818,6 +832,7 @@ class PortageHandler:
                     # even if there is already an older version available
                     if key == 'latest' and self.portage['logflow']:
                         self.log.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+                        
     
     
     def _get_repositories(self):
@@ -997,6 +1012,7 @@ class EmergeLogParser:
             1569447225:  === (1 of 44) Post-Build Cleaning (sys-kernel/linux-firmware-20190923::/usr/portage/sys-kernel/linux-firmware/linux-firmware-20190923.ebuild)
             1569447225:  ::: completed emerge (1 of 44) sys-kernel/linux-firmware-20190923 to / """
         
+        # TODO clean-up it's start to be huge !
         # Change name of the logger
         self.log.name = f'{self.logger_name}last_world_update::'
         self.collect = {
@@ -1367,7 +1383,7 @@ class EmergeLogParser:
                     self.group = { }
                     # Get the timestamp
                     self.group['start'] = int(start_opt.match(line).group(1))
-                    #--keep-going setup
+                    # --keep-going setup
                     if keepgoing_opt.match(line):
                         keepgoing = True
                     linecompiling = 0
@@ -1562,3 +1578,43 @@ class EmergeLogParser:
             self.log.error(f'Look like the system {message[1]}')
             return False
         return True
+
+
+
+class EmergeLogWatcher(threading.Thread):
+    """Watch emerge.log file using inotify and thread"""
+    def __init__(self, pathdir, runlevel, loglevel, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pathdir = pathdir
+        # Init logger
+        self.logger_name = f'::{__name__}::EmergeLogWatcher::'
+        emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
+                                               self.pathdir['fdlog'])
+        self.logger = getattr(emergelogwatcher_logger, runlevel)()
+        self.logger.setLevel(loglevel)
+        # Init Inotify
+        self.haschanged = False
+        self.inotify = inotify_simple.INotify()
+        self.watch_flags = inotify_simple.flags.CLOSE_WRITE
+        try:
+            self.log_wd = self.inotify.add_watch(self.pathdir['emergelog'], self.watch_flags)
+        except OSError as error:
+            self.logger.error('Emerge log watcher daemon crash:')
+            self.logger.error('Using {0}'.format(pathdir['emergelog']))
+            self.logger.error(f'{error}')
+            self.logger.error('Exiting with status 1.')
+            sys.exit(1)
+        
+    def run(self):
+        self.logger.debug('Start emerge log watcher daemon')
+        while True:
+            if self.inotify.read(timeout=0):
+                self.haschanged = True
+                self.logger.debug('File {0} has been close_write'.format(self.pathdir['emergelog']))
+            else:
+                self.haschanged = False
+            # TEST setting to 2s to make sure event is read before it changed
+            # Main deamon thread 'could' take some time (for now i thing less than 1s)
+            # So this introduce some latency...
+            time.sleep(2)
+    
