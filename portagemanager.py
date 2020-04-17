@@ -26,6 +26,7 @@ from logger import ProcessLoggingHandler
 try:
     import numpy
     import pexpect
+    import inotify_simple
 except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
@@ -76,6 +77,11 @@ class PortageHandler:
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
+        #Init Class EmergeLogWatcher
+        #self.emerge_log_watcher = EmergeLogWatcher(self.pathdir, runlevel, self.log.level, self.sync,
+                                                   #name='Emerge Log Watcher Daemon', daemon=True)
+        
+        
         # Print warning if interval 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
@@ -1583,17 +1589,26 @@ class EmergeLogParser:
 
 class EmergeLogWatcher(threading.Thread):
     """Watch emerge.log file using inotify and thread"""
-    def __init__(self, pathdir, runlevel, loglevel, *args, **kwargs):
+    def __init__(self, pathdir, runlevel, loglevel, repo_msg, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pathdir = pathdir
+        self.repo_msg = repo_msg
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
         emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
                                                self.pathdir['fdlog'])
         self.logger = getattr(emergelogwatcher_logger, runlevel)()
         self.logger.setLevel(loglevel)
+        # Init Class UpdateInProgress
+        self.update_inprogress = UpdateInProgress(self.logger)
+        self.update_inprogress_sync = False
+        self.refresh_sync = False
+        self.refresh_sync_done = False
+        self.update_inprogress_world = False
+        self.refresh_world = False
+        self.refresh_world_done = False
         # Init Inotify
-        self.haschanged = False
+        self.log_wd_state_changed = False
         self.inotify = inotify_simple.INotify()
         self.watch_flags = inotify_simple.flags.CLOSE_WRITE
         try:
@@ -1606,15 +1621,49 @@ class EmergeLogWatcher(threading.Thread):
             sys.exit(1)
         
     def run(self):
-        self.logger.debug('Start emerge log watcher daemon')
+        self.logger.debug('Emerge log watcher daemon started.')
+        remain = 0
         while True:
-            if self.inotify.read(timeout=0):
-                self.haschanged = True
-                self.logger.debug('File {0} has been close_write'.format(self.pathdir['emergelog']))
+            if not self.log_wd_state_changed:
+                if self.inotify.read(timeout=0):
+                    self.log_wd_state_changed = True
+                    self.logger.debug('File {0} has been close_write'.format(self.pathdir['emergelog']))
             else:
-                self.haschanged = False
+                # This should be call only every 30s 
+                if remain <= 0:
+                    remain = 30
+                    update_list = self.update_inprogress.check('Portage', additionnal_msg=self.repo_msg)
+                    print(f'Update list is {update_list}')
+                    if update_list:
+                        for update in update_list:
+                            if update in 'Sync':
+                                self.logger.debug('Portage sync is in progress.')
+                                self.update_inprogress_sync = True
+                            elif update in 'World':
+                                self.logger.debug('Portage world update is in progress.')
+                                self.update_inprogress_world = True
+                    else:
+                        # Ok so two case here: there were no update in progress (sync or world)
+                        # OR there were update in progress (sync or world )
+                        self.log_wd_state_changed = False
+                        if self.update_inprogress_sync:
+                            self.logger.debug('Portage sync has been run.')
+                            self.refresh_sync = True
+                        if self.update_inprogress_world:
+                            self.logger.debug('Portage world update has been run.')
+                            self.refresh_world = True
+            # Ok so now check if sync or world has been refresh
+            # Avoid race condition
+            if self.refresh_sync_done:
+                self.logger.debug('Timestamp refresh for portage sync has been call.')
+                self.refresh_sync = False
+            if self.refresh_world_done:
+                self.logger.debug('Timestamp refresh for portage world update has been call.')
+                self.refresh_world = False
+                           
             # TEST setting to 2s to make sure event is read before it changed
             # Main deamon thread 'could' take some time (for now i thing less than 1s)
             # So this introduce some latency...
-            time.sleep(2)
+            remain -= 1
+            time.sleep(1)
     
