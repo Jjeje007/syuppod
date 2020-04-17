@@ -13,6 +13,7 @@ import subprocess
 import io
 import threading
 
+from pytictoc import TicToc
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
@@ -1619,6 +1620,8 @@ class EmergeLogWatcher(threading.Thread):
             self.logger.error(f'{error}')
             self.logger.error('Exiting with status 1.')
             sys.exit(1)
+        # Get timing performance
+        self.timer = TicToc()
         
     def run(self):
         self.logger.debug('Emerge log watcher daemon started.')
@@ -1631,20 +1634,20 @@ class EmergeLogWatcher(threading.Thread):
             else:
                 # This should be call only every 30s 
                 if remain <= 0:
-                    remain = 30
-                    update_list = self.update_inprogress.check('Portage', additionnal_msg=self.repo_msg)
-                    print(f'Update list is {update_list}')
-                    if update_list:
-                        for update in update_list:
-                            if update in 'Sync':
-                                self.logger.debug('Portage sync is in progress.')
-                                self.update_inprogress_sync = True
-                            elif update in 'World':
-                                self.logger.debug('Portage world update is in progress.')
-                                self.update_inprogress_world = True
-                    else:
-                        # Ok so two case here: there were no update in progress (sync or world)
-                        # OR there were update in progress (sync or world )
+                    remain = 5
+                    self.timer.tic()
+                    sync_inprogress = self.update_inprogress.check('Sync', additionnal_msg=self.repo_msg)
+                    world_inprogress = self.update_inprogress.check('World')
+                    self.timer.toc()
+                    if sync_inprogress:
+                        self.logger.debug('Portage sync is in progress.')
+                        self.update_inprogress_sync = True
+                    if world_inprogress:
+                        self.logger.debug('Portage world update is in progress.')
+                        self.update_inprogress_world = True
+                    if not sync_inprogress and not world_inprogress:
+                        # Ok so two case here: there were no update in progress (sync / world / both)
+                        # OR there were update in progress
                         self.log_wd_state_changed = False
                         if self.update_inprogress_sync:
                             self.logger.debug('Portage sync has been run.')

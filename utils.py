@@ -508,7 +508,6 @@ class UpdateInProgress:
             }
         
         
-        
     def check(self, tocheck, additionnal_msg='', repogit=False, quiet=False):
         """...depending on tocheck var
         Arguments:
@@ -533,7 +532,7 @@ class UpdateInProgress:
         if repogit:
             self.repogit = os.path.realpath(repogit)
             
-        inprogress = [ ]
+        inprogress = False
     
         pids = [ ]
         for dirname in os.listdir('/proc'):
@@ -541,7 +540,7 @@ class UpdateInProgress:
                 try:
                     with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
                         content = myfd.read().decode().split('\x00')
-                # IOError exception when the inspected program closed between getting the dir list and open it each
+                # IOError exception when pid as finish between getting the dir list and open it each
                 except IOError:
                     continue
                 except Exception as exc:
@@ -549,16 +548,20 @@ class UpdateInProgress:
                     # TODO: Exit or not ?
                     continue
                 # Check world update
-                if tocheck == 'Portage':
+                if tocheck == 'World':
                     if world.match(' '.join(content)):
                         #  Don't match any -p or --pretend opts
                         if not pretend.match(' '.join(content)):
-                            if not 'World' in inprogress:
-                                inprogress.append('World')
-                    # Check sync update
-                    if sync.match(' '.join(content)) or webrsync.match(' '.join(content)):
-                        if not 'Sync' in inprogress:
-                            inprogress.append('Sync')
+                            inprogress = True
+                            break
+                # Check sync update
+                elif tocheck == 'Sync':
+                    if sync.match(' '.join(content)):
+                        inprogress = True
+                        break
+                    elif webrsync.match(' '.join(content)):
+                        inprogress = True
+                        break
                 # Check git pull / fetch
                 elif tocheck == 'Git':
                     if git_pull.match(' '.join(content)):
@@ -571,9 +574,8 @@ class UpdateInProgress:
                                 return False # TODO : hum don't know :)
                             # Then compare path
                             elif os.path.samefile(path, self.repogit):
-                                if not 'Git' in inprogress:
-                                    inprogress.append('Git')
-                                    break # Yes break here
+                                inprogress = True
+                                break
                         # Same as upper 
                         except IOError:
                             continue
@@ -591,47 +593,39 @@ class UpdateInProgress:
         current_timestamp = time.time()
         
         if inprogress:
-            for process in inprogress:
-                self.log.debug('{0}{1} in progress.'.format(self.msg[process], additionnal_msg))
-                # We just detect 'inprogress'
-                if self.timestamp[process] == 0:
-                    displaylog = True
-                    # add 30 minutes (1800s)
-                    self.timestamp[process] = current_timestamp + 1800
-                    self.logflow[process] = 1                
-                else:
-                    # It's running
-                    if self.timestamp[process] <= current_timestamp:
-                        displaylog = True
-                        if self.logflow[process] == 1:
-                            # Add 1 hour (3600s)
-                            self.timestamp[process] = current_timestamp + 3600
-                            self.logflow[process] = 2
-                        elif self.logflow[process] >= 2:
-                            # Add 2 hours (7200s) forever
-                            self.timestamp[process] = current_timestamp + 7200 
-                            self.logflow[process] = 3
-                        else:
-                            self.log.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
-                                            f' method: check(), logflow : \'{self.logflow[process]}\'.')
-                            self.log.warning('Resetting all attributes')
-                            self.timestamp[process] = 0
-                            self.logflow[process] = 0
-                if displaylog and not quiet:
-                    self.log.info('{0}{1} in progress.'.format(self.msg[process], additionnal_msg))
-            return inprogress
-        else:
-            if tocheck == 'Portage':
-                for tocheck in 'Sync', 'World':
-                    self.log.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
-                    # Reset attributes
-                    self.timestamp[tocheck] = 0
-                    self.logflow[tocheck] = 0
+            self.log.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            # We just detect 'inprogress'
+            if self.timestamp[tocheck] == 0:
+                displaylog = True
+                # add 30 minutes (1800s)
+                self.timestamp[tocheck] = current_timestamp + 1800
+                self.logflow[tocheck] = 1                
             else:
-                self.log.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
-                # Reset attributes
-                self.timestamp[tocheck] = 0
-                self.logflow[tocheck] = 0
+                # It's running
+                if self.timestamp[tocheck] <= current_timestamp:
+                    displaylog = True
+                    if self.logflow[tocheck] == 1:
+                        # Add 1 hour (3600s)
+                        self.timestamp[tocheck] = current_timestamp + 3600
+                        self.logflow[tocheck] = 2
+                    elif self.logflow[tocheck] >= 2:
+                        # Add 2 hours (7200s) forever
+                        self.timestamp[tocheck] = current_timestamp + 7200 
+                        self.logflow[tocheck] = 3
+                    else:
+                        self.log.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                          f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
+                        self.log.warning('Resetting all attributes')
+                        self.timestamp[tocheck] = 0
+                        self.logflow[tocheck] = 0
+            if displaylog and not quiet:
+                self.log.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            return True
+        else:
+            self.log.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
+            # Reset attributes
+            self.timestamp[tocheck] = 0
+            self.logflow[tocheck] = 0
             return False
 
 
