@@ -533,7 +533,10 @@ class UpdateInProgress:
             self.repogit = os.path.realpath(repogit)
             
         inprogress = False
-    
+        
+        # TODO maybe we could collect for sync and world in one pass 
+        # performance is 2x faster (almost) (means from ~0.025s to ~0.015s)
+        
         pids = [ ]
         for dirname in os.listdir('/proc'):
             if pids_only.match(dirname):

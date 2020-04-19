@@ -20,6 +20,7 @@ import threading
 from portagedbus import PortageDbus
 from gitdbus import GitDbus
 from gitmanager import check_git_dir
+from portagemanager import EmergeLogWatcher
 from logger import MainLoggingHandler
 from logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
@@ -61,9 +62,10 @@ pathdir = {
 }
 
 class MainDaemon(threading.Thread):
-    def __init__(self, manager, *args, **kwargs):
+    def __init__(self, manager, watcher, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.manager = manager
+        self.watcher = watcher
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
     
@@ -71,6 +73,42 @@ class MainDaemon(threading.Thread):
         log.info('Start up completed.')
         while True:
             ### Portage stuff
+            # Ok now just get sync timestamp or world pretend only 
+            # if the emerge log has been close_write AND if there was an sync / update / both
+            # In progress
+            # TEST
+            if self.watcher.refresh_sync:
+                self.manager['portage'].check_sync(recompute=True)
+                self.watcher.refresh_sync_done = True
+            if self.manager['portage'].world['status'] == 'running' and self.watcher.update_inprogress_world:
+                # pretend running and world is running as well so call cancel
+                self.manager['portage'].world['cancel'] = True
+            if self.watcher.refresh_world and not self.watcher.update_inprogress_world:
+            #and \
+               #self.manager['portage'].world['status'] == 'waiting' and not \
+               #self.manager['portage'].world['cancelled']:
+                # Call get_last_world so we can know if world has been update and it will call pretend
+                self.manager['portage'].get_last_world_update()
+                self.watcher.refresh_world_done = True
+            if not self.watcher.update_inprogress_sync and not self.watcher.update_inprogress_world \
+               and self.manager['portage'].world['status'] == 'waiting' \
+               and self.manager['portage'].world['cancelled']:
+                #Ok so this is the case where we want to call pretend, there is not sync and world in progress
+                #and pretend is waiting and it was cancelled so recall pretend :p
+                self.manager['portage'].world['pretend'] = True
+                self.manager['portage'].world['cancelled'] = False
+            if self.manager['portage'].world['status'] == 'finished':
+                #Ok every thing is OK: pretend was wanted, has been called, finished well
+                self.manager['portage'].world['status'] == 'waiting'
+            # Ok also check portage package update depending on close_write
+            if self.watcher.refresh_package_search and self.manager['portage'].portage['remain'] <= 0:
+                # This will be call every close_write but class EmergeLogWatcher has
+                # 30s timer - this mean it won't call less than every 30s ;)
+                self.manager['portage'].available_portage_update()
+                self.watcher.refresh_package_search_done = True
+            self.manager['portage'].portage['remain'] -= 1    
+                
+                
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
                 # recompute time remain
@@ -82,20 +120,6 @@ class MainDaemon(threading.Thread):
                     self.scheduler.run_in_executor(None, self.manager['portage'].dosync, ) # -> ', )' = No args
             self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
             self.manager['portage'].sync['elapse'] += 1
-            
-            # Check sync timestamp so we can know if it has been run outside
-            # the program and we can recompute every 31s the sync['remain'] timestamp
-            if self.manager['portage'].remain <= 0:
-                # DONT recompute each time
-                # TEST recompute at the half of time interval  
-                if self.manager['portage'].sync['remain'] <= self.manager['portage'].sync['interval'] // 2 and not \
-                   self.manager['portage'].sync['recompute_done']:
-                    self.manager['portage'].check_sync(recompute=True)
-                    self.manager['portage'].sync['recompute_done'] = True
-                else:
-                    self.manager['portage'].check_sync()
-                self.manager['portage'].remain = 31
-            self.manager['portage'].remain -= 1
             
             # Then: run pretend_world() if authorized 
             # Leave other check: is sync running ? is pretend already running ? is world update is running ?
@@ -109,40 +133,12 @@ class MainDaemon(threading.Thread):
                 self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world, ) # -> ', )' = same here
             
             # Then: check available portage update
-            if self.manager['portage'].portage['remain'] <= 0:
-                # We have to check every time
-                # Because you can make the update and then go back
-                # And after sync / world update
-                self.manager['portage'].available_portage_update()
-            self.manager['portage'].portage['remain'] -= 1
-                        
-            # Last: check if we are running world update 
-            # do we need to run pretend_world() ?
-            # shutdown pretend_world() if world update just lauched / is in progress 
-            if self.manager['portage'].world['remain'] <= 0:
-                self.manager['portage'].get_last_world_update()
-                # Global update is in progress
-                if self.manager['portage'].world['update']:
-                    if self.manager['portage'].world['status']:
-                        # Force cancel pretend 
-                        self.manager['portage'].world['cancel'] = True
-                else:
-                    if self.manager['portage'].world['updated'] and self.manager['portage'].world['cancelled'] and \
-                       self.manager['portage'].world['pretend']:
-                        # Ok so just reset cancelled as system has been updated, pretend has been cancelled 
-                        # but pretend is already schedule 
-                        self.manager['portage'].world['cancelled'] = False
-                    elif not self.manager['portage'].world['updated'] and self.manager['portage'].world['cancelled']:
-                        # Normally we just check as well pretend but we'll schedule it so...
-                        # This is when pretend has been cancelled (just detected Global update) but system 
-                        # hasn't been updated (this has been aborded in fact) - So force pretend
-                        # TODO we should implant an timer ? - Avoid cancelling / running multiple time
-                        log.warning('Recalling the package(s) update\'s search as it has been cancelled')
-                        self.manager['portage'].world['pretend'] = True
-                        self.manager['portage'].world['cancelled'] = False
-            self.manager['portage'].world['remain'] -= 1
-            
-                          
+            #if self.manager['portage'].portage['remain'] <= 0:
+                #We have to check every time
+                #Because you can make the update and then go back
+                #And after sync / world update
+                
+            #self.manager['portage'].portage['remain'] -= 1
                         
             ### Git stuff
             if self.manager['git'].enable:
@@ -212,6 +208,9 @@ def main():
         
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)
+    # Get last portage package
+    # Better first call here because this won't be call before EmergeLogWatcher detected close_write
+    myportmanager.available_portage_update()
                
     if args.git:
         log.debug('Git kernel tracking has been enable.')
@@ -242,14 +241,20 @@ def main():
     dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
     
+    # Init log watcher
+    watcher = EmergeLogWatcher(pathdir, runlevel, log.level, myportmanager.sync['repos']['msg'], 
+                             name='Emerge Log Watcher Daemon', daemon=True)
+    
     # Init thread
-    daemon_thread = MainDaemon(manager, name='Main Daemon Thread', daemon=True)
+    daemon_thread = MainDaemon(manager, watcher, name='Main Daemon Thread', daemon=True)
     
     # Start thread and dbus
+    watcher.start()
     daemon_thread.start()
     dbusloop.run()
     
     daemon_thread.join()
+    mywatcher.join()
        
     
 if __name__ == '__main__':

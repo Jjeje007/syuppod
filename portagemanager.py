@@ -24,6 +24,7 @@ from utils import on_parent_exit
 from logger import MainLoggingHandler
 from logger import ProcessLoggingHandler
 
+
 try:
     import numpy
     import pexpect
@@ -36,7 +37,6 @@ except Exception as exc:
 # we could watched this file and reading only if new line is added (so reading every N seconds) TODO 
 # This could be good  --> https://inotify-simple.readthedocs.io/en/latest/ ;)
 # See ./test.py
-
 
 class PortageHandler:
     """Portage tracking class"""
@@ -67,21 +67,16 @@ class PortageHandler:
             'network_error' :   int(self.stateinfo.load('sync network_error')),
             'retry'         :   int(self.stateinfo.load('sync retry')),
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
-            #'error'         :   self.stateinfo.load('sync error'),
-            'count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
+            'global_count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
                                                                           # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   interval,
             'elapse'        :   0,
             'remain'        :   0,
-            'current_count' :   0,   # Counting sync count since running (current session)
+            'session_count' :   0,   # Counting sync count since running (current session)
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
-        #Init Class EmergeLogWatcher
-        #self.emerge_log_watcher = EmergeLogWatcher(self.pathdir, runlevel, self.log.level, self.sync,
-                                                   #name='Emerge Log Watcher Daemon', daemon=True)
-        
         
         # Print warning if interval 'too big'
         # If interval > 30 days (2592000 seconds)
@@ -91,7 +86,7 @@ class PortageHandler:
         
         # World attributes
         self.world = {
-            'status'    :   False,   # True when running / False when not
+            'status'    :   'waiting',   # waiting : ready | running : running :p | finished: just finished
             'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
             'update'    :   False,   # True when global update is in progress / False if not
             'updated'   :   False,   # True if system has been updated / False otherwise
@@ -127,26 +122,6 @@ class PortageHandler:
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}check_sync::'
-        
-        # Check if sync is running
-        if self.update_inprogress.check('Sync', additionnal_msg=self.sync['repos']['msg']):
-            # Syncing is in progress keep last timestamp
-            # Retry in ten minutes (so we got newly timestamp)
-            self.sync['remain'] = 600
-            # Make sure self.sync['status'] == True
-            # This could mean sync is running outside the program
-            if not self.sync['status']:
-                self.log.error('Syncing is in progress but found status to False')
-                self.log.error('If sync is not running outside the program, please report this')
-                self.log.error('Resetting status to True')
-                self.sync['status'] = True
-            return False
-        else:
-            # Same here make sure self.sync['status'] == False
-            if self.sync['status']:
-                self.log.error('Syncing is NOT in progress but found status to True, please report this')
-                self.log.error('Resetting status to False')
-                self.sync['status'] = False
         
         # Get the last emerge sync timestamp
         myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
@@ -220,17 +195,6 @@ class PortageHandler:
         """ Updating repo(s) """
         # Change name of the logger
         self.log.name = f'{self.logger_name}dosync::'
-        
-        # Check if sync is disable
-        # TEST no no no don't disable just reset to 'interval'
-        #if self.sync['state'] == 'Failed' and not self.sync['network_error']:
-            #self.log.error('Skipping sync update due to previously error.')
-            #self.log.error('Fix the error and reset using syuppod\'s dbus client.')
-            #Make sure to not recompute
-            #self.sync['recompute_done'] = True
-            #Reset remain to interval otherwise it will call every seconds
-            #self.sync['remain'] = self.sync['interval']
-            #return
         
         # Check if already running
         # BUT this shouldn't happend
@@ -425,19 +389,19 @@ class PortageHandler:
             #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Searching last sync timestamp.
             # this shouldn't be ::get_last_world_update:: but ::dosync:: BUG
             # Count only success sync
-            old_count_global = self.sync['count']
-            old_count = self.sync['current_count']
+            old_count_global = self.sync['global_count']
+            old_count = self.sync['session_count']
             
-            self.sync['count'] = int(self.sync['count'])
-            self.sync['count'] += 1
+            self.sync['global_count'] = int(self.sync['global_count'])
+            self.sync['global_count'] += 1
             self.log.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
-                                                                                           self.sync['count']))
-            self.sync['current_count'] += 1
+                                                                                           self.sync['global_count']))
+            self.sync['session_count'] += 1
             self.log.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
-                                                                                    self.sync['current_count']))
-            self.log.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['count'], 
+                                                                                    self.sync['session_count']))
+            self.log.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
                                                                                  self.pathdir['statelog']))
-            self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['count']))
+            self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['global_count']))
                 
             # Get the sync timestamp from emerge.log
             self.log.debug('Initializing emerge log parser:')
@@ -482,49 +446,36 @@ class PortageHandler:
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}get_last_world_update::'
-        
-        # Check if we are running world update right now
-        if self.update_inprogress.check('World'):
-            self.world['update'] = True
-            # Check every 2s
-            self.world['remain'] = 2
-            return
-            # keep last know timestamp
-        else:
-            # World is not 'In Progress':
-            self.world['update'] = False
-            # Reset state of updated
-            self.world['updated'] = False
             
-            myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
-            # keep default setting 
-            # TODO : give the choice cf EmergeLogParser() --> last_world_update()
-            get_world_info = myparser.last_world_update()
-            self.log.name = f'{self.logger_name}get_last_world_update::'
+        myparser = EmergeLogParser(self.log, self.pathdir['emergelog'], self.logger_name)
+        # keep default setting 
+        # TODO : give the choice cf EmergeLogParser() --> last_world_update()
+        get_world_info = myparser.last_world_update()
+        self.log.name = f'{self.logger_name}get_last_world_update::'
             
-            if get_world_info:
-                to_print = True                
-                # Write only if change
-                for key in 'start', 'stop', 'state', 'total', 'failed':
-                    if not self.world['last'][key] == get_world_info[key]:
-                        # Ok this mean world update has been run
-                        # So run pretend_world()
-                        self.world['pretend'] = True
-                        self.world['updated'] = True
-                        if to_print:
-                            self.log.info('Global update has been run') # TODO: give more details
-                            to_print = False
+        if get_world_info:
+            to_print = True                
+            # Write only if change
+            for key in 'start', 'stop', 'state', 'total', 'failed':
+                if not self.world['last'][key] == get_world_info[key]:
+                    # Ok this mean world update has been run
+                    # So run pretend_world()
+                    self.world['pretend'] = True
+                    self.world['updated'] = True
+                    if to_print:
+                        self.log.info('Global update has been run') # TODO: give more details
+                        to_print = False
                             
-                        self.world['last'][key] = get_world_info[key]
-                        self.log.debug(f'Saving \'world last {key}: '
-                                       + '\'{0}\' '.format(self.world['last'][key]) 
-                                       + 'to \'{0}\'.'.format(self.pathdir['statelog']))
-                        self.stateinfo.save('world last ' + key, 
-                                            'world last ' + key 
-                                            + ': ' + str(self.world['last'][key]))
-            # Reset remain :)
-            self.world['remain'] = 5
-            return
+                    self.world['last'][key] = get_world_info[key]
+                    self.log.debug(f'Saving \'world last {key}: '
+                                    + '\'{0}\' '.format(self.world['last'][key]) 
+                                    + 'to \'{0}\'.'.format(self.pathdir['statelog']))
+                    self.stateinfo.save('world last ' + key, 
+                                        'world last ' + key 
+                                        + ': ' + str(self.world['last'][key]))
+        # Reset remain :)
+        self.world['remain'] = 5
+        return
     
     
     def pretend_world(self):
@@ -533,28 +484,17 @@ class PortageHandler:
         # Change name of the logger
         self.log.name = f'{self.logger_name}pretend_world::'
         
-        # Auto cancel if world update is in progress
-        if self.world['update']:
-            self.log.warning('The available package(s) update\'s search has been call.')
-            self.log.warning('But a global update is in progress, skipping...')
-            self.world['cancel'] = False
-            self.world['cancelled'] = True
-            self.world['status'] = False
-            # stop running pretend !
-            self.world['pretend'] = False
-            return
-        
         if not self.world['pretend']:
             self.log.error('We are about to search available package(s) update and found pretend to False,')
             self.log.error('which mean this was NOT authorized, please report it.')
         # Disable pretend authorization
         self.world['pretend'] = False
         # Make sure it's not already running        
-        if self.world['status']:
+        if self.world['status'] == 'running':
             self.log.error('We are about to search available package(s) update and found status to True,')
             self.log.error('which mean it is already in progress, please check and report if False.')
             return
-        self.world['status'] = True
+        self.world['status'] = 'running'
         
         # Don't need to run if cancel just received
         if self.world['cancel']:
@@ -564,7 +504,7 @@ class PortageHandler:
                 self.log.warning('The previously task was already cancelled, check and report if False.')
             self.world['cancelled'] = True
             self.world['cancel'] = False
-            self.world['status'] = False
+            self.world['status'] = 'waiting'
             return
         
         self.log.debug('Start searching available package(s) update.')
@@ -625,13 +565,13 @@ class PortageHandler:
                 # Don't write log because it's has been cancelled (log is only partial)
                 if self.world['cancelled']:
                     self.log.warning('The previously task was already cancelled, check and report if False.')
-                if not self.world['status']:
-                    self.log.error('We are about to leave pretend process, but just found status already to False,')
+                if self.world['status'] == 'waiting':
+                    self.log.error('We are about to leave pretend process, but just found status already to wait,')
                     self.log.error('which mean process is/was NOT in progress, please check and report if True')
                 
                 self.world['cancelled'] = True
                 self.world['cancel'] = False
-                self.world['status'] = False
+                self.world['status'] = 'waiting'
                 # skip every thing else
                 return
             
@@ -708,10 +648,10 @@ class PortageHandler:
             self.log.debug('The previously task has been cancelled, resetting state to False (as this one is ' +
                            'completed.')
         self.world['cancelled'] = False
-        if not self.world['status']:
-            self.log.error('We are about to leave pretend process, but just found status already to False,')
+        if self.world['status'] == 'finished':
+            self.log.error('We are about to leave pretend process, but just found status already to finished,')
             self.log.error('which mean process is/was NOT in progress, please check and report if True')
-        self.world['status'] = False
+        self.world['status'] = 'finished'
 
 
     def available_portage_update(self):
@@ -922,12 +862,7 @@ class EmergeLogParser:
         
         # Change name of the logger
         self.log.name = f'{self.logger_name}last_sync::'
-        
-        # RE
-        start_re = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*--sync.*$')
-        completed_re = re.compile(r'^\d+:\s{1}===.Sync.completed.for.gentoo$')
-        stop_re = re.compile(r'^\d+:\s{2}\*\*\*.terminating.$')
-        
+        completed_re = re.compile(r'^(\d+):\s{1}===.Sync.completed.for.gentoo$')
         self.lastlines = lastlines
         # construct exponantial list
         self._range['sync'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
@@ -937,30 +872,14 @@ class EmergeLogParser:
         count = 1
         
         while keep_running:
-            self.log.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
+            self.log.debug('Loading last {0} lines from {1}.'.format(self.lastlines, self.emergelog))
             inside_group = False
-            self.log.debug('Extracting list of successfully sync for main repo \'gentoo\'.')
+            self.log.debug('Extracting list of successfully sync for main repo gentoo.')
             for line in self.getlog(self.lastlines):
-                if inside_group:
-                    if stop_re.match(line):
-                        inside_group = False
-                        if with_delimiting_lines:
-                            group.append(line)
-                        # Ok so with have all the line
-                        # search over group list to check if sync for repo gentoo is in 'completed' state
-                        # and add timestamp line '=== sync ' to collect list
-                        for value in group:
-                            if completed_re.match(value):
-                                collect.append(current_timestamp)
-                                self.log.debug(f'Recording: \'{current_timestamp}\'.')
-                    else:
-                        group.append(line)
-                elif start_re.match(line):
-                    inside_group = True
-                    group = [ ]
-                    current_timestamp = int(start_re.match(line).group(1))
-                    if with_delimiting_lines:
-                        group.append(line)
+                if completed_re.match(line):
+                    current_timestamp = int(completed_re.match(line).group(1))
+                    collect.append(current_timestamp)
+                    self.log.debug(f'Recording: {current_timestamp}.')
             # Collect is finished.
             # If we got nothing then extend  last lines to self.getlog()
             if collect:
@@ -975,7 +894,8 @@ class EmergeLogParser:
                     return False
         
         # Proceed to get the latest timestamp
-        self.log.debug('Extracting latest sync from: {0}'.format(', '.join(str(timestamp) for timestamp in collect)))
+        self.log.debug('Extracting latest sync from: {0}'.format(', '.join(str(timestamp) \
+                                                                          for timestamp in collect)))
         latest = collect[0]
         for timestamp in collect:
             if timestamp > latest:
@@ -984,7 +904,7 @@ class EmergeLogParser:
             self.log.debug(f'Select: \'{latest}\'.')
             return latest
         
-        self.log.error('Failed to found latest update timestamp for main repo \'gentoo\'.')
+        self.log.error('Failed to found latest update timestamp for main repo gentoo.')
         return False
      
     
@@ -1184,6 +1104,21 @@ class EmergeLogParser:
         def _saved_completed():
             """Saving world update completed state"""
             # workaround BUG describe just below
+            # FIXME BUG : got this in stderr.log : 
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/main.py", line 131, in run
+            # 2019-12-19 12:09:49      self.manager['portage'].get_last_world_update()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 397, in get_last_world_update
+            # 2019-12-19 12:09:49      get_world_info = myparser.last_world_update()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1207, in last_world_update
+            # 2019-12-19 12:09:49      _saved_completed()
+            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1056, in _saved_completed
+            # 2019-12-19 12:09:49      .format(self.group['start'], self.group['stop'], self.group['total']))
+            # 2019-12-19 12:09:49  KeyError: 'start'
+            # This is strange and shouldn't arrived 
+            # TODO This has been called succeeded.match BUT there were no succeeded world update (it failed immediatly
+            # 5 times without any package compiled) ...
+            # The most important thing it's this screew up the whole program ...
+            # First workaround should be try / except : don't record this and print a warning !
             for key in 'start', 'stop', 'total':
                 try:
                     self.group.get(key)
@@ -1204,21 +1139,6 @@ class EmergeLogParser:
             self.group['failed'] = '0'
             self.collect['completed'].append(self.group)
             self.packages_count = 1
-            # FIXME BUG : got this in stderr.log : 
-            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/main.py", line 131, in run
-            # 2019-12-19 12:09:49      self.manager['portage'].get_last_world_update()
-            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 397, in get_last_world_update
-            # 2019-12-19 12:09:49      get_world_info = myparser.last_world_update()
-            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1207, in last_world_update
-            # 2019-12-19 12:09:49      _saved_completed()
-            # 2019-12-19 12:09:49    File "/data/01/src/syuppod/portagemanager.py", line 1056, in _saved_completed
-            # 2019-12-19 12:09:49      .format(self.group['start'], self.group['stop'], self.group['total']))
-            # 2019-12-19 12:09:49  KeyError: 'start'
-            # This is strange and shouldn't arrived 
-            # TODO This has been called succeeded.match BUT there were no succeeded world update (it failed immediatly
-            # 5 times without any package compiled) ...
-            # The most important thing it's this screew up the whole program ...
-            # First workaround should be try / except : don't record this and print a warning !
             self.log.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
                            .format(self.group['start'], self.group['stop'], self.group['total']))
         
@@ -1397,20 +1317,6 @@ class EmergeLogParser:
                 # So this is the nextline after start_opt match
                 elif linecompiling == 1:
                     # Make sure it's start to compile
-                    # Got StopIteration exception while running world update with @world
-                    # There were no nextline.
-                    # Class: UpdateInProgress (self.update_inprogress.check()) didn't detect world update
-                    # This has been fixed but keep this in case.
-                    #try:
-                        #nextline = next(mylog)
-                    #This mean we start to run world update 
-                    #except StopIteration:
-                        #compiling = False
-                        #self.packages_count = 1
-                        #current_package = False
-                        #package_name = None
-                        #keepgoing = False
-                    #else:
                     if start_compiling.match(line):
                         #Ok we start already to compile the first package
                         #Get how many package to update 
@@ -1608,6 +1514,8 @@ class EmergeLogWatcher(threading.Thread):
         self.update_inprogress_world = False
         self.refresh_world = False
         self.refresh_world_done = False
+        self.refresh_package_search = False
+        self.refresh_package_search_done = False
         # Init Inotify
         self.log_wd_state_changed = False
         self.inotify = inotify_simple.INotify()
@@ -1632,13 +1540,15 @@ class EmergeLogWatcher(threading.Thread):
                     self.log_wd_state_changed = True
                     self.logger.debug('File {0} has been close_write'.format(self.pathdir['emergelog']))
             else:
+                # For portage package search
+                self.refresh_package_search = True
                 # This should be call only every 30s 
                 if remain <= 0:
-                    remain = 5
-                    self.timer.tic()
+                    # TODO we could lower this to improve detection speed 
+                    # But class UpdateInProgress has to be rewritten !!
+                    remain = 10
                     sync_inprogress = self.update_inprogress.check('Sync', additionnal_msg=self.repo_msg)
                     world_inprogress = self.update_inprogress.check('World')
-                    self.timer.toc()
                     if sync_inprogress:
                         self.logger.debug('Portage sync is in progress.')
                         self.update_inprogress_sync = True
@@ -1652,21 +1562,25 @@ class EmergeLogWatcher(threading.Thread):
                         if self.update_inprogress_sync:
                             self.logger.debug('Portage sync has been run.')
                             self.refresh_sync = True
+                            self.update_inprogress_sync = False
                         if self.update_inprogress_world:
                             self.logger.debug('Portage world update has been run.')
                             self.refresh_world = True
+                            self.update_inprogress_world = False
             # Ok so now check if sync or world has been refresh
             # Avoid race condition
             if self.refresh_sync_done:
-                self.logger.debug('Timestamp refresh for portage sync has been call.')
+                self.logger.debug('Timestamp refresh for portage sync done.')
                 self.refresh_sync = False
+                self.refresh_sync_done = False
             if self.refresh_world_done:
-                self.logger.debug('Timestamp refresh for portage world update has been call.')
+                self.logger.debug('Timestamp refresh for portage world update done.')
                 self.refresh_world = False
-                           
-            # TEST setting to 2s to make sure event is read before it changed
-            # Main deamon thread 'could' take some time (for now i thing less than 1s)
-            # So this introduce some latency...
+                self.refresh_world_done = False
+            if self.refresh_package_search_done:
+                self.logger.debug('Portage package search has been refreshed.')
+                self.refresh_package_search = False
+                self.refresh_package_search_done = False
             remain -= 1
             time.sleep(1)
     

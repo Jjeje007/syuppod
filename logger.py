@@ -153,8 +153,8 @@ class LogLevelFormatter(logging.Formatter):
     """Formatter which separate debug and other log level for tty_run()
     https://stackoverflow.com/a/54739720/11869956"""
     formats = {
-            logging.DEBUG   :   '%(levelname)s  %(name)s  %(message)s',
-            'default'       :   '%(levelname)s  %(message)s'
+            logging.DEBUG   :   '%(asctime)s  %(levelname)s  %(name)s  %(message)s',
+            'default'       :   '%(asctime)s  %(levelname)s  %(message)s'
             }
     
     def format(self, record):
