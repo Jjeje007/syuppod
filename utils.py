@@ -50,10 +50,10 @@ class StateInfo:
                 
         # Init logger
         self.logger_name = f'::{__name__}::StateInfo::'
-        mainlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
+        mainlogger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
                                      self.pathdir['fdlog'])
-        self.log = getattr(mainlog, runlevel)()
-        self.log.setLevel(loglevel)
+        self.logger = getattr(mainlogger, runlevel)()
+        self.logger.setLevel(loglevel)
         
         self.stateopts = (
             # '# Wrote by syuppod version: __version__' TODO : Writing version so we can know which version wrote the state file 
@@ -104,14 +104,14 @@ class StateInfo:
         """Create, check state file and its options"""
         # If new file, factory info
         # TODO: add options to reset {pull,sync}_count to factory
-        self.log.name = f'{self.logger_name}config::'
+        self.logger.name = f'{self.logger_name}config::'
         
         try:
             if not pathlib.Path(self.pathdir['statelog']).is_file():
-                self.log.debug('Create state file: \'{0}\'.'.format(self.pathdir['statelog']))
+                self.logger.debug('Create state file: \'{0}\'.'.format(self.pathdir['statelog']))
                 with pathlib.Path(self.pathdir['statelog']).open(mode='w') as mystatefile:
                     for option in self.stateopts:
-                        self.log.debug(f'Adding option \'{option}\'.')
+                        self.logger.debug(f'Adding option \'{option}\'.')
                         mystatefile.write(option + '\n')
             else:
                 with pathlib.Path(self.pathdir['statelog']).open(mode='r+') as mystatefile:
@@ -131,12 +131,12 @@ class StateInfo:
                         isfound = 'no'
                         for line in oldstatefile:
                             if regex.match(line).group(1) == regex.match(option).group(1):
-                                self.log.debug('Found option \'{0}\' in state file.'.format(regex.match(option).group(1)))
+                                self.logger.debug('Found option \'{0}\' in state file.'.format(regex.match(option).group(1)))
                                 isfound = 'yes'
                                 break
                         if isfound == 'no':
                             oldstatefile.append(option + '\n')           
-                            self.log.debug('Wrote new option \'{0}\' in state file'.format(regex.match(option).group(1)))
+                            self.logger.debug('Wrote new option \'{0}\' in state file'.format(regex.match(option).group(1)))
                     
                     # Check if wrong / old option is found in current state file and append in the list toremove
                     toremove = []
@@ -160,24 +160,24 @@ class StateInfo:
                     # Remove old or wrong option found from oldstatefile list
                     for wrongopt in toremove:
                         oldstatefile.remove(wrongopt)
-                        self.log.debug('Remove wrong or old option \'{0}\' from state file'.format(wrongopt.rstrip()))
+                        self.logger.debug('Remove wrong or old option \'{0}\' from state file'.format(wrongopt.rstrip()))
                     
                     # (re)write file
                     for line in oldstatefile:
                         mystatefile.write(line)
         except (OSError, IOError) as error:
-            self.log.critical('Error while checking / creating \'{0}\' state file.'.format(self.pathdir['statelog']))
+            self.logger.critical('Error while checking / creating \'{0}\' state file.'.format(self.pathdir['statelog']))
             if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                self.log.critical(f'Got: \'{error.strerror}: {error.filename}\'.')
-                self.log.critical('Daemon is intended to be run as sudo/root.')
+                self.logger.critical(f'Got: \'{error.strerror}: {error.filename}\'.')
+                self.logger.critical('Daemon is intended to be run as sudo/root.')
             else:
-                self.log.critical(f'Got: \'{error}\'.')
+                self.logger.critical(f'Got: \'{error}\'.')
             sys.exit(1)           
         
     def save(self, pattern, to_write):
         """Edit info to specific linne of state file"""
         
-        self.log.name = f'{self.logger_name}save::'
+        self.logger.name = f'{self.logger_name}save::'
         
         try:
             regex = re.compile(r"^" + pattern + r":.*$")
@@ -191,33 +191,33 @@ class StateInfo:
                 # Rewrite 
                 for line in oldstatefile:
                     if regex.match(line):
-                        self.log.debug(f'\'{to_write}\'.')
+                        self.logger.debug(f'\'{to_write}\'.')
                         mystatefile.write(to_write + '\n')
                     else:
                         mystatefile.write(line)
         except (OSError, IOError) as error:
-            self.log.critical('Error while modifing \'{0}\' state file.'.format(self.pathdir['statelog']))
-            self.log.debug(f'\tTried to write: \'{to_write}\' in section: \'{pattern}\'.')
-            self.log.critical(f'\tGot: \'{error}\'.')
+            self.logger.critical('Error while modifing \'{0}\' state file.'.format(self.pathdir['statelog']))
+            self.logger.debug(f'\tTried to write: \'{to_write}\' in section: \'{pattern}\'.')
+            self.logger.critical(f'\tGot: \'{error}\'.')
             sys.exit(1)
 
     def load(self, pattern):
         """Read info from specific state file"""
         
-        self.log.name = f'{self.logger_name}load::'
+        self.logger.name = f'{self.logger_name}load::'
         
         try:
             regex = re.compile(r"^" + pattern + r":.(.*)$")
             with pathlib.Path(self.pathdir['statelog']).open() as mystatefile: 
                 for line in mystatefile:
                      if regex.match(line):
-                        self.log.debug('\'{0}: {1}\''.format(pattern, regex.match(line).group(1)))
-                        #self.log.debug('Hello world')
+                        self.logger.debug('\'{0}: {1}\''.format(pattern, regex.match(line).group(1)))
+                        #self.logger.debug('Hello world')
                         return regex.match(line).group(1)
         except (OSError, IOError) as error:
-            self.log.critical('Error while reading \'{0}\' state file.'.format(self.pathdir['statelog']))
-            self.log.debug(f'\tTried to read section: \'{pattern}\'.')
-            self.log.critical(f'\tGot: \'{error}\'')
+            self.logger.critical('Error while reading \'{0}\' state file.'.format(self.pathdir['statelog']))
+            self.logger.debug(f'\tTried to read section: \'{pattern}\'.')
+            self.logger.critical(f'\tGot: \'{error}\'')
             sys.exit(1)  
  
 class FormatTimestamp:
@@ -458,38 +458,14 @@ class FormatTimestamp:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
 
-# Depreciate
-#class CapturedFd:
-    #"""Pipe the specified fd to an temporary file
-    #https://stackoverflow.com/a/41301870/11869956
-    #Modified to capture both stdout and stderr.
-    #Need a list as argument ex: fd=[1,2]"""
-    #TODO : not sure about that still thinking :p
-    #def __init__(self, fd):
-        #self.fd = fd
-        #self.prevfd = [ ]
-
-    #def __enter__(self):
-        #mytmp = tempfile.NamedTemporaryFile()
-        #for fid in self.fd:
-            #self.prevfd.append(os.dup(fid))
-            #os.dup2(mytmp.fileno(), fid)
-        #return mytmp
-
-    #def __exit__(self, exc_type, exc_value, traceback):
-        #i = 0
-        #for fid in self.fd:
-            #os.dup2(self.prevfd[i], fid)
-            #i = i + 1
-
 
 class UpdateInProgress:
     """Check if update is in progress..."""
 
-    def __init__(self, log):
+    def __init__(self, logger):
         """Arguments:
             (callable) @log : an logger from logging module"""
-        self.log = log
+        self.logger = logger
         # Avoid spamming with log.info
         self.logflow =  {
             'Sync'      :   0,   
@@ -547,7 +523,7 @@ class UpdateInProgress:
                 except IOError:
                     continue
                 except Exception as exc:
-                    self.log.error(f'Got unexcept error: {exc}')
+                    self.logger.error(f'Got unexcept error: {exc}')
                     # TODO: Exit or not ?
                     continue
                 # Check world update
@@ -573,7 +549,7 @@ class UpdateInProgress:
                             # the right git pull / fetch process
                             path = os.readlink('/proc/{0}/cwd'.format(dirname))
                             if not repogit:
-                                self.log.error('Missing repogit args !')
+                                self.logger.error('Missing repogit args !')
                                 return False # TODO : hum don't know :)
                             # Then compare path
                             elif os.path.samefile(path, self.repogit):
@@ -583,20 +559,20 @@ class UpdateInProgress:
                         except IOError:
                             continue
                         except Exception as exc:
-                            self.log.error(f'Got unexcept error: {exc}')
+                            self.logger.error(f'Got unexcept error: {exc}')
                             # TODO: Exit or not ?
                             continue
                 else:
-                    self.log.critical(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                    self.logger.critical(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
                                       f' method: check(), tocheck: \'{tocheck}\'.')
-                    self.log.critical('Exiting with status \'1\'...')
+                    self.logger.critical('Exiting with status \'1\'...')
                     sys.exit(1)
             
         displaylog = False
         current_timestamp = time.time()
         
         if inprogress:
-            self.log.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            self.logger.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             # We just detect 'inprogress'
             if self.timestamp[tocheck] == 0:
                 displaylog = True
@@ -616,16 +592,16 @@ class UpdateInProgress:
                         self.timestamp[tocheck] = current_timestamp + 7200 
                         self.logflow[tocheck] = 3
                     else:
-                        self.log.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                        self.logger.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
                                           f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
-                        self.log.warning('Resetting all attributes')
+                        self.logger.warning('Resetting all attributes')
                         self.timestamp[tocheck] = 0
                         self.logflow[tocheck] = 0
             if displaylog and not quiet:
-                self.log.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+                self.logger.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             return True
         else:
-            self.log.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
+            self.logger.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
             # Reset attributes
             self.timestamp[tocheck] = 0
             self.logflow[tocheck] = 0

@@ -56,7 +56,7 @@ class PortageDbus(PortageHandler):
         if self.world['update']:
             return 'world'
         # Don't run if pretend is running
-        if self.world['status']:
+        if self.world['status'] == 'running':
             return 'already'
         #return 'Order has been sent, see log in {0}'.format(self.pathdir['pretendlog'])
         self.world['pretend'] = True

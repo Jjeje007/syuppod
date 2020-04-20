@@ -70,7 +70,7 @@ class MainDaemon(threading.Thread):
         self.scheduler = asyncio.new_event_loop()
     
     def run(self):
-        log.info('Start up completed.')
+        logger.info('Start up completed.')
         while True:
             ### Portage stuff
             # Ok now just get sync timestamp or world pretend only 
@@ -78,29 +78,27 @@ class MainDaemon(threading.Thread):
             # In progress
             # TEST
             if self.watcher.refresh_sync:
-                self.manager['portage'].check_sync(recompute=True)
+                self.manager['portage'].check_sync()
                 self.watcher.refresh_sync_done = True
             if self.manager['portage'].world['status'] == 'running' and self.watcher.update_inprogress_world:
                 # pretend running and world is running as well so call cancel
                 self.manager['portage'].world['cancel'] = True
             if self.watcher.refresh_world and not self.watcher.update_inprogress_world:
-            #and \
-               #self.manager['portage'].world['status'] == 'waiting' and not \
-               #self.manager['portage'].world['cancelled']:
                 # Call get_last_world so we can know if world has been update and it will call pretend
                 self.manager['portage'].get_last_world_update()
                 self.watcher.refresh_world_done = True
             if not self.watcher.update_inprogress_sync and not self.watcher.update_inprogress_world \
                and self.manager['portage'].world['status'] == 'waiting' \
                and self.manager['portage'].world['cancelled']:
-                #Ok so this is the case where we want to call pretend, there is not sync and world in progress
-                #and pretend is waiting and it was cancelled so recall pretend :p
+                # This is the case where we want to call pretend, there is not sync and world in progress
+                # and pretend is waiting and it was cancelled so recall pretend :p
+                logger.warning('Recalling the package(s) update\'s search as it was cancelled.')
                 self.manager['portage'].world['pretend'] = True
                 self.manager['portage'].world['cancelled'] = False
             if self.manager['portage'].world['status'] == 'finished':
-                #Ok every thing is OK: pretend was wanted, has been called, finished well
+                # Every thing is OK: pretend was wanted, has been called, finished well
                 self.manager['portage'].world['status'] == 'waiting'
-            # Ok also check portage package update depending on close_write
+            # Also check portage package update depending on close_write
             if self.watcher.refresh_package_search and self.manager['portage'].portage['remain'] <= 0:
                 # This will be call every close_write but class EmergeLogWatcher has
                 # 30s timer - this mean it won't call less than every 30s ;)
@@ -112,7 +110,7 @@ class MainDaemon(threading.Thread):
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
                 # recompute time remain
-                if self.manager['portage'].check_sync(recompute=True):
+                if self.manager['portage'].check_sync():
                     # sync not blocking using asyncio and thread 
                     # this is for python 3.5+ / None -> default ThreadPoolExecutor 
                     # where max_workers = n processors * 5
@@ -127,19 +125,11 @@ class MainDaemon(threading.Thread):
             # TEST Disable pretend_world() if sync is in progress other wise will run twice 
             if self.manager['portage'].world['pretend'] and not self.manager['portage'].sync['status']:
                 if self.manager['portage'].world['forced']:
-                    log.warning('Forcing pretend world as requested by dbus client.')
+                    logger.warning('Forcing pretend world as requested by dbus client.')
                     self.manager['portage'].world['forced'] = False
                 # Making async and non-blocking
                 self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world, ) # -> ', )' = same here
             
-            # Then: check available portage update
-            #if self.manager['portage'].portage['remain'] <= 0:
-                #We have to check every time
-                #Because you can make the update and then go back
-                #And after sync / world update
-                
-            #self.manager['portage'].portage['remain'] -= 1
-                        
             ### Git stuff
             if self.manager['git'].enable:
                 # First: pull
@@ -156,7 +146,7 @@ class MainDaemon(threading.Thread):
                     self.manager['git'].get_last_pull()
                     # For forced and pull
                     if self.manager['git'].pull['update_all']:
-                        log.debug('Found update_all to True, forcing all update.')
+                        logger.debug('Found update_all to True, forcing all update.')
                         self.manager['git'].get_all_kernel()
                         self.manager['git'].get_branch('remote')
                         self.manager['git'].pull['update_all'] = False
@@ -183,15 +173,15 @@ def main():
                 pathlib.Path(pathdir[directory]).mkdir()
             except OSError as error:
                 if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                    log.critical(f'Got error while making directory: \'{error.strerror}: {error.filename}\'.')
-                    log.critical(f'Daemon is intended to be run as sudo/root.')
+                    logger.critical(f'Got error while making directory: \'{error.strerror}: {error.filename}\'.')
+                    logger.critical(f'Daemon is intended to be run as sudo/root.')
                     sys.exit(1)
                 else:
-                    log.critical(f'Got unexcept error while making directory: \'{error}\'.')
+                    logger.critical(f'Got unexcept error while making directory: \'{error}\'.')
                     sys.exit(1)
        
     # Init StateInfo
-    mystateinfo = StateInfo(pathdir, runlevel, log.level)
+    mystateinfo = StateInfo(pathdir, runlevel, logger.level)
     
     # Check state file
     mystateinfo.config()
@@ -204,26 +194,28 @@ def main():
     manager = { }
     
     # Init portagemanager
-    myportmanager = PortageDbus(args.sync, pathdir, runlevel, log.level)
+    myportmanager = PortageDbus(args.sync, pathdir, runlevel, logger.level)
         
     # Check sync
-    myportmanager.check_sync(init_run=True, recompute=True)
+    myportmanager.check_sync(init_run=True) #, recompute=True)
     # Get last portage package
     # Better first call here because this won't be call before EmergeLogWatcher detected close_write
     myportmanager.available_portage_update()
+    # Same here: Check if global update has been run 
+    myportmanager.get_last_world_update()
                
     if args.git:
-        log.debug('Git kernel tracking has been enable.')
+        logger.debug('Git kernel tracking has been enable.')
         
         # Init gitmanager object through GitDbus class
         mygitmanager = GitDbus(enable=True, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
-                               loglevel=log.level)
+                               loglevel=logger.level)
                
         # Get running kernel
         mygitmanager.get_running_kernel()
         
         # Update all attributes
-        mygitmanager.check_pull(init_run=True) # We need this to print log.info only one time
+        mygitmanager.check_pull(init_run=True) # We need this to print logger.info only one time
         mygitmanager.get_installed_kernel()
         mygitmanager.get_all_kernel()
         mygitmanager.get_available_update('kernel')
@@ -231,7 +223,7 @@ def main():
         mygitmanager.get_available_update('branch')       
     else:
         mygitmanager = GitDbus(enable=False, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
-                               loglevel=log.level)
+                               loglevel=logger.level)
     
     # Adding objets to manager
     manager['git'] = mygitmanager
@@ -242,7 +234,7 @@ def main():
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
     
     # Init log watcher
-    watcher = EmergeLogWatcher(pathdir, runlevel, log.level, myportmanager.sync['repos']['msg'], 
+    watcher = EmergeLogWatcher(pathdir, runlevel, logger.level, myportmanager.sync['repos']['msg'], 
                              name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init thread
@@ -267,35 +259,35 @@ if __name__ == '__main__':
     mainlog = MainLoggingHandler('::main::', pathdir['debuglog'], pathdir['fdlog'])
     
     if sys.stdout.isatty():
-        log = mainlog.tty_run()      # create logger tty_run()
-        log.setLevel(mainlog.logging.INFO)
+        logger = mainlog.tty_run()      # create logger tty_run()
+        logger.setLevel(mainlog.logging.INFO)
         runlevel = 'tty_run'
         display_init_tty = ''
         # This is not working with konsole (kde)
         print('\33]0; {0} - {1}  \a'.format(name, __version__), end='', flush=True)
     else:
-        log = mainlog.init_run()     # create logger init_run()
-        log.setLevel(mainlog.logging.INFO)
+        logger = mainlog.init_run()     # create logger init_run()
+        logger.setLevel(mainlog.logging.INFO)
         runlevel = 'init_run'
         display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
         # Redirect stderr to log 
         # For the moment maybe stdout as well but nothing should be print to...
         # This is NOT good if there is error before log(ger) is initialized...
-        fd2 = RedirectFdToLogger(log)
+        fd2 = RedirectFdToLogger(logger)
         sys.stderr = fd2
        
     if args.debug and args.quiet or args.quiet and args.debug:
-        log.info('Both debug and quiet opts has been enable, falling back to log level info.')
-        log.setLevel(mainlog.logging.INFO)
+        logger.info('Both debug and quiet opts has been enable, falling back to log level info.')
+        logger.setLevel(mainlog.logging.INFO)
     elif args.debug:
-        log.setLevel(mainlog.logging.DEBUG)
-        log.info(f'Debug has been enable. {display_init_tty}')
-        log.debug('Message are from this form \'::module::class::method:: msg\'.')
+        logger.setLevel(mainlog.logging.DEBUG)
+        logger.info(f'Debug has been enable. {display_init_tty}')
+        logger.debug('Message are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
-        log.setLevel(mainlog.logging.ERROR)
+        logger.setLevel(mainlog.logging.ERROR)
     
     if sys.stdout.isatty():
-        log.info('Interactive mode detected, all logs go to terminal.')
+        logger.info('Interactive mode detected, all logs go to terminal.')
     
     # run MAIN
     main()
