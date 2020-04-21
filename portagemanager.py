@@ -115,7 +115,7 @@ class PortageHandler:
             }
 
        
-    def check_sync(self, init_run=False): #, recompute=False):
+    def check_sync(self, init_run=False, recompute=False):
         """ Checking if we can sync repo depending on time interval.
         Minimum is 24H. """
         
@@ -129,8 +129,10 @@ class PortageHandler:
         current_timestamp = time.time()
         update_statefile = False
         # Refresh repositories infos
-        self.sync['repos'] = self._get_repositories()
-        self.logger.name = f'{self.logger_name}check_sync::'
+        # TEST don't need repo refreshed here because it's in __init__() 
+        # and in dosync()
+        #self.sync['repos'] = self._get_repositories()
+        #self.logger.name = f'{self.logger_name}check_sync::'
         
         if sync_timestamp:
             # first run ever 
@@ -139,7 +141,7 @@ class PortageHandler:
                 self.logger.debug(f'Setting to: {sync_timestamp}.')
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
-                #recompute = True
+                recompute = True
             # Detected out of program sync
             elif not self.sync['timestamp'] == sync_timestamp:
                 self.logger.debug('{0} has been sync outside the program, forcing pretend world...'.format(
@@ -147,16 +149,19 @@ class PortageHandler:
                 self.world['pretend'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 update_statefile = True
-                #recompute = True
+                recompute = True
             
             # Compute / recompute time remain
             # This shouldn't be done every time method check_sync() is call
             # because it will erase the arbitrary time remain set by method dosync()
-            #if recompute:
-            # This is no more needed since we call this method only if emerge --sync was lauched
-            # Or just before calling dosync() 
-            self.sync['elapse'] = round(current_timestamp - sync_timestamp)
-            self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
+            if recompute:
+                self.logger.debug('Recompute is enable.')
+                self.logger.debug('Current sync elapse timestamp: {0}'.format(self.sync['elapse']))
+                self.sync['elapse'] = round(current_timestamp - sync_timestamp)
+                self.logger.debug('Recalculate sync elapse timestamp: {0}'.format(self.sync['elapse']))
+                self.logger.debug('Current sync remain timestamp: {0}.'.format(self.sync['remain']))
+                self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
+                self.logger.debug('Recalculate sync remain timestamp: {0}'.format(self.sync['remain']))
             
             self.logger.debug('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                             self.format_timestamp.convert(self.sync['elapse'])))
@@ -166,7 +171,7 @@ class PortageHandler:
                                                             self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
-                self.logger.info('Found {0} {1} to sync: {2}'.format(self.sync['repos']['count'], 
+                self.logger.info('Found {0} {1} to sync: {2}.'.format(self.sync['repos']['count'], 
                                                                   self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
                 self.logger.info('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
@@ -1582,7 +1587,7 @@ class EmergeLogWatcher(threading.Thread):
                 self.refresh_world = False
                 self.refresh_world_done = False
             if self.refresh_package_search_done:
-                self.logger.debug('Portage package search has been refresheded.')
+                self.logger.debug('Portage package search has been refreshed.')
                 self.refresh_package_search = False
                 self.refresh_package_search_done = False
             remain -= 1

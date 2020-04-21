@@ -99,7 +99,9 @@ class MainDaemon(threading.Thread):
                 # Every thing is OK: pretend was wanted, has been called, finished well
                 self.manager['portage'].world['status'] == 'waiting'
             # Also check portage package update depending on close_write
-            if self.watcher.refresh_package_search and self.manager['portage'].portage['remain'] <= 0:
+            # don't call if sync is in progress
+            if self.watcher.refresh_package_search and self.manager['portage'].portage['remain'] <= 0 \
+               and not self.watcher.update_inprogress_sync:
                 # This will be call every close_write but class EmergeLogWatcher has
                 # 30s timer - this mean it won't call less than every 30s ;)
                 self.manager['portage'].available_portage_update()
@@ -110,11 +112,12 @@ class MainDaemon(threading.Thread):
             if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status']:
                 # Make sure sync is not in progress
                 # recompute time remain
-                if self.manager['portage'].check_sync():
+                if self.manager['portage'].check_sync(recompute=True):
                     # sync not blocking using asyncio and thread 
                     # this is for python 3.5+ / None -> default ThreadPoolExecutor 
                     # where max_workers = n processors * 5
                     # TODO FIXME should we need all ?
+                    logger.debug('Running dosync()')
                     self.scheduler.run_in_executor(None, self.manager['portage'].dosync, ) # -> ', )' = No args
             self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
             self.manager['portage'].sync['elapse'] += 1
@@ -197,7 +200,7 @@ def main():
     myportmanager = PortageDbus(args.sync, pathdir, runlevel, logger.level)
         
     # Check sync
-    myportmanager.check_sync(init_run=True) #, recompute=True)
+    myportmanager.check_sync(init_run=True, recompute=True)
     # Get last portage package
     # Better first call here because this won't be call before EmergeLogWatcher detected close_write
     myportmanager.available_portage_update()
