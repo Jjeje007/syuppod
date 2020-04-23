@@ -12,6 +12,8 @@ import shutil
 import errno
 import platform
 import time
+import threading
+import inotify_simple
 
 from distutils.version import StrictVersion
 from utils import StateInfo
@@ -65,7 +67,7 @@ class GitHandler:
         # Init FormatTimestamp
         self.format_timestamp = FormatTimestamp()
         
-        self.update_inprogress = UpdateInProgress(self.log)
+        #self.update_inprogress = UpdateInProgress(self.log)
                        
         # Pull attributes
         self.pull = {
@@ -84,11 +86,14 @@ class GitHandler:
             'remain'        :   0,
             'elapsed'       :   0,
             'interval'      :   kwargs.get('interval'),
-            'update_all'    :   False   # True after pull or if detected pull's outside run
+            'update_all'    :   False,   # True after pull or if detected pull's outside run
+            'recompute'     :   False   # True if remain as to be recompute
             }
         
         # Main remain for checking local branch checkout and local kernel installed
-        self.remain = 20
+        self.remain = 30
+        # Authorized update or not 
+        self.update = True
         
         # Git branch attributes
         self.branch = {
@@ -130,7 +135,6 @@ class GitHandler:
         self.log.name = f'{self.logger_name}get_running_kernel::'
         
         try:
-            self.log.debug('Getting current running kernel:')
             running = re.search(r'([\d\.]+)', platform.release()).group(1)
             # Check if we get valid version
             StrictVersion(running)
@@ -142,7 +146,6 @@ class GitHandler:
                 self.log.error(f'The list of available update kernel version should be false.')
             else:
                 self.log.error(f'Keeping previously know running kernel version.')
-            #return False
         except Exception as exc:
             self.log.error(f'Got unexcept error while getting current running kernel version:')
             self.log.error(f'\'{exc}\'')
@@ -151,20 +154,20 @@ class GitHandler:
                 self.log.error(f'The list of available update kernel version should be false.')
             else:
                 self.log.error(f'Keeping previously know running kernel version.')
-            #return False
         else:
             # Valid version
             self.log.debug(f'Got base version: \'{running}\'.')
             
             # Don't write every time to state file 
             if not StrictVersion(self.kernel['installed']['running']) == StrictVersion(running):
+                self.log.name = f'{self.logger_name}get_running_kernel::'
                 # Be a little more verbose for log.info
-                self.log.info('Running kernel has change (from {0} to {1}).'.format(self.kernel['installed']['running'],
-                                                                                   running))
+                self.log.info('Running kernel has change (from {0} '.format(self.kernel['installed']['running'])
+                              + f'to {running}).')
                 self.kernel['installed']['running'] = running
                 # Update state file
-                self.log.debug('Updating state info file.')
-                self.stateinfo.save('kernel installed running', 'kernel installed running: ' + self.kernel['installed']['running'])
+                self.stateinfo.save('kernel installed running', 'kernel installed running: ' 
+                                    + self.kernel['installed']['running'])
     
 
     def get_installed_kernel(self):
@@ -173,7 +176,7 @@ class GitHandler:
         self.log.name = f'{self.logger_name}get_installed_kernel::'
         
         # Get the list of all installed kernel from /lib/modules
-        self.log.debug('Getting list of all installed kernel from /lib/modules:')
+        self.log.debug('Extracting from /lib/modules/.')
         try:
             subfolders = [ ]
             for folder in os.scandir('/lib/modules/'):
@@ -182,29 +185,29 @@ class GitHandler:
                         try:
                             version = re.search(r'([\d\.]+)', folder.name).group(1)
                             StrictVersion(version)
-                        except ValueError as err:
-                            self.log.error(f'While adding to the installed kernel list:')
-                            self.log.error(f'Got: \'{err}\' ...skipping.')
+                        except Exception as err:
+                            self.log.error(f'While inspecting {folder} (version: {version})'
+                                           + f', got: {err} ...skipping.')
                             continue
-                        except Exception as exc:
-                            self.log.error(f'While adding to the installed kernel list:')
-                            self.log.error(f'Got unexcept error: \'{err}\' ...skipping.')
-                            continue
+                        #except Exception as exc:
+                            #self.log.error(f'While inspecting {folder} (version: {version})'
+                                           #+ f', got: {err} ...skipping.')
+                            #continue
                         else:
-                            self.log.debug(f'Found version: \'{version}\'.')
+                            self.log.debug(f'Found version: {version}.')
                             subfolders.append(version)
         except OSError as error:
             if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                self.log.critical(f'Error while reading directory: \'{error.strerror}: {error.filename}\'.')
-                self.log.critical(f'Daemon is intended to be run as sudo/root.')
+                self.log.critical(f'Error while reading directory: {error.strerror}: {error.filename}.')
+                self.log.critical('Daemon is intended to be run as sudo/root.')
+                self.log.critical('Exiting with status 1.')
                 sys.exit(1)
             else:
-                self.log.critical(f'Got unexcept error while reading directory: \'{error}\'.')
-                # Don't exit 
+                self.log.error(f'Got unexcept error while reading directory: {error}.')
             return
         except Exception as exc:
-            self.log.error(f'Got unexcept error while getting installed kernel version list:')
-            self.log.error(f'\'{exc}\'.')
+            self.log.error('Got unexcept error while getting installed kernel version list.')
+            self.log.error(f'{exc}.')
             if StrictVersion(self.kernel['installed']['all'][0]) == StrictVersion('0.0') \
                 or StrictVersion(self.kernel['installed']['all'][0]) == StrictVersion('0.0.0'):
                 self.log.error('Previously list is empty.')
@@ -217,16 +220,85 @@ class GitHandler:
         subfolders.sort(key=StrictVersion)
         
         if self._compare_multidirect(self.kernel['installed']['all'], subfolders, 'installed kernel'):
+            self.log.name = f'{self.logger_name}get_installed_kernel::'
             # Adding list to self.kernel
-            self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(subfolders)))
+            self.log.debug('Adding to the list: {0}.'.format(' '.join(subfolders)))
             self.kernel['installed']['all'] = subfolders
             
             # Update state file
-            self.log.debug('Updating state file info.')
-            self.stateinfo.save('kernel installed all', 'kernel installed all: ' + ' '.join(self.kernel['installed']['all']))
+            self.stateinfo.save('kernel installed all', 'kernel installed all: ' 
+                                + ' '.join(self.kernel['installed']['all']))
         # Else keep previously list 
   
   
+    def update_installed_kernel(self, deleted=[], added=[]):
+        """Remove or add new installed kernel while running"""
+        
+        self.log.name = f'{self.logger_name}update_installed_kernel::'
+        
+        kernel_list = self.kernel['installed']['all'].copy()
+        
+        if not deleted and not added:
+            self.log.debug('There is nothing to do...')
+            return
+        if deleted:
+            for folder in deleted:
+                try:
+                    version = re.search(r'([\d\.]+)', folder).group(1)
+                    StrictVersion(version)
+                except ValueError as err:
+                    self.log.error(f'While inspecting {folder} (version: {version}), got: {err} ...skipping.')
+                    continue
+                except Exception as exc:
+                    self.log.error(f'While inspecting {folder} (version: {version})' 
+                                   + f', got unexcept: {err} ...skipping.')
+                    continue
+                else:
+                    self.log.debug(f'Removing version: {version} (folder: {folder}).')
+                    try:
+                        kernel_list.remove(version)
+                    except ValueError as err:
+                        self.log.error(f'Got ValueError when removing version {version}' +
+                                       'from kernel installed list.')
+                        continue
+                    else:
+                        self.log.debug('Version: {0} removed (list: {1})'.format(version, 
+                                                                 ', '.join(kernel_list)))
+        if added:
+            for folder in added:
+                try:
+                    version = re.search(r'([\d\.]+)', folder).group(1)
+                    StrictVersion(version)
+                except ValueError as err:
+                    self.log.error(f'While inspecting {folder} (version: {version}), got: {err} ...skipping.')
+                    continue
+                except Exception as exc:
+                    self.log.error(f'While inspecting {folder} (version: {version})' 
+                                   + f', got unexcept: {err} ...skipping.')
+                    continue
+                else:
+                    self.log.debug(f'Adding version: {version} (folder: {folder}).')
+                    kernel_list.append(version)
+                    self.log.debug('Version: {0} added (list: {1})'.format(version, 
+                                                           ', '.join(kernel_list)))
+        
+        # Remove duplicate
+        kernel_list = list(dict.fromkeys(kernel_list))
+        kernel_list.sort(key=StrictVersion)
+        
+        if self._compare_multidirect(self.kernel['installed']['all'], kernel_list, 'installed kernel'):
+            self.log.name = f'{self.logger_name}update_installed_kernel::'
+            self.log.debug('Kernel installed list has been updated.')
+            self.kernel['installed']['all'] = kernel_list
+            self.stateinfo.save('kernel installed all', 'kernel installed all: ' 
+                                 + ' '.join(self.kernel['installed']['all']))
+        else:
+            # This is not fatal but this shouldn't arrived
+            self.log.name = f'{self.logger_name}update_installed_kernel::'
+            self.log.debug('Both list are equal !! (Old: {0} '.format(', '.join(self.kernel['installed']['all']))
+                           + '| new: {1}).'.format(', '.join(kernel_list)))
+                    
+               
     def get_all_kernel(self):
         """Retrieve list of all git kernel version."""
         
@@ -234,7 +306,6 @@ class GitHandler:
         
         # First get all tags from git (tags = versions)
         try:
-            self.log.debug('Getting all git kernel version (not sorted):')
             myprocess = git.Repo(self.repo).git.tag('-l').splitlines()
         except Exception as exc:
             err = exc.stderr
@@ -242,7 +313,7 @@ class GitHandler:
             match = re.search(r"stderr: '(.*)'", err)
             if match:
                 err = match.group(1)
-            self.log.error(f'Got unexcept error while getting available git kernel version:')
+            self.log.error(f'Got unexcept error while getting available git kernel version.')
             self.log.error(f'{err}.')
             # Don't exit just keep previously list
             if StrictVersion(self.kernel['available']['all'][0]) == StrictVersion('0.0') \
@@ -254,16 +325,17 @@ class GitHandler:
 
         versionlist = [ ]
         for line in myprocess:
-            # TEST make 'zen' independent 
+            # TODO make 'zen' independent ??
             if re.match(r'^v([\d\.]+)-zen.*$', line):
                 version = re.match(r'^v([\d\.]+)-zen.*$', line).group(1)
                 try:
                     StrictVersion(version)
                 except ValueError as err:
-                    self.log.error('While searching for available git kernel version:')
+                    self.log.error('While searching for available git kernel version.')
                     self.log.error(f'Got: {err}. Skipping...')
                 else:
-                    self.log.debug(f'Found version : \'{version}\'')
+                    # List is really too looong ...
+                    self.log.debug(f'Found version : {version}')
                     versionlist.append(version)
         
         if not versionlist:
@@ -286,12 +358,11 @@ class GitHandler:
         
         # Do we need to update kernel['all'] list or is the same ?
         if self._compare_multidirect(self.kernel['all'], versionlist, 'kernel'):
-            
-            self.log.debug('Adding to \'all\' list: \'{0}\'.'.format(' '.join(self.kernel['all'])))
+            self.log.name = f'{self.logger_name}get_all_kernel::'
+            self.log.debug('Adding to list all: {0}.'.format(' '.join(self.kernel['all'])))
             self.kernel['all'] = versionlist
             
             # Update state file
-            self.log.debug('Updating state file info.')
             self.stateinfo.save('kernel all', 'kernel all: ' + ' '.join(self.kernel['all']))
         # Else keep previously list and don't write anything
   
@@ -318,21 +389,21 @@ class GitHandler:
             }
         for origin, opt in switch[key].items():
             try:
-                self.log.debug(f'Getting all available branch from {origin}:')
-                stdout = git.Repo(self.repo).git.branch(opt).splitlines()
+                self.log.debug(f'Extracting from {origin} branch.')
+                myprocess = git.Repo(self.repo).git.branch(opt).splitlines()
             except Exception as exc:
                 err = exc.stderr
                 # Try to strip off the formatting GitCommandError puts on stderr
                 match = re.search(r"stderr: '(.*)'", err)
                 if match:
                     err = match.group(1)
-                self.log.error(f'Got unexcept error while getting {origin} branch info:')
-                self.log.error(f'{err}.')
+                self.log.error(f'Got unexcept error while getting {origin} branch info.')
+                self.log.error(f'{err} ...skipping.')
                 # Don't exit just keep previously list 
                 continue
         
             versionlist = []
-            for line in stdout:
+            for line in myprocess:
                 # Get only 'master' branch's version list
                 # For remote
                 if re.match(r'^\s+\w+\/(\d+\.\d+)\/master', line):
@@ -340,8 +411,8 @@ class GitHandler:
                     try:
                         StrictVersion(version)
                     except ValueError as err:
-                        self.log.error(f'While searching for available {origin} branch list:')
-                        self.log.error(f'Got: \'{err}\' ...skipping.')
+                        self.log.error(f'While searching for available {origin} branch list.')
+                        self.log.error(f'Got: {err} ...skipping.')
                         continue
                     else:
                         # Add to the list
@@ -353,12 +424,12 @@ class GitHandler:
                     try:
                         StrictVersion(version)
                     except ValueError as err:
-                        self.log.error(f'While searching for available {origin} branch list:')
-                        self.log.error(f'Got: \'{err}\' ...skipping.')
+                        self.log.error(f'While searching for available {origin} branch list.')
+                        self.log.error(f'Got: {err} ...skipping.')
                         continue
                     else:
                         # Add to the list
-                        self.log.debug(f'Found version: \'{version}\'.')
+                        self.log.debug(f'Found version: {version}.')
                         versionlist.append(version)
                 
             
@@ -370,16 +441,15 @@ class GitHandler:
                 break 
             
             versionlist.sort(key=StrictVersion)
-            
-            if self._compare_multidirect(self.branch['all'][origin], versionlist, 'branch'):
+                                                                    # origin: local or remote
+            if self._compare_multidirect(self.branch['all'][origin], versionlist, f'{origin} branch'):
                 self.log.name = f'{self.logger_name}get_branch::'
-                self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(self.branch['all'][origin])))
+                self.log.debug('Adding to the list: {0}.'.format(' '.join(self.branch['all'][origin])))
                 self.branch['all'][origin] = versionlist
             
                 # Write to state file
-                self.log.debug('Updating state file.')
-                self.stateinfo.save('branch all ' + origin, 'branch all ' + origin + ': ' + 
-                                    ' '.join(self.branch['all'][origin]))
+                self.stateinfo.save('branch all ' + origin, 'branch all ' + origin + ': ' 
+                                    + ' '.join(self.branch['all'][origin]))
             # Else keep data, save ressource, enjoy :)
             
 
@@ -395,7 +465,7 @@ class GitHandler:
             origin = self.kernel['installed']['all'][-1]
             versionlist = target['all']
         
-        self.log.debug(f'Checking available \'{target_attr}\' update.')
+        self.log.debug(f'Checking available {target_attr} update.')
         current_available = [ ]
         for version in versionlist:
             try:
@@ -406,25 +476,24 @@ class GitHandler:
                 # This shouldn't append
                 # lists are checked in get_branch() and get_installed_kernel()
                 # So print an error and continue with next item
-                self.log.error(f'Got unexcept error while checking available {target_attr} update:')
-                self.log.error(f'{err} skipping...')
+                self.log.error(f'Got unexcept error while checking available {target_attr} update.')
+                self.log.error(f'Got: {err} skipping...')
                 continue
         if current_available:
             # Sorting 
             current_available.sort(key=StrictVersion)
-            self.log.debug('Found version(s): \'{0}\'.'.format(' '.join(current_available)))
+            self.log.debug('Found version(s): {0}.'.format(' '.join(current_available)))
             
             # Any way we will replace the whole list
             # Now compare new available list with old available list 
             if self._compare_multidirect(target['available'], current_available, target_attr):
                 self.log.name = f'{self.logger_name}get_available_update::'
                 # So this mean rewrite it 
-                self.log.debug('Adding to the list: \'{0}\'.'.format(' '.join(current_available)))
+                self.log.debug('Adding to the list: {0}.'.format(' '.join(current_available)))
                 target['available'] = current_available
                 # Write to state file
-                #self.log.debug('Updating state file.')
-                self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' + 
-                                    ' '.join(target['available']))
+                self.stateinfo.save(target_attr + ' available', target_attr + ' available: '
+                                    + ' '.join(target['available']))
             # else keep previously list
         # Nothing available so reset to '0.0.0' if necessary
         else:
@@ -435,8 +504,8 @@ class GitHandler:
                 target['available'].clear()
                 target['available'].append('0.0.0')
                 self.log.debug('After target available[0]: {0}'.format(target['available'][0]))
-                self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' + 
-                                    ' '.join(target['available']))
+                self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' 
+                                    + ' '.join(target['available']))
         
 
     def get_last_pull(self, timestamp_only=False):
@@ -462,10 +531,13 @@ class GitHandler:
             elif not self.pull['last'] == lastpull:
                 # This mean pull has been run outside the program
                 self.log.debug('Git pull has been run outside the program.')
-                self.log.debug('Current git pull timestamp: \'{0}\', last: \'{1}\'.'.format(self.pull['last'],
-                                                                                            lastpull))
-                self.log.debug('Forcing all update.')
-                self.pull['update_all'] = True
+                self.log.debug('Current git pull timestamp: {0}, '.format(self.pull['last'])
+                               + f'last: {lastpull}.')
+                # TEST normaly this shouldn't needed any more 
+                #self.log.debug('Forcing all update.')
+                #self.pull['update_all'] = True
+                self.log.debug('Enable recompute.')
+                self.pull['recompute'] = True
                 
                 # TEST This has to be TEST !
                 if self.pull['state'] == 'Failed' and not self.pull['network_error']:
@@ -475,22 +547,17 @@ class GitHandler:
                     self.log.warning('Assuming that this has been fixed, please report if not.')
                     self.pull['state'] = 'Success'
                     self.stateinfo.save('pull state', 'pull state: Success')
-                    
-                
                 # Saving timestamp
                 self.pull['last'] = lastpull
                 saving = True
                 
             if saving:
-                self.log.debug('Saving \'pull last: {0}\' to \'{1}\'.'.format(self.pull['last'], 
-                                                                                 self.pathdir['statelog']))
                 self.stateinfo.save('pull last', 'pull last: ' + str(self.pull['last']))
-                
             return True
         
         path = pathlib.Path(self.repo + '.git/refs/remotes/origin/HEAD')
         if path.is_file():
-            self.log.debug(f'Repository \'{self.repo}\' has never been updated (pull).')
+            self.log.debug(f'Repository: {self.repo}, has never been updated (pull).')
             return True
         
         # Got problem 
@@ -502,34 +569,33 @@ class GitHandler:
         
         self.log.name = f'{self.logger_name}check_pull::'
         
-        # git pull already running ?
-        if self.update_inprogress.check('Git', repogit=self.repo):
-            # Update in progress 
-            # retry in 10 minutes
-            if self.pull['remain'] <= 600:
-                self.pull['remain'] = 600
-            return False
-        
         # Call get_last_pull()
         if self.get_last_pull():
-            current_timestamp = time.time()
-            self.pull['elasped'] = round(current_timestamp - self.pull['last'])
-            self.pull['remain'] = self.pull['interval'] - self.pull['elasped']
+            if self.pull['recompute']:
+                self.log.debug('Recompute is enable.')
+                self.pull['recompute'] = False
+                current_timestamp = time.time()
+                self.log.debug('Current pull elapsed timestamp: {0}'.format(self.pull['elapsed']))
+                self.pull['elapsed'] = round(current_timestamp - self.pull['last'])
+                self.log.debug('Recalculate pull elapsed timestamp: {0}'.format(self.pull['elapsed']))
+                self.log.debug('Current pull remain timestamp: {0}'.format(self.pull['remain']))
+                self.pull['remain'] = self.pull['interval'] - self.pull['elapsed']
+                self.log.debug('Recalculate pull remain timestamp: {0}'.format(self.pull['remain']))
             
-            self.log.debug('Git pull elasped time: ' + 
-                           '{0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
-            self.log.debug('Git pull remain time: ' + 
-                           '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
-            self.log.debug('Git pull interval: ' + 
-                           '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+            self.log.debug('Git pull elapsed time: ' 
+                + '{0}'.format(self.format_timestamp.convert(self.pull['elapsed']))) 
+            self.log.debug('Git pull remain time: ' 
+                + '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
+            self.log.debug('Git pull interval: ' 
+                + '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
             
             if init_run:
-                self.log.info('Git pull elasped time: ' + 
-                           '{0}'.format(self.format_timestamp.convert(self.pull['elasped']))) 
-                self.log.info('Git pull remain time: ' + 
-                           '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
-                self.log.info('Git pull interval: ' + 
-                           '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
+                self.log.info('Git pull elapsed time: ' 
+                    + '{0}'.format(self.format_timestamp.convert(self.pull['elapsed']))) 
+                self.log.info('Git pull remain time: '
+                    + '{0}'.format(self.format_timestamp.convert(self.pull['remain'])))
+                self.log.info('Git pull interval: ' 
+                    + '{0}.'.format(self.format_timestamp.convert(self.pull['interval'])))
             
             
             if self.pull['remain'] <= 0:
@@ -537,7 +603,8 @@ class GitHandler:
             # TEST Bypass remain as it's a network_error
             # This should be good but keep more testing
             if self.pull['network_error']:
-                self.log.debug('Bypassing remain timestamp ({0}) as network error found.'.format(self.pull['remain']))
+                self.log.debug('Bypassing remain timestamp ({0}) '.format(self.pull['remain'])
+                               + 'as network error found.')
                 return True
         return False
     
@@ -757,33 +824,34 @@ class GitHandler:
         current_version = '0.0.0'
         
         for value in tocompare.values():
-            self.log.debug('Between {0}'.format(value[2]))
+            self.log.debug('Between {0}.'.format(value[2]))
+            #self.log.debug(f'Current version: {current_version}.')
             for upper_version in value[0]:
                 isfound = False
+                #self.log.debug(f'Current version: {current_version}.')
                 for lower_version in value[1]:
+                    #self.log.debug(f'Current version: {current_version}.')
                     if StrictVersion(upper_version) == StrictVersion(lower_version):
-                        self.log.debug(f'Keeping version \'{upper_version}\'.')
+                        self.log.debug(f'Keeping version: {upper_version}.')
                         isfound = True
                         break
                 if not isfound:
                     ischange = True
-                    self.log.debug(f'Version \'{upper_version}\' not found in {value[3]} list.')
-                    if StrictVersion(origin) >= StrictVersion(upper_version):
+                    self.log.debug(f'Version: {upper_version}, not found in {value[3]} list.')
+                    # First pass then this version is obsolete 
+                    if value[3] == 'previously':
                         # we not adding anything but we just print this version is old one ...
-                        self.log.debug(f'Removing old version \'{upper_version}\'.')
-                    elif StrictVersion(origin) < StrictVersion(upper_version):
+                        self.log.debug(f'Removing obsolete version: {upper_version}.')
+                        self.log.info('{0} version \'{1}\' has been removed.'.format(msg.capitalize(),
+                                                                                   upper_version))
+                    # Second pass then this version is 'new' (but not neccessary greater)
+                    elif value[3] == 'current':
                         # ... and this version is new one.
                         # Any way we will replace all the list if lists are different
-                        self.log.debug(f'Adding new version \'{upper_version}\'.')
+                        self.log.debug(f'Adding new version: {upper_version}.')
                         # Try to be more verbose for log.info
-                        # TEST avoid printing twice BUG TODO this is NOT working :(
-                        # Yes this is really NOT working 
-                        # when just checkout new branch got this :
-                        # Apr 14 16:42:16 Gentoo syuppod[26934]: [Info ]  Found new branch version: '5.6'.
-                        # ....... 
-                        if not StrictVersion(current_version) == StrictVersion(upper_version):
-                            self.log.info(f'Found new {msg} version: \'{upper_version}\'.')
-                            current_version = upper_version
+                        self.log.info(f'Found new {msg} version: {upper_version}.')
+                        current_version = upper_version
         # Ok now if nothing change
         if not ischange:
             self.log.debug('Finally, didn\'t found any change, previously data has been kept.')
@@ -792,6 +860,121 @@ class GitHandler:
             return True
         
 
+
+class GitWatcher(threading.Thread):
+    """Monitor specific git folder and file using inotify"""
+    def __init__(self, pathdir, runlevel, loglevel, repo, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pathdir = pathdir
+        self.repo = repo
+        self.repo_wd = repo + '/.git/'
+        # Init logger
+        self.logger_name = f'::{__name__}::GitWatcher::'
+        gitwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
+                                               self.pathdir['fdlog'])
+        self.logger = getattr(gitwatcher_logger, runlevel)()
+        self.logger.setLevel(loglevel)
+        self.refresh_git = False
+        self.refresh_git_done = False
+        self.refresh_git_pull = False
+        self.refresh_git_pull_done = False
+        self.pull_inprogress = False
+        self.refresh_modules = False
+        self.refresh_modules_done = False
+        self.modules_create = [ ]
+        self.modules_delete = [ ]
+        # Init Inotify
+        self.inotify_git = inotify_simple.INotify()
+        self.inotify_modules = inotify_simple.INotify()
+        self.watch_flags = inotify_simple.flags.CLOSE_WRITE | inotify_simple.flags.CREATE | \
+                           inotify_simple.flags.DELETE
+        try:
+            self.git_wd = self.inotify_git.add_watch(self.repo_wd, self.watch_flags)
+            self.modules_wd = self.inotify_modules.add_watch('/lib/modules/', self.watch_flags)
+        except OSError as error:
+            self.logger.error('Git watcher daemon crash:')
+            self.logger.error('Using {0} and /lib/modules/'.format(self.repo_wd))
+            self.logger.error(f'{error}')
+            self.logger.error('Exiting with status 1.')
+            sys.exit(1)
+        
+    def run(self):
+        self.logger.debug('Git watcher daemon started ' 
+                        + '(monitoring {0} and /lib/modules/).'.format(self.repo_wd))
+        found_fetch_head = False
+        found_orig_head_lock = False
+        while True:
+            git_read = self.inotify_git.read(timeout=0)
+            modules_read = self.inotify_modules.read(timeout=0)
+            # First git repo
+            if git_read:
+                # Reset each time
+                found_fetch_head = False
+                found_orig_head_lock = False
+                self.logger.debug('State changed for: {0} ({1}).'.format(self.repo_wd, git_read))
+                # TEST Try to catch git pull command
+                # pull will first touch the FETCH_HEAD file 
+                # At the end : ORIG_HEAD.lock
+                for event in git_read:
+                    if event.name == 'FETCH_HEAD':
+                        found_fetch_head = True
+                    if event.name == 'ORIG_HEAD.lock':
+                        found_orig_head_lock = True
+                # Starting pull when only FETCH_HEAD is found
+                if found_fetch_head and not found_orig_head_lock:
+                    self.pull_inprogress = True
+                    self.logger.debug('Git pull is in progress.')
+                # Finished pull: more TEST-ing needed
+                elif found_fetch_head and found_orig_head_lock:
+                    self.pull_inprogress = False
+                    self.refresh_git_pull = True
+                    # Every thing has to be refreshed
+                    self.refresh_git = True
+                    self.logger.debug('Git pull has been run.')
+                    self.logger.debug('Sending request for git and git pull informations refresh.')
+                else:
+                    self.refresh_git = True
+                    self.logger.debug('Sending request for git informations refresh.')
+            # Then for /lib/modules/
+            if modules_read:
+                self.logger.debug('State changed for: {0} ({1}).'.format('/lib/modules/', modules_read))
+                for event in modules_read:
+                    # Create
+                    if event.mask == 1073742080:
+                        self.modules_create.append(event.name)
+                        self.refresh_modules = True
+                    # Delete
+                    if event.mask == 1073742336:
+                        self.modules_delete.append(event.name)
+                        self.refresh_modules = True
+                if self.refresh_modules:
+                    self.logger.debug('Sending request for modules informations refresh.')
+            
+            if self.refresh_git_done:
+                self.logger.debug('Git informations has been refreshed.')
+                self.refresh_git_done = False
+                # Nothing left to read, then reset 
+                if not git_read:
+                    self.refresh_git = False
+            if self.refresh_git_pull_done:
+                self.logger.debug('Git pull informations has been refreshed.')
+                self.refresh_git_pull_done = False
+                # same here as well
+                if not git_read:
+                    self.refresh_git_pull = False
+            if self.refresh_modules_done:
+                self.logger.debug('Modules informations has been refreshed.')
+                self.refresh_modules_done = False
+                self.modules_create = [ ]
+                self.modules_delete = [ ]
+                # here also so this make sure 
+                # every thing is refresh 
+                if not modules_read:
+                    self.refresh_modules = False
+                                
+            time.sleep(1)
+               
+        
 
 def check_git_dir(directory):
     """Cheking if dir exits, is writable and is a git repository"""

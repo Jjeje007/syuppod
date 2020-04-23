@@ -70,7 +70,7 @@ class PortageHandler:
                                                                           # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   interval,
-            'elapse'        :   0,
+            'elapsed'        :   0,
             'remain'        :   0,
             'session_count' :   0,   # Counting sync count since running (current session)
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
@@ -156,15 +156,15 @@ class PortageHandler:
             # because it will erase the arbitrary time remain set by method dosync()
             if recompute:
                 self.logger.debug('Recompute is enable.')
-                self.logger.debug('Current sync elapse timestamp: {0}'.format(self.sync['elapse']))
-                self.sync['elapse'] = round(current_timestamp - sync_timestamp)
-                self.logger.debug('Recalculate sync elapse timestamp: {0}'.format(self.sync['elapse']))
+                self.logger.debug('Current sync elapsed timestamp: {0}'.format(self.sync['elapsed']))
+                self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
+                self.logger.debug('Recalculate sync elapsed timestamp: {0}'.format(self.sync['elapsed']))
                 self.logger.debug('Current sync remain timestamp: {0}.'.format(self.sync['remain']))
-                self.sync['remain'] = self.sync['interval'] - self.sync['elapse']
+                self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
                 self.logger.debug('Recalculate sync remain timestamp: {0}'.format(self.sync['remain']))
             
             self.logger.debug('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['elapse'])))
+                                                            self.format_timestamp.convert(self.sync['elapsed'])))
             self.logger.debug('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                             self.format_timestamp.convert(self.sync['remain'])))
             self.logger.debug('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
@@ -175,7 +175,7 @@ class PortageHandler:
                                                                   self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
                 self.logger.info('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['elapse'])))
+                                                            self.format_timestamp.convert(self.sync['elapsed'])))
                 self.logger.info('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
                                                             self.format_timestamp.convert(self.sync['remain'])))
                 self.logger.info('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
@@ -431,7 +431,7 @@ class PortageHandler:
             self.logger.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
         # At the end
-        self.sync['elapse'] = 0
+        self.sync['elapsed'] = 0
         # Write / mod value only if change
         for value in 'state', 'retry', 'network_error':
             if not self.sync[value] == getattr(self, value):

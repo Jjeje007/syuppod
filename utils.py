@@ -609,9 +609,6 @@ class UpdateInProgress:
 
 
 # Taken from https://gist.github.com/evansd/2346614
-#class PrCtlError(Exception):
-    #pass
-
 def on_parent_exit(signame='SIGTERM'):
     """
     Return a function to be run in a child process which will trigger SIGNAME
