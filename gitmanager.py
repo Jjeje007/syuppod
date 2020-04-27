@@ -519,7 +519,6 @@ class GitHandler:
                 self.log.debug(f'Clearing list.')
                 target['available'].clear()
                 target['available'].append('0.0.0')
-                self.log.debug('After target available[0]: {0}'.format(target['available'][0]))
                 self.stateinfo.save(target_attr + ' available', target_attr + ' available: ' 
                                     + ' '.join(target['available']))
         
@@ -859,7 +858,8 @@ class GitHandler:
                         # we not adding anything but we just print this version is old one ...
                         self.log.debug(f'Removing obsolete version: {upper_version}.')
                         # Don't log if version == '0.0.0' or '0.0'
-                        if not upper_version == '0.0.0' or not upper_version == '0.0':
+                        if not StrictVersion(upper_version) == StrictVersion('0.0.0') \
+                           or not StrictVersion(upper_version) == StrictVersion('0.0'):
                             self.log.info('{0} version \'{1}\' have been removed.'.format(msg.capitalize(),
                                                                                    upper_version))
                     # Second pass then this version is 'new' (but not neccessary greater)
@@ -869,7 +869,8 @@ class GitHandler:
                         self.log.debug(f'Adding new version: {upper_version}')
                         # Try to be more verbose for log.info
                         # same here 
-                        if not upper_version == '0.0.0' or not upper_version == '0.0':
+                        if not StrictVersion(upper_version) == StrictVersion('0.0.0') \
+                           or not StrictVersion(upper_version) == StrictVersion('0.0'):
                             self.log.info(f'Found new {msg} version: {upper_version}')
                         current_version = upper_version
         # Ok now if nothing change
