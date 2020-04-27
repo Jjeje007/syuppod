@@ -137,12 +137,14 @@ class MainDaemon(threading.Thread):
                 # TEST now watcher['git'] will handle update call depending on condition 
                 # TEST Only update every 30s 
                 if self.manager['git'].update:
-                    # pull has been run, request refresh 
+                    # pull have been run, request refresh 
                     if self.watcher['git'].tasks['pull']['request']['pending'] \
                        and not self.manager['git'].pull['status'] \
                        and not self.watcher['git'].tasks['pull']['inprogress'] \
                        and not self.watcher['git'].repo_read:
                         # Wait until there is nothing more to read (so pack all the request together)
+                        # TODO we could wait 10s before processing ? (so make sure every thing is packed)
+                        # Any way this have to be more TEST-ed
                         # Ok enumerate request(s) on pull and save latest
                         # This will 'block' to the latest know request (know in main)
                         pull_request = self.watcher['git'].tasks['pull']['request']['pending'].copy()
@@ -174,7 +176,7 @@ class MainDaemon(threading.Thread):
                         self.watcher['git'].tasks['repo']['request']['finished'] = repo_request[-1]
                         self.manager['git'].get_branch('local')
                         self.manager['git'].get_available_update('branch')
-                        # Other wise let's refresh_modules handle this
+                        # Other wise let's modules related handle this
                         # by using update_installed_kernel()
                         if not self.watcher['git'].tasks['mod']['request']['pending']:
                             self.manager['git'].get_available_update('kernel')
@@ -201,6 +203,7 @@ class MainDaemon(threading.Thread):
                         self.manager['git'].update_installed_kernel(
                                                     deleted=self.watcher['git'].tasks['mod']['deleted'],
                                                     added=self.watcher['git'].tasks['mod']['created'])
+                        self.manager['git'].get_available_update('kernel')
                         self.manager['git'].update = False
                 else:
                     if self.manager['git'].remain <= 0:
