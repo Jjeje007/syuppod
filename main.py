@@ -191,8 +191,6 @@ class MainDaemon(threading.Thread):
                             msg = 's'
                         logger.debug(f'Got refresh request{msg}'
                                      + ' (id{0}={1}) for modules.'.format(msg, '|'.join(mod_request)))
-                        # Same here send back latest know request id
-                        self.watcher['git'].tasks['mod']['request']['finished'] = mod_request[-1]
                         if self.watcher['git'].tasks['mod']['created']:
                             logger.debug('Found created: {0}'.format(' '.join(
                                                              self.watcher['git'].tasks['mod']['created'])))
@@ -203,6 +201,9 @@ class MainDaemon(threading.Thread):
                         self.manager['git'].update_installed_kernel(
                                                     deleted=self.watcher['git'].tasks['mod']['deleted'],
                                                     added=self.watcher['git'].tasks['mod']['created'])
+                        # Here wait until update_installed_kernel otherwise watcher will erase 'deleted' and
+                        # 'created'...
+                        self.watcher['git'].tasks['mod']['request']['finished'] = mod_request[-1]
                         self.manager['git'].get_available_update('kernel')
                         self.manager['git'].update = False
                 else:
