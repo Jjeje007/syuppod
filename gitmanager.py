@@ -858,7 +858,9 @@ class GitHandler:
                     if value[3] == 'previously':
                         # we not adding anything but we just print this version is old one ...
                         self.log.debug(f'Removing obsolete version: {upper_version}.')
-                        self.log.info('{0} version \'{1}\' have been removed.'.format(msg.capitalize(),
+                        # Don't log if version == '0.0.0' or '0.0'
+                        if not upper_version == '0.0.0' or not upper_version == '0.0':
+                            self.log.info('{0} version \'{1}\' have been removed.'.format(msg.capitalize(),
                                                                                    upper_version))
                     # Second pass then this version is 'new' (but not neccessary greater)
                     elif value[3] == 'current':
@@ -866,7 +868,9 @@ class GitHandler:
                         # Any way we will replace all the list if lists are different
                         self.log.debug(f'Adding new version: {upper_version}')
                         # Try to be more verbose for log.info
-                        self.log.info(f'Found new {msg} version: {upper_version}')
+                        # same here 
+                        if not upper_version == '0.0.0' or not upper_version == '0.0':
+                            self.log.info(f'Found new {msg} version: {upper_version}')
                         current_version = upper_version
         # Ok now if nothing change
         if not ischange:
