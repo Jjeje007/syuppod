@@ -27,39 +27,33 @@ from logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
 from utils import StateInfo
 
-# To remimber : http://stackoverflow.com/a/11887885
-# TODO : enable or disable dbus bindings. So this should only be load if dbus is enable
-# If dbus is disable (default is enable) then the user should be warn that it won't get any output
-# it has to get info from state file
 # TODO : exit gracefully 
 # TODO : debug log level ! 
-# TODO TODO : what if no internet connexion ? analyse return code for emerge --sync 
-#             if no connexion then retry every N seconds (this could be decrease)
 
 try:
     from gi.repository import GLib
-    from pydbus import SystemBus # Changing to SystemBus (when run as root/sudo)
-    # TODO: writing Exception like that in all program
+    from pydbus import SystemBus
 except Exception as exc:
     print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 __version__ = "dev"
-name = 'syuppod'  
+prog_name = 'syuppod'  
 
 pathdir = {
-    'basedir'       :   '/var/lib/' + name,
-    'logdir'        :   '/var/log/' + name,
+    'prog_name'     :   prog_name,
+    'basedir'       :   '/var/lib/' + prog_name,
+    'logdir'        :   '/var/log/' + prog_name,
     'emergelog'     :   '/var/log/emerge.log',
-    'debuglog'      :   '/var/log/' + name + '/debug.log', # TEST changing
-    'fdlog'         :   '/var/log/' + name + '/stderr.log', 
-    'statelog'      :   '/var/lib/' + name + '/state.info', #'state.info',    #
-    'gitlog'        :   '/var/log/' + name + '/git.log', #'git.log',  #      
-    # TODO TODO TODO : add a check to see if user which run the program have enough right to perform all this operations
-    'synclog'       :   '/var/log/' + name + '/sync.log', #'sync.log',       #
-    'pretendlog'    :   '/var/log/' + name + '/pretend.log' #'pretend.log'     #
-    
+    'debuglog'      :   '/var/log/' + prog_name + '/debug.log',
+    'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
+    'statelog'      :   '/var/lib/' + prog_name + '/state.info',
+    'gitlog'        :   '/var/log/' + prog_name + '/git.log', 
+    # TODO TODO TODO : add a check to see if user which run the program 
+    # have enough right to perform all this operations
+    'synclog'       :   '/var/log/' + prog_name + '/sync.log',
+    'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
 }
 
 class MainDaemon(threading.Thread):
@@ -144,37 +138,69 @@ class MainDaemon(threading.Thread):
                 # TEST Only update every 30s 
                 if self.manager['git'].update:
                     # pull has been run, request refresh 
-                    if self.watcher['git'].refresh_git_pull and not self.manager['git'].pull['status'] \
-                    and not self.watcher['git'].pull_inprogress:
-                        logger.debug('Got refresh request for git pull.')
+                    if self.watcher['git'].tasks['pull']['request']['pending'] \
+                       and not self.manager['git'].pull['status'] \
+                       and not self.watcher['git'].tasks['pull']['inprogress'] \
+                       and not self.watcher['git'].repo_read:
+                        # Wait until there is nothing more to read (so pack all the request together)
+                        # Ok enumerate request(s) on pull and save latest
+                        # This will 'block' to the latest know request (know in main)
+                        pull_request = self.watcher['git'].tasks['pull']['request']['pending'].copy()
+                        msg = ''
+                        if len(pull_request) > 1:
+                            msg = 's'
+                        logger.debug(f'Got refresh request{msg}'
+                                     + ' (id{0}={1}) for git pull.'.format(msg, '|'.join(pull_request)))
+                        # Immediatly send back latest request proceed so watcher can remove all the already proceed
+                        # requests
+                        self.watcher['git'].tasks['pull']['request']['finished'] = pull_request[-1]
                         # TEST Don't recompute here
                         self.manager['git'].pull['recompute'] = False
                         self.manager['git'].check_pull()
                         self.manager['git'].get_all_kernel()
                         self.manager['git'].get_branch('remote')
-                        self.watcher['git'].refresh_git_pull_done = True
                         self.manager['git'].update = False
-                    # Other git related request
-                    if self.watcher['git'].refresh_git:
-                        logger.debug('Got refresh request for git.')
+                    # Other git repo related request(s)
+                    if self.watcher['git'].tasks['repo']['request']['pending'] \
+                       and not self.watcher['git'].repo_read:
+                        # Same here as well
+                        repo_request = self.watcher['git'].tasks['repo']['request']['pending'].copy()
+                        msg = ''
+                        if len(repo_request) > 1:
+                            msg = 's'
+                        logger.debug(f'Got refresh request{msg}'
+                                     + ' (id{0}={1}) for git repo.'.format(msg, '|'.join(repo_request)))
+                        # Same here send back latest request id (know here)
+                        self.watcher['git'].tasks['repo']['request']['finished'] = repo_request[-1]
                         self.manager['git'].get_branch('local')
                         self.manager['git'].get_available_update('branch')
                         # Other wise let's refresh_modules handle this
-                        if not self.watcher['git'].refresh_modules:
+                        # by using update_installed_kernel()
+                        if not self.watcher['git'].tasks['mod']['request']['pending']:
                             self.manager['git'].get_available_update('kernel')
-                        self.watcher['git'].refresh_git_done = True
                         self.manager['git'].update = False
                     # For '/lib/modules/' related request (installed kernel)
-                    if self.watcher['git'].refresh_modules:
-                        logger.debug('Got refresh request on modules.')
-                        if self.watcher['git'].modules_create:
-                            logger.debug('Found created: {0}'.format(' '.join(self.watcher['git'].modules_create)))
-                        if self.watcher['git'].modules_delete:
-                            logger.debug('Found deleted: {0}'.format(' '.join(self.watcher['git'].modules_delete)))
+                    if self.watcher['git'].tasks['mod']['request']['pending'] \
+                       and not self.watcher['git'].mod_read:
+                        # Also here
+                        mod_request = self.watcher['git'].tasks['mod']['request']['pending'].copy()
+                        msg = ''
+                        if len(mod_request) > 1:
+                            msg = 's'
+                        logger.debug(f'Got refresh request{msg}'
+                                     + ' (id{0}={1}) for modules.'.format(msg, '|'.join(mod_request)))
+                        # Same here send back latest know request id
+                        self.watcher['git'].tasks['mod']['request']['finished'] = mod_request[-1]
+                        if self.watcher['git'].tasks['mod']['created']:
+                            logger.debug('Found created: {0}'.format(' '.join(
+                                                             self.watcher['git'].tasks['mod']['created'])))
+                        if self.watcher['git'].tasks['mod']['deleted']:
+                            logger.debug('Found deleted: {0}'.format(' '.join(
+                                                             self.watcher['git'].tasks['mod']['deleted'])))
                         # Any way pass every thing to update_installed_kernel()
-                        self.manager['git'].update_installed_kernel(deleted=self.watcher['git'].modules_delete,
-                                                                    added=self.watcher['git'].modules_create)
-                        self.watcher['git'].refresh_modules_done = True
+                        self.manager['git'].update_installed_kernel(
+                                                    deleted=self.watcher['git'].tasks['mod']['deleted'],
+                                                    added=self.watcher['git'].tasks['mod']['created'])
                         self.manager['git'].update = False
                 else:
                     if self.manager['git'].remain <= 0:
@@ -307,7 +333,7 @@ if __name__ == '__main__':
     args = myargsparser.parsing()
         
     # Creating log
-    mainlog = MainLoggingHandler('::main::', pathdir['debuglog'], pathdir['fdlog'])
+    mainlog = MainLoggingHandler('::main::', pathdir['prog_name'], pathdir['debuglog'], pathdir['fdlog'])
     
     if sys.stdout.isatty():
         logger = mainlog.tty_run()      # create logger tty_run()
@@ -315,12 +341,14 @@ if __name__ == '__main__':
         runlevel = 'tty_run'
         display_init_tty = ''
         # This is not working with konsole (kde)
-        print('\33]0; {0} - {1}  \a'.format(name, __version__), end='', flush=True)
+        # TODO
+        print('\33]0; {0} - {1}  \a'.format(prog_name, __version__), end='', flush=True)
     else:
         logger = mainlog.init_run()     # create logger init_run()
         logger.setLevel(mainlog.logging.INFO)
         runlevel = 'init_run'
         display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+        # TODO rewrite / change 
         # Redirect stderr to log 
         # For the moment maybe stdout as well but nothing should be print to...
         # This is NOT good if there is error before log(ger) is initialized...

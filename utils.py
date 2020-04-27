@@ -50,8 +50,8 @@ class StateInfo:
                 
         # Init logger
         self.logger_name = f'::{__name__}::StateInfo::'
-        mainlogger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
-                                     self.pathdir['fdlog'])
+        mainlogger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
+                                        self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(mainlogger, runlevel)()
         self.logger.setLevel(loglevel)
         

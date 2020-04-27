@@ -46,8 +46,8 @@ class PortageHandler:
         self.format_timestamp = FormatTimestamp()
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
-        portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
-                                               self.pathdir['fdlog'])
+        portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
+                                               self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(portagemanagerlog, runlevel)()
         self.logger.setLevel(loglevel)
         # Init save/load info file
@@ -1511,8 +1511,8 @@ class EmergeLogWatcher(threading.Thread):
         self.repo_msg = repo_msg
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
-        emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
-                                               self.pathdir['fdlog'])
+        emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
+                                                     self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(emergelogwatcher_logger, runlevel)()
         self.logger.setLevel(loglevel)
         # Init Class UpdateInProgress

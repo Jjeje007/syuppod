@@ -13,7 +13,7 @@ import errno
 import platform
 import time
 import threading
-import inotify_simple
+import uuid
 
 from distutils.version import StrictVersion
 from utils import StateInfo
@@ -23,11 +23,12 @@ from logger import MainLoggingHandler
 from logger import ProcessLoggingHandler
 
 try:
+    import inotify_simple
     import git 
     from git import InvalidGitRepositoryError as _InvalidGitRepositoryError
 except Exception as exc:
     # Print to stderr
-    print(f'Error: unexcept error while loading git module: {exc}', file=sys.stderr)
+    print(f'Error: unexcept error while loading module: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
@@ -53,8 +54,8 @@ class GitHandler:
         
         # Init logger
         self.logger_name = f'::{__name__}::GitHandler::'
-        gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'],
-                                           self.pathdir['fdlog'])
+        gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
+                                           self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.log = getattr(gitmanagerlog, kwargs['runlevel'])()
         self.log.setLevel(kwargs['loglevel'])
         
@@ -160,9 +161,8 @@ class GitHandler:
             
             # Don't write every time to state file 
             if not StrictVersion(self.kernel['installed']['running']) == StrictVersion(running):
-                self.log.name = f'{self.logger_name}get_running_kernel::'
                 # Be a little more verbose for log.info
-                self.log.info('Running kernel has change (from {0} '.format(self.kernel['installed']['running'])
+                self.log.info('Running kernel have changed (from {0} '.format(self.kernel['installed']['running'])
                               + f'to {running}).')
                 self.kernel['installed']['running'] = running
                 # Update state file
@@ -179,23 +179,25 @@ class GitHandler:
         self.log.debug('Extracting from /lib/modules/.')
         try:
             subfolders = [ ]
-            for folder in os.scandir('/lib/modules/'):
-                if folder.is_dir():
-                    if re.search(r'([\d\.]+)', folder.name):
-                        try:
-                            version = re.search(r'([\d\.]+)', folder.name).group(1)
-                            StrictVersion(version)
-                        except Exception as err:
-                            self.log.error(f'While inspecting {folder} (version: {version})'
-                                           + f', got: {err} ...skipping.')
-                            continue
-                        #except Exception as exc:
-                            #self.log.error(f'While inspecting {folder} (version: {version})'
-                                           #+ f', got: {err} ...skipping.')
-                            #continue
-                        else:
-                            self.log.debug(f'Found version: {version}.')
-                            subfolders.append(version)
+            # WARNING be carfull this was added in 3.6 !!
+            with os.scandir('/lib/modules/') as listdir:
+                for folder in listdir:
+                    if folder.is_dir():
+                        if re.search(r'([\d\.]+)', folder.name):
+                            try:
+                                version = re.search(r'([\d\.]+)', folder.name).group(1)
+                                StrictVersion(version)
+                            except Exception as err:
+                                self.log.error(f'While inspecting {folder.path} (version: {version})'
+                                            + f', got: {err} ...skipping.')
+                                continue
+                            #except Exception as exc:
+                                #self.log.error(f'While inspecting {folder} (version: {version})'
+                                            #+ f', got: {err} ...skipping.')
+                                #continue
+                            else:
+                                self.log.debug(f'Found version: {version}.')
+                                subfolders.append(version)
         except OSError as error:
             if error.errno == errno.EPERM or error.errno == errno.EACCES:
                 self.log.critical(f'Error while reading directory: {error.strerror}: {error.filename}.')
@@ -215,6 +217,7 @@ class GitHandler:
                 self.log.error('Keeping previously list.')
             self.log.error('The list of available update kernel version should be false.')
             return
+            
         
         # sort
         subfolders.sort(key=StrictVersion)
@@ -228,7 +231,9 @@ class GitHandler:
             # Update state file
             self.stateinfo.save('kernel installed all', 'kernel installed all: ' 
                                 + ' '.join(self.kernel['installed']['all']))
-        # Else keep previously list 
+        else:
+            self.log.name = f'{self.logger_name}get_installed_kernel::'
+            # Else keep previously list 
   
   
     def update_installed_kernel(self, deleted=[], added=[]):
@@ -281,22 +286,26 @@ class GitHandler:
                     kernel_list.append(version)
                     self.log.debug('Version: {0} added (list: {1})'.format(version, 
                                                            ', '.join(kernel_list)))
-        
-        # Remove duplicate
-        kernel_list = list(dict.fromkeys(kernel_list))
-        kernel_list.sort(key=StrictVersion)
-        
-        if self._compare_multidirect(self.kernel['installed']['all'], kernel_list, 'installed kernel'):
-            self.log.name = f'{self.logger_name}update_installed_kernel::'
-            self.log.debug('Kernel installed list has been updated.')
-            self.kernel['installed']['all'] = kernel_list
-            self.stateinfo.save('kernel installed all', 'kernel installed all: ' 
-                                 + ' '.join(self.kernel['installed']['all']))
+        # Make sure we have something 
+        if kernel_list:
+            # Remove duplicate
+            kernel_list = list(dict.fromkeys(kernel_list))
+            kernel_list.sort(key=StrictVersion)
+            
+            if self._compare_multidirect(self.kernel['installed']['all'], kernel_list, 'installed kernel'):
+                self.log.name = f'{self.logger_name}update_installed_kernel::'
+                self.log.debug('Kernel installed list have been updated.')
+                self.kernel['installed']['all'] = kernel_list
+                self.stateinfo.save('kernel installed all', 'kernel installed all: ' 
+                                    + ' '.join(self.kernel['installed']['all']))
+            else:
+                # This is not fatal but this shouldn't arrived
+                self.log.name = f'{self.logger_name}update_installed_kernel::'
+                self.log.debug('Both list are equal !!' 
+                            + ' (Old: {0} '.format(', '.join(self.kernel['installed']['all']))
+                            + '| new: {0}).'.format(', '.join(kernel_list)))
         else:
-            # This is not fatal but this shouldn't arrived
-            self.log.name = f'{self.logger_name}update_installed_kernel::'
-            self.log.debug('Both list are equal !! (Old: {0} '.format(', '.join(self.kernel['installed']['all']))
-                           + '| new: {1}).'.format(', '.join(kernel_list)))
+            self.log.debug('Nothing more to do...')
                     
                
     def get_all_kernel(self):
@@ -364,7 +373,9 @@ class GitHandler:
             
             # Update state file
             self.stateinfo.save('kernel all', 'kernel all: ' + ' '.join(self.kernel['all']))
-        # Else keep previously list and don't write anything
+        else:
+            self.log.name = f'{self.logger_name}get_all_kernel::'
+            # Else keep previously list and don't write anything
   
   
     def get_branch(self, key):
@@ -416,7 +427,7 @@ class GitHandler:
                         continue
                     else:
                         # Add to the list
-                        self.log.debug(f'Found version: \'{version}\'.')
+                        self.log.debug(f'Found version: {version}')
                         versionlist.append(version)
                 # For local
                 elif re.match(r'^..(\d+\.\d+)\/master', line):
@@ -429,7 +440,7 @@ class GitHandler:
                         continue
                     else:
                         # Add to the list
-                        self.log.debug(f'Found version: {version}.')
+                        self.log.debug(f'Found version: {version}')
                         versionlist.append(version)
                 
             
@@ -450,7 +461,10 @@ class GitHandler:
                 # Write to state file
                 self.stateinfo.save('branch all ' + origin, 'branch all ' + origin + ': ' 
                                     + ' '.join(self.branch['all'][origin]))
-            # Else keep data, save ressource, enjoy :)
+            else:
+                # reset logger_name
+                self.log.name = f'{self.logger_name}get_branch::'
+                # Else keep data, save ressource, enjoy :)
             
 
     def get_available_update(self, target_attr):
@@ -494,7 +508,9 @@ class GitHandler:
                 # Write to state file
                 self.stateinfo.save(target_attr + ' available', target_attr + ' available: '
                                     + ' '.join(target['available']))
-            # else keep previously list
+            else:
+                self.log.name = f'{self.logger_name}get_available_update::'
+                # else keep previously list
         # Nothing available so reset to '0.0.0' if necessary
         else:
             self.log.debug(f'No available {target_attr} update.')
@@ -529,8 +545,8 @@ class GitHandler:
                 self.pull['last'] = lastpull
                 
             elif not self.pull['last'] == lastpull:
-                # This mean pull has been run outside the program
-                self.log.debug('Git pull has been run outside the program.')
+                # This mean pull have been run outside the program
+                self.log.debug('Git pull have been run outside the program.')
                 self.log.debug('Current git pull timestamp: {0}, '.format(self.pull['last'])
                                + f'last: {lastpull}.')
                 # TEST normaly this shouldn't needed any more 
@@ -539,12 +555,12 @@ class GitHandler:
                 self.log.debug('Enable recompute.')
                 self.pull['recompute'] = True
                 
-                # TEST This has to be TEST !
+                # TEST This have to be TEST !
                 if self.pull['state'] == 'Failed' and not self.pull['network_error']:
-                    # Ok so assume this has been fix (because pull has been run outside the program)
-                    self.log.warning('Git pull has been run outside the program.')
+                    # Ok so assume this have been fix (because pull have been run outside the program)
+                    self.log.warning('Git pull have been run outside the program.')
                     self.log.warning('Found current pull state to Failed.')
-                    self.log.warning('Assuming that this has been fixed, please report if not.')
+                    self.log.warning('Assuming that this have been fixed, please report if not.')
                     self.pull['state'] = 'Success'
                     self.stateinfo.save('pull state', 'pull state: Success')
                 # Saving timestamp
@@ -557,7 +573,7 @@ class GitHandler:
         
         path = pathlib.Path(self.repo + '.git/refs/remotes/origin/HEAD')
         if path.is_file():
-            self.log.debug(f'Repository: {self.repo}, has never been updated (pull).')
+            self.log.debug(f'Repository: {self.repo}, have never been updated (pull).')
             return True
         
         # Got problem 
@@ -818,8 +834,8 @@ class GitHandler:
         ischange = False
         origin = old_list[-1]
         tocompare = {
-            'first pass'    :   [ old_list, new_list, 'previously and current update list.', 'previously'],
-            'second pass'   :   [ new_list, old_list, 'current and previously update list.', 'current' ]
+            'first pass'    :   [ old_list, new_list, 'previously and current update list', 'previously'],
+            'second pass'   :   [ new_list, old_list, 'current and previously update list', 'current' ]
             }
         current_version = '0.0.0'
         
@@ -832,7 +848,7 @@ class GitHandler:
                 for lower_version in value[1]:
                     #self.log.debug(f'Current version: {current_version}.')
                     if StrictVersion(upper_version) == StrictVersion(lower_version):
-                        self.log.debug(f'Keeping version: {upper_version}.')
+                        self.log.debug(f'Keeping version: {upper_version}')
                         isfound = True
                         break
                 if not isfound:
@@ -842,19 +858,19 @@ class GitHandler:
                     if value[3] == 'previously':
                         # we not adding anything but we just print this version is old one ...
                         self.log.debug(f'Removing obsolete version: {upper_version}.')
-                        self.log.info('{0} version \'{1}\' has been removed.'.format(msg.capitalize(),
+                        self.log.info('{0} version \'{1}\' have been removed.'.format(msg.capitalize(),
                                                                                    upper_version))
                     # Second pass then this version is 'new' (but not neccessary greater)
                     elif value[3] == 'current':
                         # ... and this version is new one.
                         # Any way we will replace all the list if lists are different
-                        self.log.debug(f'Adding new version: {upper_version}.')
+                        self.log.debug(f'Adding new version: {upper_version}')
                         # Try to be more verbose for log.info
-                        self.log.info(f'Found new {msg} version: {upper_version}.')
+                        self.log.info(f'Found new {msg} version: {upper_version}')
                         current_version = upper_version
         # Ok now if nothing change
         if not ischange:
-            self.log.debug('Finally, didn\'t found any change, previously data has been kept.')
+            self.log.debug('Finally, didn\'t found any change, previously data have been kept.')
             return False
         else:
             return True
@@ -867,111 +883,157 @@ class GitWatcher(threading.Thread):
         super().__init__(*args, **kwargs)
         self.pathdir = pathdir
         self.repo = repo
-        self.repo_wd = repo + '/.git/'
+        self.repo_git = self.repo + '/.git/'
         # Init logger
         self.logger_name = f'::{__name__}::GitWatcher::'
-        gitwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['debuglog'], 
-                                               self.pathdir['fdlog'])
+        gitwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
+                                               self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(gitwatcher_logger, runlevel)()
         self.logger.setLevel(loglevel)
-        self.refresh_git = False
-        self.refresh_git_done = False
-        self.refresh_git_pull = False
-        self.refresh_git_pull_done = False
-        self.pull_inprogress = False
-        self.refresh_modules = False
-        self.refresh_modules_done = False
-        self.modules_create = [ ]
-        self.modules_delete = [ ]
+        self.tasks = { 
+            'repo'  : {
+                    'request'   : {
+                        'pending'       :   [ ],
+                        'finished'      :   False
+                        }
+                    },
+            'pull'  : {
+                    'inprogress'    :   False,
+                    'request'   : {
+                        'pending'       :   [ ],
+                        'finished'      :   False
+                        }
+                    },
+            'mod'   : {
+                    'created'   :   [ ],
+                    'deleted'   :   [ ],
+                    'request'   : {
+                        'pending'       :   [ ],
+                        'finished'      :   False
+                        }                    
+                    }
+                }
         # Init Inotify
-        self.inotify_git = inotify_simple.INotify()
-        self.inotify_modules = inotify_simple.INotify()
+        self.inotify_repo = inotify_simple.INotify()
+        self.inotify_mod = inotify_simple.INotify()
         self.watch_flags = inotify_simple.flags.CLOSE_WRITE | inotify_simple.flags.CREATE | \
                            inotify_simple.flags.DELETE
         try:
-            self.git_wd = self.inotify_git.add_watch(self.repo_wd, self.watch_flags)
-            self.modules_wd = self.inotify_modules.add_watch('/lib/modules/', self.watch_flags)
+            #self.repo_wd = 
+            self.inotify_repo.add_watch(self.repo_git, self.watch_flags)
+            #self.mod_wd = 
+            self.inotify_mod.add_watch('/lib/modules/', self.watch_flags)
         except OSError as error:
             self.logger.error('Git watcher daemon crash:')
-            self.logger.error('Using {0} and /lib/modules/'.format(self.repo_wd))
+            self.logger.error('Using {0} and /lib/modules/'.format(self.repo_git))
             self.logger.error(f'{error}')
             self.logger.error('Exiting with status 1.')
             sys.exit(1)
         
     def run(self):
         self.logger.debug('Git watcher daemon started ' 
-                        + '(monitoring {0} and /lib/modules/).'.format(self.repo_wd))
+                        + '(monitoring {0} and /lib/modules/).'.format(self.repo_git))
         found_fetch_head = False
         found_orig_head_lock = False
         while True:
-            git_read = self.inotify_git.read(timeout=0)
-            modules_read = self.inotify_modules.read(timeout=0)
+            self.repo_read = self.inotify_repo.read(timeout=0)
+            self.mod_read = self.inotify_mod.read(timeout=0)
             # First git repo
-            if git_read:
+            if self.repo_read:
                 # Reset each time
                 found_fetch_head = False
                 found_orig_head_lock = False
-                self.logger.debug('State changed for: {0} ({1}).'.format(self.repo_wd, git_read))
+                self.logger.debug('State changed for: {0} ({1}).'.format(self.repo_git, self.repo_read))
                 # TEST Try to catch git pull command
                 # pull will first touch the FETCH_HEAD file 
                 # At the end : ORIG_HEAD.lock
-                for event in git_read:
+                for event in self.repo_read:
                     if event.name == 'FETCH_HEAD':
                         found_fetch_head = True
                     if event.name == 'ORIG_HEAD.lock':
                         found_orig_head_lock = True
                 # Starting pull when only FETCH_HEAD is found
                 if found_fetch_head and not found_orig_head_lock:
-                    self.pull_inprogress = True
+                    self.tasks['pull']['inprogress'] = True
+                    # TODO log.info :p
                     self.logger.debug('Git pull is in progress.')
                 # Finished pull: more TEST-ing needed
                 elif found_fetch_head and found_orig_head_lock:
-                    self.pull_inprogress = False
-                    self.refresh_git_pull = True
-                    # Every thing has to be refreshed
-                    self.refresh_git = True
-                    self.logger.debug('Git pull has been run.')
-                    self.logger.debug('Sending request for git and git pull informations refresh.')
+                    self.tasks['pull']['inprogress'] = False
+                    # Each request have it's own id (8 characters)
+                    pull_id = uuid.uuid4().hex[:8]
+                    self.tasks['pull']['request']['pending'].append(pull_id)
+                    # TODO log.info :p
+                    self.logger.debug('Git pull have been run.')
+                    # Every thing have to be refreshed
+                    repo_id = uuid.uuid4().hex[:8]
+                    self.tasks['repo']['request']['pending'].append(repo_id)
+                    self.logger.debug(f'Sending request for git repo (id={repo_id}) '
+                                      + f'and git pull (id={pull_id}) informations refresh.')
                 else:
-                    self.refresh_git = True
-                    self.logger.debug('Sending request for git informations refresh.')
+                    repo_id = uuid.uuid4().hex[:8]
+                    self.tasks['repo']['request']['pending'].append(repo_id)
+                    self.logger.debug(f'Sending request (id={repo_id}) for git repo informations refresh.')
             # Then for /lib/modules/
-            if modules_read:
-                self.logger.debug('State changed for: {0} ({1}).'.format('/lib/modules/', modules_read))
-                for event in modules_read:
+            if self.mod_read:
+                self.logger.debug('State changed for: {0} ({1}).'.format('/lib/modules/', self.mod_read))
+                for event in self.mod_read:
                     # Create
                     if event.mask == 1073742080:
-                        self.modules_create.append(event.name)
-                        self.refresh_modules = True
+                        self.tasks['mod']['created'].append(event.name)
+                        # Ad unique id
+                        mod_id = uuid.uuid4().hex[:8]
+                        self.tasks['mod']['request']['pending'].append(mod_id)
+                        self.logger.debug(f'Found created: {event.name} (id={mod_id}).')
                     # Delete
                     if event.mask == 1073742336:
-                        self.modules_delete.append(event.name)
-                        self.refresh_modules = True
-                if self.refresh_modules:
-                    self.logger.debug('Sending request for modules informations refresh.')
+                        self.tasks['mod']['deleted'].append(event.name)
+                        # Ad unique id
+                        mod_id = uuid.uuid4().hex[:8]
+                        self.tasks['mod']['request']['pending'].append(mod_id)
+                        self.logger.debug(f'Found deleted: {event.name} (id={mod_id}).')
+                if self.tasks['mod']['request']['pending']:
+                    msg = ''
+                    if len(self.tasks['mod']['request']['pending']) > 1:
+                        msg = 's'
+                    self.logger.debug(f'Sending request{msg}' 
+                            + ' (id{0}={1})'.format(msg, '|'.join(self.tasks['mod']['request']['pending']))
+                            + ' for modules informations refresh.')
             
-            if self.refresh_git_done:
-                self.logger.debug('Git informations has been refreshed.')
-                self.refresh_git_done = False
-                # Nothing left to read, then reset 
-                if not git_read:
-                    self.refresh_git = False
-            if self.refresh_git_pull_done:
-                self.logger.debug('Git pull informations has been refreshed.')
-                self.refresh_git_pull_done = False
-                # same here as well
-                if not git_read:
-                    self.refresh_git_pull = False
-            if self.refresh_modules_done:
-                self.logger.debug('Modules informations has been refreshed.')
-                self.refresh_modules_done = False
-                self.modules_create = [ ]
-                self.modules_delete = [ ]
-                # here also so this make sure 
-                # every thing is refresh 
-                if not modules_read:
-                    self.refresh_modules = False
-                                
+            # wait for request reply
+            for switch in 'repo', 'pull', 'mod':
+                if self.tasks[switch]['request']['finished']:
+                    if switch == 'mod':
+                        reader = 'mod_read'
+                        msg = 'modules'
+                        # Reset list here
+                        self.tasks[switch]['created'] = [ ]
+                        self.tasks[switch]['deleted'] = [ ]
+                    else:
+                        reader = 'repo_read'
+                        msg = f'git {switch}'
+                    self.logger.debug(f'Got reply for {msg}: '
+                                      + '{0}'.format(self.tasks[switch]['request']['finished']))
+                    self.logger.debug('{0}'.format(msg.capitalize()) 
+                                      + ' pending id list:' 
+                                      + ' {0}'.format(', '.join(self.tasks[switch]['request']['pending'])))                        
+                    # Finished is the id of the last request proceed by main
+                    # So we need to erase range from this id index to the first element in the list
+                    id_index = self.tasks[switch]['request']['pending'].index(
+                        self.tasks[switch]['request']['finished'])
+                    plurial_msg = ''
+                    if id_index > 0:
+                        plurial_msg = 's'
+                    # Make sure to remove also pointed index (so index+1)
+                    to_remove = self.tasks[switch]['request']['pending'][0:id_index+1]
+                    del self.tasks[switch]['request']['pending'][0:id_index+1]
+                    self.logger.debug('{0} request{1}'.format(msg.capitalize(), plurial_msg)
+                                + ' (id{0}={1})'.format(plurial_msg, '|'.join(to_remove))
+                                + ' have been refreshed.')
+                    self.tasks[switch]['request']['finished'] = False
+                    # Nothing left to read, nothing pending, waiting :p
+                    if not getattr(self, reader) and not self.tasks[switch]['request']['pending']:
+                        self.logger.debug(f'All {msg} requests have been refreshed, sleeping...')
             time.sleep(1)
                
         

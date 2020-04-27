@@ -10,7 +10,8 @@ import logging.handlers
 
 class MainLoggingHandler:
     """Main logging handler"""
-    def __init__(self, name, debuglog, fdlog):
+    def __init__(self, name, prog_name, debuglog, fdlog):
+        self.prog_name = prog_name
         self.name = name
         self.debuglog = debuglog
         self.fdlog = fdlog
@@ -44,7 +45,7 @@ class MainLoggingHandler:
         
         # Other level goes to Syslog
         syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
-        syslog_formatter = logging.Formatter('syuppod %(levelname)s  %(message)s')
+        syslog_formatter = logging.Formatter('{0} %(levelname)s  %(message)s'.format(self.prog_name))
         syslog_handler.setFormatter(syslog_formatter)
         # Filter stderr output
         syslog_handler.addFilter(LogErrorFilter(stderr=False))
