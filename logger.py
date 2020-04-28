@@ -35,8 +35,8 @@ class MainLoggingHandler:
         # Rotate the log 
         # 10MB, rotate 3x times
         debug_handler = logging.handlers.RotatingFileHandler(self.debuglog, maxBytes=31457280, backupCount=3)
-        datefmt = '%Y-%m-%d %H:%M:%S'
-        debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s', datefmt)
+        #datefmt = '%Y-%m-%d %H:%M:%S'
+        debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s') #, datefmt)
         debug_handler.setFormatter(debug_formatter)
         debug_handler.addFilter(LogLevelFilter(10))
         debug_handler.setLevel(10)
@@ -56,7 +56,7 @@ class MainLoggingHandler:
         # Rotate the log 
         # 2.86MB, rotate 3x times
         fd_handler = logging.handlers.RotatingFileHandler(self.fdlog, maxBytes=3000000, backupCount=3)
-        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
+        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s') #, datefmt)
         fd_handler.setFormatter(fd_formatter)
         fd_handler.addFilter(LogErrorFilter(stderr=True))
         # Level is error : See class LogErrorFilter
@@ -94,8 +94,8 @@ class ProcessLoggingHandler:
         """Write Specific log"""
         # Same here : 2.86MB, rotate 3x times 
         self.file_handler     = logging.handlers.RotatingFileHandler(log, maxBytes=3000000, backupCount=3)
-        datefmt = '%Y-%m-%d %H:%M:%S'
-        self.normal_formatter   = logging.Formatter('%(asctime)s  %(message)s', datefmt)
+        #datefmt = '%Y-%m-%d %H:%M:%S'
+        self.normal_formatter   = logging.Formatter('%(asctime)s  %(message)s') #, datefmt)
         # Disable timestamp (for now this is for pretend_world process only)
         self.short_formatter   = logging.Formatter('%(message)s')
         self.file_handler.setFormatter(self.normal_formatter)

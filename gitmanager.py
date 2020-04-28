@@ -888,7 +888,7 @@ class GitWatcher(threading.Thread):
         super().__init__(*args, **kwargs)
         self.pathdir = pathdir
         self.repo = repo
-        self.repo_git = self.repo + '/.git/'
+        self.repo_git = self.repo.rstrip('/') + '/.git/'
         # Init logger
         self.logger_name = f'::{__name__}::GitWatcher::'
         gitwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
@@ -897,24 +897,24 @@ class GitWatcher(threading.Thread):
         self.logger.setLevel(loglevel)
         self.tasks = { 
             'repo'  : {
-                    'request'   : {
+                    'requests'   : {
                         'pending'       :   [ ],
-                        'finished'      :   False
+                        'completed'      :   False
                         }
                     },
             'pull'  : {
                     'inprogress'    :   False,
-                    'request'   : {
+                    'requests'   : {
                         'pending'       :   [ ],
-                        'finished'      :   False
+                        'completed'      :   False
                         }
                     },
             'mod'   : {
                     'created'   :   [ ],
                     'deleted'   :   [ ],
-                    'request'   : {
+                    'requests'   : {
                         'pending'       :   [ ],
-                        'finished'      :   False
+                        'completed'      :   False
                         }                    
                     }
                 }
@@ -967,17 +967,17 @@ class GitWatcher(threading.Thread):
                     self.tasks['pull']['inprogress'] = False
                     # Each request have it's own id (8 characters)
                     pull_id = uuid.uuid4().hex[:8]
-                    self.tasks['pull']['request']['pending'].append(pull_id)
+                    self.tasks['pull']['requests']['pending'].append(pull_id)
                     # TODO log.info :p
                     self.logger.debug('Git pull have been run.')
                     # Every thing have to be refreshed
                     repo_id = uuid.uuid4().hex[:8]
-                    self.tasks['repo']['request']['pending'].append(repo_id)
+                    self.tasks['repo']['requests']['pending'].append(repo_id)
                     self.logger.debug(f'Sending request for git repo (id={repo_id}) '
                                       + f'and git pull (id={pull_id}) informations refresh.')
                 else:
                     repo_id = uuid.uuid4().hex[:8]
-                    self.tasks['repo']['request']['pending'].append(repo_id)
+                    self.tasks['repo']['requests']['pending'].append(repo_id)
                     self.logger.debug(f'Sending request (id={repo_id}) for git repo informations refresh.')
             # Then for /lib/modules/
             if self.mod_read:
@@ -988,26 +988,26 @@ class GitWatcher(threading.Thread):
                         self.tasks['mod']['created'].append(event.name)
                         # Ad unique id
                         mod_id = uuid.uuid4().hex[:8]
-                        self.tasks['mod']['request']['pending'].append(mod_id)
+                        self.tasks['mod']['requests']['pending'].append(mod_id)
                         self.logger.debug(f'Found created: {event.name} (id={mod_id}).')
                     # Delete
                     if event.mask == 1073742336:
                         self.tasks['mod']['deleted'].append(event.name)
                         # Ad unique id
                         mod_id = uuid.uuid4().hex[:8]
-                        self.tasks['mod']['request']['pending'].append(mod_id)
+                        self.tasks['mod']['requests']['pending'].append(mod_id)
                         self.logger.debug(f'Found deleted: {event.name} (id={mod_id}).')
-                if self.tasks['mod']['request']['pending']:
+                if self.tasks['mod']['requests']['pending']:
                     msg = ''
-                    if len(self.tasks['mod']['request']['pending']) > 1:
+                    if len(self.tasks['mod']['requests']['pending']) > 1:
                         msg = 's'
                     self.logger.debug(f'Sending request{msg}' 
-                            + ' (id{0}={1})'.format(msg, '|'.join(self.tasks['mod']['request']['pending']))
+                            + ' (id{0}={1})'.format(msg, '|'.join(self.tasks['mod']['requests']['pending']))
                             + ' for modules informations refresh.')
             
             # wait for request reply
             for switch in 'repo', 'pull', 'mod':
-                if self.tasks[switch]['request']['finished']:
+                if self.tasks[switch]['requests']['completed']:
                     if switch == 'mod':
                         reader = 'mod_read'
                         msg = 'modules'
@@ -1017,27 +1017,27 @@ class GitWatcher(threading.Thread):
                     else:
                         reader = 'repo_read'
                         msg = f'git {switch}'
-                    self.logger.debug(f'Got reply for {msg}: '
-                                      + '{0}'.format(self.tasks[switch]['request']['finished']))
+                    self.logger.debug(f'Got reply id for {msg} requests: '
+                                      + '{0}'.format(self.tasks[switch]['requests']['completed']))
                     self.logger.debug('{0}'.format(msg.capitalize()) 
                                       + ' pending id list:' 
-                                      + ' {0}'.format(', '.join(self.tasks[switch]['request']['pending'])))                        
+                                      + ' {0}'.format(', '.join(self.tasks[switch]['requests']['pending'])))                        
                     # Finished is the id of the last request proceed by main
                     # So we need to erase range from this id index to the first element in the list
-                    id_index = self.tasks[switch]['request']['pending'].index(
-                        self.tasks[switch]['request']['finished'])
+                    id_index = self.tasks[switch]['requests']['pending'].index(
+                        self.tasks[switch]['requests']['completed'])
                     plurial_msg = ''
                     if id_index > 0:
                         plurial_msg = 's'
                     # Make sure to remove also pointed index (so index+1)
-                    to_remove = self.tasks[switch]['request']['pending'][0:id_index+1]
-                    del self.tasks[switch]['request']['pending'][0:id_index+1]
+                    to_remove = self.tasks[switch]['requests']['pending'][0:id_index+1]
+                    del self.tasks[switch]['requests']['pending'][0:id_index+1]
                     self.logger.debug('{0} request{1}'.format(msg.capitalize(), plurial_msg)
                                 + ' (id{0}={1})'.format(plurial_msg, '|'.join(to_remove))
                                 + ' have been refreshed.')
-                    self.tasks[switch]['request']['finished'] = False
+                    self.tasks[switch]['requests']['completed'] = False
                     # Nothing left to read, nothing pending, waiting :p
-                    if not getattr(self, reader) and not self.tasks[switch]['request']['pending']:
+                    if not getattr(self, reader) and not self.tasks[switch]['requests']['pending']:
                         self.logger.debug(f'All {msg} requests have been refreshed, sleeping...')
             time.sleep(1)
                

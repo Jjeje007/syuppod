@@ -12,6 +12,7 @@ import errno
 import subprocess
 import io
 import threading
+import uuid
 
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
@@ -32,10 +33,9 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
-# TODO to avoid reading every N seconds (at the time of writing : 5s) emerge.log 
-# we could watched this file and reading only if new line is added (so reading every N seconds) TODO 
-# This could be good  --> https://inotify-simple.readthedocs.io/en/latest/ ;)
-# See ./test.py
+# TODO TODO get news :p
+# TODO port UpdateInProgress from utils to here
+
 
 class PortageHandler:
     """Portage tracking class"""
@@ -1505,10 +1505,10 @@ class EmergeLogParser:
 
 class EmergeLogWatcher(threading.Thread):
     """Watch emerge.log file using inotify and thread"""
-    def __init__(self, pathdir, runlevel, loglevel, repo_msg, *args, **kwargs):
+    def __init__(self, pathdir, runlevel, loglevel, sync_msg, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pathdir = pathdir
-        self.repo_msg = repo_msg
+        self.sync_msg = sync_msg
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
         emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
@@ -1517,17 +1517,40 @@ class EmergeLogWatcher(threading.Thread):
         self.logger.setLevel(loglevel)
         # Init Class UpdateInProgress
         self.update_inprogress = UpdateInProgress(self.logger)
-        self.update_inprogress_sync = False
-        self.refresh_sync = False
-        self.refresh_sync_done = False
-        self.update_inprogress_world = False
-        self.refresh_world = False
-        self.refresh_world_done = False
-        self.refresh_package_search = False
-        self.refresh_package_search_done = False
+        #self.update_inprogress_sync = False
+        #self.refresh_sync = False
+        #self.refresh_sync_done = False
+        #self.update_inprogress_world = False
+        #self.refresh_world = False
+        #self.refresh_world_done = False
+        #self.refresh_package_search = False
+        #self.refresh_package_search_done = False
+        self.tasks = {
+            'sync'  : {
+                    'inprogress'    :   False,
+                    'requests'  : {
+                            'pending'   :   [ ],
+                            'completed' :   False
+                            }
+                    },
+            'world'    : {
+                    'inprogress'    :   False,
+                    'requests'  : {
+                            'pending'   :   [ ],
+                            'completed' :   False
+                            }
+                    },
+            'package'   : {
+                    'requests'  : {
+                            'pending'   :   [ ],
+                            'completed' :   False
+                            }
+                    }
+                }
         # Init Inotify
         self.log_wd_state_changed = False
         self.inotify = inotify_simple.INotify()
+        self.reader = False
         self.watch_flag = inotify_simple.flags.CLOSE_WRITE
         try:
             self.log_wd = self.inotify.add_watch(self.pathdir['emergelog'], self.watch_flag)
@@ -1541,55 +1564,91 @@ class EmergeLogWatcher(threading.Thread):
     def run(self):
         self.logger.debug('Emerge log watcher daemon started (monitoring {0}).'.format(self.pathdir['emergelog']))
         remain = 0
+        sync_inprogress = False
+        world_inprogress = False
         while True:
-            if not self.log_wd_state_changed:
-                if self.inotify.read(timeout=0):
-                    self.log_wd_state_changed = True
-                    self.logger.debug('File {0} has been close_write.'.format(self.pathdir['emergelog']))
-            else:
+            self.reader = self.inotify.read(timeout=0)
+            if self.reader:
+                self.logger.debug('State changed for: {0}'.format(self.pathdir['emergelog'])
+                                    + f' ({self.reader}).')
                 # For portage package search
-                self.refresh_package_search = True
-                # This should be call only every 30s 
-                if remain <= 0:
-                    # TODO we could lower this to improve detection speed 
-                    # But class UpdateInProgress has to be rewritten !!
-                    remain = 10
-                    sync_inprogress = self.update_inprogress.check('Sync', additionnal_msg=self.repo_msg)
-                    world_inprogress = self.update_inprogress.check('World')
-                    if sync_inprogress:
-                        # Let's delegate this to class UpdateInProgress
-                        #self.logger.debug('Sync is in progress.')
-                        self.update_inprogress_sync = True
-                    if world_inprogress:
+                id_port = uuid.uuid4().hex[:8]
+                self.tasks['package']['requests']['pending'].append(id_port)
+                self.logger.debug(f'Sending request (id={id_port})' 
+                                  + ' for portage\'s package informations refresh.')
+                # For sync: run only if not already detected
+                if not self.tasks['sync']['inprogress']:
+                    if self.update_inprogress.check('Sync', additionnal_msg=self.sync_msg):
+                        #self.logger.debug(f'Syncing {self.sync_msg} in progress.')
+                        self.tasks['sync']['inprogress'] = True
+                # For world: same here
+                if not self.tasks['world']['inprogress']:
+                    if self.update_inprogress.check('World'):
+                        self.tasks['world']['inprogress'] = True
+            # TODO we could lower this to improve detection speed 
+            # But class UpdateInProgress has to be rewritten !!
+            if remain <= 0:
+                remain = 10
+                # Sync have been detected so check if still in progress
+                if self.tasks['sync']['inprogress']:
+                    if self.update_inprogress.check('Sync', additionnal_msg=self.sync_msg):
+                        # Let's delegate class UpdateInProgress print 
+                        # sync / world in progress 
+                        self.tasks['sync']['inprogress'] = True
+                    else:
+                        if self.tasks['sync']['inprogress']:
+                            # So sync have been run
+                            self.logger.debug('Sync have been run.')
+                            id_sync = uuid.uuid4().hex[:8]
+                            self.tasks['sync']['requests']['pending'].append(id_sync)
+                            self.logger.debug(f'Sending request (id={id_sync})' 
+                                            + ' for sync informations refresh.')
+                            self.tasks['sync']['inprogress'] = False
+                # World update have been detected so check if still in progress
+                if self.tasks['world']['inprogress']: 
+                    if self.update_inprogress.check('World'):
                         # Same here
-                        #self.logger.debug('World update is in progress.')
-                        self.update_inprogress_world = True
-                    if not sync_inprogress and not world_inprogress:
-                        # Ok so two case here: there were no update in progress (sync / world / both)
-                        # OR there were update in progress
-                        self.log_wd_state_changed = False
-                        if self.update_inprogress_sync:
-                            self.logger.debug('Updating sync informations.')
-                            self.refresh_sync = True
-                            self.update_inprogress_sync = False
-                        if self.update_inprogress_world:
-                            self.logger.debug('Updating global update informations.')
-                            self.refresh_world = True
-                            self.update_inprogress_world = False
-            # Ok so now check if sync or world has been refresh
-            # Avoid race condition
-            if self.refresh_sync_done:
-                self.logger.debug('Sync informations has been refreshed.')
-                self.refresh_sync = False
-                self.refresh_sync_done = False
-            if self.refresh_world_done:
-                self.logger.debug('Global update informations has been refreshed.')
-                self.refresh_world = False
-                self.refresh_world_done = False
-            if self.refresh_package_search_done:
-                self.logger.debug('Portage package search has been refreshed.')
-                self.refresh_package_search = False
-                self.refresh_package_search_done = False
-            remain -= 1
+                        self.tasks['world']['inprogress'] = True
+                    else:
+                        if self.tasks['world']['inprogress']:
+                            self.logger.debug('Global update have been run.')
+                            id_world = uuid.uuid4().hex[:8]
+                            self.tasks['world']['requests']['pending'].append(id_world)
+                            self.logger.debug(f'Sending request (id={id_world})' 
+                                            + ' for global update informations refresh.')
+                            self.tasks['world']['inprogress'] = False
+            remain -= 1        
+            
+            # Now wait for reply
+            for switch in 'sync', 'world', 'package':
+                if self.tasks[switch]['requests']['completed']:
+                    msg = 'sync'
+                    if switch == 'world':
+                        msg = 'global update'
+                    elif switch == 'package':
+                        msg = 'portage\'s package'
+                    self.logger.debug(f'Got reply id for {msg} requests: '
+                                      + '{0}'.format(self.tasks[switch]['requests']['completed']))
+                    self.logger.debug('{0}'.format(msg.capitalize()) 
+                                      + ' pending id list:' 
+                                      + ' {0}'.format(', '.join(self.tasks[switch]['requests']['pending'])))                        
+                    # 'completed' is the id of the last request proceed by main
+                    # So we need to erase range from this id index to the first element in the list
+                    id_index = self.tasks[switch]['requests']['pending'].index(
+                        self.tasks[switch]['requests']['completed'])
+                    plurial_msg = ''
+                    if id_index > 0:
+                        plurial_msg = 's'
+                    # Make sure to remove also pointed index (so index+1)
+                    to_remove = self.tasks[switch]['requests']['pending'][0:id_index+1]
+                    del self.tasks[switch]['requests']['pending'][0:id_index+1]
+                    self.logger.debug('{0} request{1}'.format(msg.capitalize(), plurial_msg)
+                                + ' (id{0}={1})'.format(plurial_msg, '|'.join(to_remove))
+                                + ' have been refreshed.')
+                    self.tasks[switch]['requests']['completed'] = False
+                    # Nothing left to read, nothing pending, go to bed :p
+                    if not self.reader and not self.tasks[switch]['requests']['pending']:
+                        self.logger.debug(f'All {msg} requests have been refreshed, sleeping...')
+            
             time.sleep(1)
     
