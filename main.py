@@ -312,12 +312,14 @@ def main():
     if args.git:
         logger.debug('Git kernel tracking has been enable.')
         
-        # Init gitmanager object through GitDbus class
-        mygitmanager = GitDbus(enable=True, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
-                               loglevel=logger.level)
-        # Init git watcher
+        # Init git watcher first so we can get pull (external) running status
         mygitwatcher = GitWatcher(pathdir, runlevel, logger.level, args.repo, name='Git Watcher Daemon',
                        daemon=True)
+        
+        # Init gitmanager object through GitDbus class
+        mygitmanager = GitDbus(enable=True, pull_state=mygitwatcher.tasks['pull']['inprogress'],
+                               interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
+                               loglevel=logger.level)
                
         # Get running kernel
         mygitmanager.get_running_kernel()
@@ -332,8 +334,8 @@ def main():
         mygitmanager.get_branch('all')
         mygitmanager.get_available_update('branch')       
     else:
-        mygitmanager = GitDbus(enable=False, interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
-                               loglevel=logger.level)
+        # Init only logger TEST needed for logging process 
+        mygitmanager = GitDbus(enable=False, pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
         mygitwatcher = False
     
     # Adding objects to manager

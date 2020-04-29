@@ -24,7 +24,7 @@ def git_available_version(myobject, opt, machine):
         }
     reply = getattr(myobject, switch[opt]['caller'])('available', 'None')
     if reply == 'disable':
-        print('Error: git implantation is disable')
+        print('Error: git implantation is disabled.')
         return
     elif reply == '0.0' or reply == '0.0.0':
         msg = switch[opt]['none']
