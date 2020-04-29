@@ -39,19 +39,27 @@ except Exception as exc:
 
 class PortageHandler:
     """Portage tracking class"""
-    
-    def __init__(self, interval, pathdir, runlevel, loglevel):
-        self.pathdir = pathdir
-        # Init convert/format timestamp
+    def __init__(self, **kwargs):
+        for key in 'interval', 'pathdir', 'runlevel', 'loglevel':
+            if not key in kwargs:
+                # Print to stderr :
+                # when running in init mode stderr is redirect to a log file
+                # logger is not yet initialized 
+                print(f'Crit: missing argument: {key}, calling module: {__name__}.', file=sys.stderr)
+                print('Crit: exiting with status \'1\'.', file=sys.stderr)
+                sys.exit(1)
+                
+        self.pathdir = kwargs['pathdir']
+        # Init timestamp converter/formatter 
         self.format_timestamp = FormatTimestamp()
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
-        portagemanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
+        portagemanager_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
                                                self.pathdir['debuglog'], self.pathdir['fdlog'])
-        self.logger = getattr(portagemanagerlog, runlevel)()
-        self.logger.setLevel(loglevel)
+        self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
+        self.logger.setLevel(kwargs['loglevel'])
         # Init save/load info file
-        self.stateinfo = StateInfo(self.pathdir, runlevel, self.logger.level)
+        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level)
         # Init Class UpdateInProgress
         self.update_inprogress = UpdateInProgress(self.logger)
         # Remain for check_sync()
@@ -69,7 +77,7 @@ class PortageHandler:
             'global_count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
                                                                           # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
-            'interval'      :   interval,
+            'interval'      :   kwargs['interval'],
             'elapsed'        :   0,
             'remain'        :   0,
             'session_count' :   0,   # Counting sync count since running (current session)
@@ -85,12 +93,14 @@ class PortageHandler:
         
         # World attributes
         self.world = {
-            'status'    :   'waiting',   # waiting : ready | running : running :p | finished: just finished
+            'status'    :   'waiting',   # waiting : ready | running : running :p | completed: just finished
             'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
             'update'    :   False,   # True when global update is in progress / False if not
             'updated'   :   False,   # True if system has been updated / False otherwise
             'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
-            'remain'    :   5, # TEST Check every 5s  TODO: this could be tweaked (dbus client or args ?)
+            'interval'  :   600,    # Interval between two pretend_world() run TODO this could be tweaked !
+            'remain'    :   600,    # TEST this the time between two pretend_world() lauch (avoid spamming)
+                                    # for now it's 10min
             'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
                                     # this is for async call implantation.
             'cancel'    :   False,  # this is for cancelling pretend_world subprocess when it detect an world update
@@ -655,13 +665,13 @@ class PortageHandler:
         
         # At the end
         if self.world['cancelled']:
-            self.logger.debug('The previously task has been cancelled, resetting state to False (as this one is ' +
-                           'completed.')
+            self.logger.debug('The previously task has been cancelled,' 
+                             + ' resetting state to False (as this one is completed).')
         self.world['cancelled'] = False
-        if self.world['status'] == 'finished':
-            self.logger.error('We are about to leave pretend process, but just found status already to finished,')
+        if self.world['status'] == 'completed':
+            self.logger.error('We are about to leave pretend process, but just found status already to completed,')
             self.logger.error('which mean process is/was NOT in progress, please check and report if True')
-        self.world['status'] = 'finished'
+        self.world['status'] = 'completed'
 
 
     def available_portage_update(self):
@@ -789,8 +799,7 @@ class PortageHandler:
                     if key == 'latest' and self.portage['logflow']:
                         self.logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
                         
-    
-    
+      
     def _get_repositories(self):
         """Get repos informations and return formatted"""
         self.logger.name = f'{self.logger_name}_get_repositories::'

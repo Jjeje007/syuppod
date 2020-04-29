@@ -9,6 +9,7 @@ import re
 import time
 from utils import _format_date
 from utils import _format_timestamp
+from utils import FormatTimestamp
 
 
 def portage_state_status(myobject, opt, machine):
@@ -252,18 +253,43 @@ def portage_last(myobject, last, machine, translate):
 
 def portage_forced(myobject, machine):
     """Forcing pretend world over dbus"""
-    # Any way this will be print because on my system 
-    # and until we implant async call, it will block terminal
-    # until it finished (~6min)
+    # This just send the message it won't wait until recompute is done:
+    # ~6min on my system with ~900 packages installed
+    formatter = FormatTimestamp()
+    additionnal_msg = [ ]
+    additionnal_msg.append('')
+    additionnal_msg.append('')
+    tab = '    '
+    reply = myobject.forced_pretend()
+    
+    if 'too_early' in reply:
+        split_reply = reply.split(' ')
+        # Ok so interval is second item in the list
+        # and remain is third
+        # Ok so we have to calculate
+        elapsed = int(split_reply[1]) - int(split_reply[2])
+        additionnal_msg[0] = formatter.convert(elapsed, granularity=5, rounded=False, translate=True)
+        additionnal_msg[1] = formatter.convert(int(split_reply[2]), granularity=5, rounded=False, translate=True)
+        reply = 'too_early'
+        if machine:
+            tab = ''
+    elif 'running' in reply:
+        split_reply = reply.split(' ')
+        # second item is where pretend.log is localized
+        additionnal_msg[0] = split_reply[1]
+        reply = 'running'  
+    
     msg = {
         'sync'      :   _('Sync is in progress, abording...'),
         'world'     :   _('Global update is in progress, abording...'),
-        'already'   :   _('Recalculation already in progress, abording...'),
-        'running'   :   _('Order has been sent, see log for more details.')
+        'already'   :   _('Recompute already in progress, abording...'),
+        'too_early' :   _(f'Recompute have just been completed {additionnal_msg[0]} ago.\n'
+                          f'{tab}You have to wait {additionnal_msg[1]} before you can run it again.'),
+        'running'   :   _(f'Order has been sent, see {additionnal_msg[0]} for more details.')
         }
-    reply = myobject.forced_pretend()
+    
     if not machine:
-        print('[*]', _('Forcing recalculation of the packages informations:'))
+        print('[*]', _('Force recompute available update packages:'))
         print('    - {0}'.format(_(msg[reply])))
     else:
         print(_(msg[reply]))

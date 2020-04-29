@@ -37,16 +37,17 @@ class GitDbus(GitHandler):
             # Delegate kwargs arguments checking in GitHandler (gitmanager module)
             super().__init__(**kwargs)
             # check if we have pull_state (from gitmanager -> GitWatcher object)
+            # This intend to detect external (but also internal) git pull running
             self.pull_state = kwargs.get('pull_state', 'disabled')
             # Init logger (even if there is already a logger in GitHandler)
             # better to have a separate logger
             # Don't override self.logger_name from GitHandler
             self.named_logger = f'::{__name__}::GitDbus::'
             # pathdir is unpack from kwargs in GitHandler
-            gitdbuslogger = MainLoggingHandler(self.named_logger, self.pathdir['prog_name'], 
+            gitdbus_logger = MainLoggingHandler(self.named_logger, self.pathdir['prog_name'], 
                                             self.pathdir['debuglog'], self.pathdir['fdlog'])
             # Don't override self.logger from gitmanager -> GitHandler
-            self.gdb_logger = getattr(gitdbuslogger, kwargs['runlevel'])()
+            self.gdb_logger = getattr(gitdbus_logger, kwargs['runlevel'])()
             self.gdb_logger.setLevel(kwargs['loglevel'])
         # TEST If disabled do we need one logger ??
         else:
@@ -68,39 +69,40 @@ class GitDbus(GitHandler):
             self.gdb_logger = getattr(gitdbuslogger, kwargs['runlevel'])()
             self.gdb_logger.setLevel(kwargs['loglevel'])
     
-    ### Kernel attributes
+
     def get_kernel_attributes(self, key, subkey):
-        """Retrieve specific kernel attribute and return trought dbus"""
+        """
+        Retrieve specific kernel attribute and return through dbus
+        """
         self.gdb_logger.name = f'{self.named_logger}get_kernel_attributes::'
         self.gdb_logger.debug(f'Requesting: {key} | {subkey}')
         
         if not self.enable:
-            self.gdb_logger.debug('Cannot succeed: git implentation is disabled.')
+            self.gdb_logger.debug('Failed: git implentation is disabled.')
             self.gdb_logger.error('Failed dbus request, object: GitDbus(GitHandler),' 
                                   + ' method: get_kernel_attributes,'
-                                  + ' git implentation is disabled.')
+                                  + ' error: git implentation is disabled.')
             return 'disable'
         
-        if not subkey == 'running':
-            if subkey == 'None':
-                self.gdb_logger.debug('Returning: {0} (as string).'.format(' '.join(self.kernel[key])))
-                return str(' '.join(self.kernel[key]))
-            self.gdb_logger.debug('Returning: {0} (as string).'.format(' '.join(self.kernel[key][subkey])))
-            return str(' '.join(self.kernel[key][subkey]))
-        self.gdb_logger.debug('Returning: {0} (as string).'.format(self.kernel[key][subkey]))
-        return str(self.kernel[key][subkey])
+        if subkey == 'None':
+            self.gdb_logger.debug('Returning: {0} (as string).'.format(' '.join(self.kernel[key])))
+            return str(' '.join(self.kernel[key]))
+        self.gdb_logger.debug('Returning: {0} (as string).'.format(' '.join(self.kernel[key][subkey])))
+        return str(' '.join(self.kernel[key][subkey]))
     
-    ### Branch attributes
+
     def get_branch_attributes(self, key, subkey):
-        """Retrieve specific branch attribute and return trought dbus"""
+        """
+        Retrieve specific branch attribute and return through dbus
+        """
         self.gdb_logger.name = f'{self.named_logger}get_branch_attributes::'
         self.gdb_logger.debug(f'Requesting: {key} | {subkey}')
         
         if not self.enable:
-            self.gdb_logger.debug('Cannot succeed: git implentation is disabled.')
+            self.gdb_logger.debug('Failed: git implentation is disabled.')
             self.gdb_logger.error('Failed dbus request, object: GitDbus(GitHandler),' 
                                   + ' method: get_branch_attributes,'
-                                  + ' git implentation is disabled.')
+                                  + ' error: git implentation is disabled.')
             return 'disable'
         
         if subkey == 'None':
@@ -109,37 +111,39 @@ class GitDbus(GitHandler):
         self.gdb_logger.debug('Returning: {0} (as string).'.format(' '.join(self.branch[key][subkey])))
         return str(' '.join(self.branch[key][subkey]))
     
-    ### Other attributes
+
     def reset_pull_error(self):
-        """Reset pull error and forced pull"""
+        """
+        Reset pull error and forced pull
+        """
         self.gdb_logger.name = f'{self.named_logger}reset_pull_error::'
         self.gdb_logger.debug('Got request.')
         
         if not self.enable:
-            self.gdb_logger.debug('Cannot succeed: git implentation is disabled.')
+            self.gdb_logger.debug('Failed: git implentation is disabled.')
             self.gdb_logger.error('Failed dbus request, object: GitDbus(GitHandler),' 
                                   + ' method: reset_pull_error,'
-                                  + ' git implentation is disabled.')
+                                  + ' error: git implentation is disabled.')
             return 'disable'
         
         if self.pull['status']:
-            self.gdb_logger.debug('Cannot succeed: already running (internal).')
+            self.gdb_logger.debug('Failed: already running (internal).')
             return 'running'
         
         if not self.pull_state == 'disabled':
             if self.pull_state:
-                self.gdb_logger.debug('Cannot succeed: already running (external).')
+                self.gdb_logger.debug('Failed: already running (external).')
                 return 'running'
         else:
-            self.gdb_logger.debug('External git pull running check is disabled.')
+            self.gdb_logger.debug('External git pull running checker is disabled.')
             # don't return 'running' as we don't know state so just pass to next
         
         if not self.pull['state'] == 'Failed':
-            self.gdb_logger.debug('Cannot succeed: no error found.')
+            self.gdb_logger.debug('Failed: no error found.')
             return 'no_error'
         
         if self.pull['state'] == 'Failed' and self.pull['network_error']:
-            self.gdb_logger.debug('Cannot succeed: network related error.')
+            self.gdb_logger.debug('Failed: network related error.')
             return 'network'
         
         # Ok everything should be good ;)
@@ -148,4 +152,3 @@ class GitDbus(GitHandler):
         self.pull['state'] = 'Success'
         self.stateinfo.save('pull state', 'pull state: Success')
         return 'done'
-    

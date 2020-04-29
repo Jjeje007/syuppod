@@ -73,6 +73,8 @@ class MainDaemon(threading.Thread):
             # Check pending requests for 'sync'
             if self.watcher['portage'].tasks['sync']['requests']['pending'] \
                and not self.watcher['portage'].tasks['sync']['inprogress']:
+                # Take a copy so you can immediatly send back what you take and 
+                # still process it here
                 sync_requests = self.watcher['portage'].tasks['sync']['requests']['pending'].copy()
                 msg = ''
                 if len(sync_requests) > 1:
@@ -110,9 +112,15 @@ class MainDaemon(threading.Thread):
                 logger.warning('Recalling package(s) update\'s search as it was cancelled.')
                 self.manager['portage'].world['pretend'] = True
                 self.manager['portage'].world['cancelled'] = False
-            # Every thing is OK: pretend was wanted, has been called, finished well
-            if self.manager['portage'].world['status'] == 'finished':
-                self.manager['portage'].world['status'] == 'waiting'
+            # Every thing is OK: pretend was wanted, has been called and is completed 
+            if self.manager['portage'].world['status'] == 'completed':
+                # TEST Wait between two pretend_world() run 
+                if self.manager['portage'].world['remain'] <= 0:
+                    logger.debug('Changing state for world from \'completed\' to \'waiting\'.')
+                    logger.debug('pretend_world() can be call again.')
+                    self.manager['portage'].world['remain'] = self.manager['portage'].world['interval']
+                    self.manager['portage'].world['status'] == 'waiting'
+                self.manager['portage'].world['remain'] -= 1
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
             if self.watcher['portage'].tasks['package']['requests']['pending'] \
@@ -151,8 +159,9 @@ class MainDaemon(threading.Thread):
             # TEST Disable pretend_world() if sync is in progress other wise will run twice.
             # Better to go with watcher over manager because it could be an external sync which will not be detected
             # by manager
-            # Don't run pretend if world in progress
+            # Don't run pretend if world / sync in progress or if not status == 'waiting'
             if self.manager['portage'].world['pretend'] \
+               and self.manager['portage'].world['status'] == 'waiting' \
                and not self.watcher['portage'].tasks['sync']['inprogress'] \
                and not self.watcher['portage'].tasks['world']['inprogress']:
                 if self.manager['portage'].world['forced']:
@@ -295,12 +304,19 @@ def main():
     # Init watcher
     watcher = { }
     
-    # Init portagemanager
-    myportmanager = PortageDbus(args.sync, pathdir, runlevel, logger.level)
-    # Init Emerge log watcher
-    myportwatcher = EmergeLogWatcher(pathdir, runlevel, logger.level, myportmanager.sync['repos']['msg'], 
+    # Init Emerge log watcher first because we need status of sync and world process 
+    # this is a workaround because EmergeLogWatcher need sync['repos']['msg']
+    # so init as :
+    myportwatcher = EmergeLogWatcher(pathdir, runlevel, logger.level, 'repo', 
                              name='Emerge Log Watcher Daemon', daemon=True)
     
+    # Init portagemanager
+    myportmanager = PortageDbus(sync_state=myportwatcher.tasks['sync']['inprogress'],
+                                world_state=myportwatcher.tasks['sync']['inprogress'], interval=args.sync,
+                                pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
+    # TEST workaround 
+    myportwatcher.sync_msg = myportmanager.sync['repos']['msg']
+        
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)
     # Get last portage package

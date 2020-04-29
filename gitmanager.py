@@ -45,8 +45,8 @@ class GitHandler:
                 # Print to stderr :
                 # when running in init mode stderr is redirect to a log file
                 # logger is not yet initialized 
-                print(f'Error: missing argument \'{key}\' when calling gitmanager module.', file=sys.stderr)
-                print('Error: exiting with status \'1\'.', file=sys.stderr)
+                print(f'Crit: missing argument: {key}, calling module: {__name__}.', file=sys.stderr)
+                print('Crit: exiting with status \'1\'.', file=sys.stderr)
                 sys.exit(1)
                 
         self.pathdir = kwargs.get('pathdir')
@@ -54,9 +54,9 @@ class GitHandler:
         
         # Init logger
         self.logger_name = f'::{__name__}::GitHandler::'
-        gitmanagerlog = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
+        gitmanager_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'], 
                                            self.pathdir['debuglog'], self.pathdir['fdlog'])
-        self.logger = getattr(gitmanagerlog, kwargs['runlevel'])()
+        self.logger = getattr(gitmanager_logger, kwargs['runlevel'])()
         self.logger.setLevel(kwargs['loglevel'])
         
         # Init load/save info to file
@@ -68,16 +68,10 @@ class GitHandler:
         # Init FormatTimestamp
         self.format_timestamp = FormatTimestamp()
         
-        #self.update_inprogress = UpdateInProgress(self.logger)
-                       
         # Pull attributes
         self.pull = {
             'status'        :   False, # False when not running / True otherwise
             'state'         :   self.stateinfo.load('pull state'),
-            # TODO: expose log throught dbus
-            # So we have to make an objet which will get last log from 
-            # git.log file (and other log file)
-            'log'           :   'TODO',             
             'network_error' :   int(self.stateinfo.load('pull network_error')),
             'retry'         :   int(self.stateinfo.load('pull retry')),
             'count'         :   str(self.stateinfo.load('pull count')),   # str() or get 'TypeError: must be str
@@ -87,11 +81,11 @@ class GitHandler:
             'remain'        :   0,
             'elapsed'       :   0,
             'interval'      :   kwargs.get('interval'),
-            'update_all'    :   False,   # True after pull or if detected pull's outside run
+            #'update_all'    :   False,   # True after pull or if detected pull's outside run
             'recompute'     :   False   # True if remain as to be recompute
             }
         
-        # Main remain for checking local branch checkout and local kernel installed
+        # 'Main remain' 
         self.remain = 30
         # Authorized update or not 
         self.update = True
@@ -744,8 +738,8 @@ class GitHandler:
                         
             self.pull['remain'] = self.pull['interval']
             # Force update all 
-            self.pull['update_all'] = True
-            self.logger.debug('Setting update_all to True')
+            #self.pull['update_all'] = True
+            #self.logger.debug('Setting update_all to True')
         finally:
             # Get last timestamp 
             # Any way even if git pull failed it will write to .git/FETCH_HEAD 
