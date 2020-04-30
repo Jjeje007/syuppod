@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # -*- python3 -*- 
-# Copyright Jérôme Venturi: jerome dot Venturi at gmail dot com
+# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
 # TODO other attributes and many more :)

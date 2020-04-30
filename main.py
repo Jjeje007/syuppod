@@ -4,7 +4,7 @@
 # Starting : 2019-08-08
 
 # This is a SYnc UPdate POrtage Daemon
-# Copyright © Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
 import sys
@@ -27,6 +27,7 @@ from logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
 from utils import StateInfo
 
+# TODO TODO TODO don't run as root ! investigate !
 # TODO : exit gracefully 
 # TODO : debug log level ! 
 

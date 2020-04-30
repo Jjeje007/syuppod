@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
-# Copyright Jérôme Venturi: jerome dot Venturi at gmail dot com
+# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 # TODO extend git part
 # Good Translation 
