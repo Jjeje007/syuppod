@@ -360,7 +360,7 @@ class GitHandler:
         versionlist.sort(key=StrictVersion)
         
         # Do we need to update kernel['all'] list or is the same ?
-        if self._compare_multidirect(self.kernel['all'], versionlist, 'kernel'):
+        if self._compare_multidirect(self.kernel['all'], versionlist, 'git kernel'):
             self.logger.name = f'{self.logger_name}get_all_kernel::'
             self.logger.debug('Adding to list all: {0}.'.format(' '.join(self.kernel['all'])))
             self.kernel['all'] = versionlist
@@ -494,7 +494,8 @@ class GitHandler:
             
             # Any way we will replace the whole list
             # Now compare new available list with old available list 
-            if self._compare_multidirect(target['available'], current_available, target_attr):
+            if self._compare_multidirect(target['available'], current_available, 
+                                                      f'available {target_attr}'):
                 self.logger.name = f'{self.logger_name}get_available_update::'
                 # So this mean rewrite it 
                 self.logger.debug('Adding to the list: {0}.'.format(' '.join(current_available)))
