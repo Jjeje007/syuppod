@@ -1,7 +1,7 @@
 [![Gentoo Badge](https://www.gentoo.org/assets/img/badges/gentoo-badge.png)](https://www.gentoo.org)
 
 # Syuppod
-> SYnc Update POrtage Daemon
+> SYnc UPdate POrtage Daemon
 
 Syuppod is a python3 daemon which automate syncing and pretending update
 for gentoo portage manager. It can also, optionally, manage git kernel update (pull) and 
@@ -10,18 +10,18 @@ It intend to be run as a root service using /etc/init.d/ but for debugging pupro
 Any way, it as to be run as root.
 
 It uses dbus to expose informations to user space tools and it have an already written client (trival).
-With this client (syuppoc), you can retrieve informations about new update package available, syncing stats and,
+With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats and,
 for git, available kernel depending on which is available from git and which have been installed.
 And many more (also more to come).
 
 I'm using it with [conky](https://github.com/brndnmtthws/conky) to display some informations. But it have no 
-dependencies against conky. So it's up to you to do whatever you want to do with these informations and from your
-favorite program.
+dependencies against conky. So it's up to you to do whatever you want to do with these informations and from
+whatever program (as long as it use dbus or syuppo-cli output).
 
 
 ## Dependencies
 
-* [pyhton](https://www.python.org/) >= 3.5 (tested: v3.6.x)
+* [python](https://www.python.org/) >= 3.5 (tested: v3.6.x)
 * [pydbus](https://github.com/LEW21/pydbus)
 * [GitPython](https://github.com/gitpython-developers/GitPython)
 * [numpy](https://numpy.org/)
@@ -30,8 +30,6 @@ favorite program.
 
 
 ## Installation / Usage
-
-### If you want just to test it:
 
 1. Clone the repo:
 ```bash
@@ -46,7 +44,10 @@ git checkout testing
 cp syuppod.conf /usr/share/dbus-1/system.d/
 ```
 4. Install dependencies using emerge or pip.
-5. Run it (you should activate debug):
+
+### If you just want to test it:
+
+1. Run it (i recommand to activate debug):
 ```bash
 ./main -d
 ```
@@ -57,11 +58,11 @@ cp syuppod.conf /usr/share/dbus-1/system.d/
 ```bash
 cp syuppod-init /etc/init.d/syuppod
 ```
-2. Edit lines:
-    command= 
-   To point to: /where/is/your/git/clone/repo/main.py
-   And:
-    command_args=
+2. Edit lines:\
+    command=\ 
+   To point to: /where/is/your/git/clone/repo/main.py\
+   And:\
+    command_args=\
    To suit your need, more information:
 ```bash
 ./main --help
@@ -77,17 +78,18 @@ Daemon have several logs all located in /var/log/syuppod/
 If you have troubles, check first /var/log/stderr.log and /var/log/debug.log (if debug is enable: -d)
 But the best way, is running by hand in a terminal (so not using /etc/init.d/).
 
-Daemon and terminal mode write sync, pull and pretend process to, respectively:
-/var/log/syuppod/sync.log
-/var/log/syuppod/git.log
-/var/log/syuppod/pretend.log
+Daemon and terminal mode write sync, pull and pretend process logs to, respectively:\
+/var/log/syuppod/sync.log\
+/var/log/syuppod/git.log\
+/var/log/syuppod/pretend.log\
 
-All logs are logrotate.
+All logs are autorotate.
 
 ## Developpement Status
 
-This is a work in progress so i haven't yet planned to make a release.
-The API is still in developpement and it's not yet stabilized.
+This is a work in progress so i haven't yet planned to make a release.\
+The API is still in developpement and it's not yet stabilized.\
+My priority is the daemon part (syuppod).
 
 
 ## Meta
@@ -96,7 +98,11 @@ Venturi Jerôme – jerome.venturi@gmail.com
 
 Distributed under the [GNU gpl v3 license](https://www.gnu.org/licenses/gpl-3.0.html).
 
+## Bugs report
+
+Please open an issue and don't forget to attach logs: stderr.log and debug.log. 
 
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
