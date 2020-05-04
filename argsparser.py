@@ -119,7 +119,7 @@ class DaemonParserHandler(CustomArgsCheck):
                             '--version', 
                             action = 'version', 
                             version = '%(prog)s: version ' + version + 
-                            ' - Copyright (C) 2019 Jérôme Venturi, <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
+                            ' - Copyright (C) 2019-2020 Jérôme Venturi, <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
         # Logging Options
         log_arg = self.parser.add_argument_group('<log options>')
         log_arg.add_argument('-d', 
