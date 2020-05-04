@@ -81,7 +81,7 @@ But the best way, is running by hand in a terminal (so not using /etc/init.d/).
 Daemon and terminal mode write sync, pull and pretend process logs to, respectively:\
 /var/log/syuppod/sync.log\
 /var/log/syuppod/git.log\
-/var/log/syuppod/pretend.log\
+/var/log/syuppod/pretend.log
 
 All logs are autorotate.
 
@@ -89,7 +89,7 @@ All logs are autorotate.
 
 This is a work in progress so i haven't yet planned to make a release.\
 The API is still in developpement and it's not yet stabilized.\
-My priority is the daemon part (syuppod).
+My priority is to stabilize daemon API.
 
 
 ## Meta
