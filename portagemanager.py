@@ -492,7 +492,7 @@ class PortageHandler:
                 self.logger.debug('Global update hasn\'t been run, keeping last know informations.')
             
         # Reset remain :)
-        self.world['remain'] = 5
+        #self.world['remain'] = 5
         return
     
     
