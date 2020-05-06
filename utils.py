@@ -8,7 +8,6 @@ import pathlib
 import re
 import errno
 import sys
-#import tempfile
 import time
 import signal
 import gettext
@@ -31,17 +30,20 @@ mylocale = locale.getdefaultlocale()
 # see --> https://stackoverflow.com/a/10174657/11869956 thx
 #localedir = os.path.join(os.path.dirname(__file__), 'locales')
 # or python > 3.4:
-try:
-    localedir = pathlib.Path(__file__).parent/'locales'
-    lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]])
-    lang_translations.install()
-    _ = lang_translations.gettext
-except Exception as exc:
-    print('Error: unexcept error while initializing translation:', file=sys.stderr)
-    print(f'Error: {exc}', file=sys.stderr)
-    print(f'Error: localedir={localedir}, languages={mylocale[0]}', file=sys.stderr)
-    print('Error: translation has been disabled.', file=sys.stderr)
-    _ = gettext.gettext
+#try:
+localedir = pathlib.Path(__file__).parent/'locales'
+lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]], fallback=True)
+lang_translations.install()
+_ = lang_translations.gettext
+
+#print(f'lang_translations is {lang_translations}')
+
+#except Exception as exc:
+    #print('Error: unexcept error while initializing translation:', file=sys.stderr)
+    #print(f'Error: {exc}', file=sys.stderr)
+    #print(f'Error: localedir={localedir}, languages={mylocale[0]}', file=sys.stderr)
+    #print('Error: translation has been disabled.', file=sys.stderr)
+    #_ = gettext.gettext
 
 class StateInfo:
     """Write, edit or get info to and from state file"""
@@ -267,7 +269,7 @@ class FormatTimestamp:
             'hour'      :   _('hour'),
             'minute'    :   _('minute'),
             'second'    :   _('second'),
-            ' and'      :   _('and'),
+            ' and'      :   _(' and'),
             ','         :   _(','),     # This is for compatibility
             ''          :   '\0'        # same here BUT we CANNOT pass empty string to gettext 
                                         # or we get : warning: Empty msgid.  It is reserved by GNU gettext:
@@ -329,9 +331,9 @@ class FormatTimestamp:
         
         # For seconds only don't need to compute
         if seconds < 0:
-            return _('any time now.')
+            return _('any time now')
         elif seconds < 60:
-            return _('less than a minute.')
+            return _('less than a minute')
                 
         result = []
         for name, count in self.intervals.items():

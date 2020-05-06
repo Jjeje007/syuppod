@@ -35,6 +35,8 @@ except Exception as exc:
 
 # TODO TODO get news :p
 # TODO port UpdateInProgress from utils to here
+# TODO add load checking before running pretend_world()
+# TODO add choice for pretend_world(): use emerge or eix --installed --update but this will be only approximative ?
 
 
 class PortageHandler:

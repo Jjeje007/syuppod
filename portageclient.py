@@ -12,17 +12,17 @@ from utils import _format_timestamp
 from utils import FormatTimestamp
 
 
-def portage_state_status(myobject, opt, machine):
+def portage_state(myobject, opt, machine):
     """Display last tree repositories updater state or status"""
     reply = myobject.get_sync_attribute(opt)
     # For translation
     msg = {
         'Success'       :   _('Success'),
         'Failed'        :   _('Failed'),
-        'In Progress'   :   _('In Progress'),
-        'Finish'        :   _('Finish'),
-        'state'         :   _('Last state of the repositories syncronizer:'),
-        'update'        :   _('Current status of the repositories syncronizer:')
+        #'In Progress'   :   _('In Progress'),
+        #'Finish'        :   _('Finish'),
+        'state'         :   _('Last state of the repositories syncronizer:')
+        #'update'        :   _('Current status of the repositories syncronizer:')
         }
     if not machine:
         print('[*] {0}'.format(_(msg[opt])))
@@ -31,17 +31,17 @@ def portage_state_status(myobject, opt, machine):
         print(_(msg[reply]))
 
 
-def portage_error(myobject, machine):
-    """Display last tree repositories updater error count"""
-    reply = int(myobject.get_sync_attribute('error'))
-    if not machine:
-        print('[*]', _('Current error count for the repositories syncronizer:'))
-        msg = _('time')
-        if reply > 1:
-            msg = _('times')
-        print('    - {0} {1}'.format(reply, _(msg)))
-    else:
-        print(reply)
+#def portage_error(myobject, machine):
+    #"""Display last tree repositories updater error count"""
+    #reply = int(myobject.get_sync_attribute('error'))
+    #if not machine:
+        #print('[*]', _('Current error count for the repositories syncronizer:'))
+        #msg = _('time')
+        #if reply > 1:
+            #msg = _('times')
+        #print('    - {0} {1}'.format(reply, _(msg)))
+    #else:
+        #print(reply)
 
 
 def portage_count(myobject, count, machine):
@@ -51,14 +51,14 @@ def portage_count(myobject, count, machine):
         count = 'both'
     # Value is from module portagemanager (portagedbus)
     opt = {
-        'session'   :   [ 'current_count' ],
-        'overall'   :   [ 'count' ],
-        'both'      :   [ 'count', 'current_count' ]
+        'session'   :   [ 'session_count' ],
+        'overall'   :   [ 'global_count' ],
+        'both'      :   [ 'global_count', 'session_count' ]
         }
     # For translation
     key_opt = { 
-        'current_count' :   _('Session'),
-        'count'         :   _('Overall')
+        'session_count' :   _('Session'),
+        'global_count'         :   _('Overall')
         }
     if not machine:
         print('[*]', _('The repositories syncronizer run successfully:'))
@@ -81,7 +81,7 @@ def portage_timestamp(myobject, formatting, machine, translate):
         formatting = 'date'
     # Value is from dbus service (portagemanager and portagedbus)
     reply = int(myobject.get_sync_attribute('timestamp'))
-    opt = re.match(r'^(unix|date.*|elapse.*)$', formatting).group(1)
+    opt = re.match(r'^(unix|date.*|elapsed.*)$', formatting).group(1)
     additionnal_msg = [ ]
     # unix timestamp, easy man ! :)
     if opt == 'unix':
@@ -92,7 +92,7 @@ def portage_timestamp(myobject, formatting, machine, translate):
         msg = _format_date(reply, opt)
         additionnal_msg.append(_('The '))
         additionnal_msg.append('\0')    # woraround for gettext
-    elif 'elapse' in opt:
+    elif 'elapsed' in opt:
         current_timestamp = time.time()
         elapsed = round(current_timestamp - int(reply))
         msg = _format_timestamp(elapsed, opt, translate)
@@ -131,13 +131,13 @@ def portage_interval(myobject, interval, machine, translate):
             print(msg)
 
 
-def portage_elapse_remain(myobject, switch, opt, machine, translate):
+def portage_elapsed_remain(myobject, switch, opt, machine, translate):
     """Display tree updater remain time formatted depending on opts"""
     # Default for --all argument
     if not opt:
         opt = 'human:3'
     translate = {
-        'elapse'    :   _('Current repositories synchronization elapse time:'),
+        'elapsed'    :   _('Current repositories synchronization elapsed time:'),
         'remain'    :   _('Current repositories synchronization remain time:')
         }
     reply = int(myobject.get_sync_attribute(switch))
@@ -207,7 +207,7 @@ def portage_last(myobject, last, machine, translate):
     """Display informations about last world update"""
     # Default for --all argument
     if not last:
-        last = 'elapse:r:2'
+        last = 'elapsed:r:2'
     # Parse
     if 'state' in last:
         msg = myobject.get_world_attribute('last', 'state')
@@ -231,7 +231,7 @@ def portage_last(myobject, last, machine, translate):
         reply = int(myobject.get_world_attribute('last', 'stop'))
         msg = _('The {0}').format(_format_date(reply, last))
         additionnal_msg = _('Last world update stoped:')
-    elif 'elapse' in last:
+    elif 'elapsed' in last:
         reply = int(myobject.get_world_attribute('last', 'stop'))
         current_timestamp = time.time()
         elapsed = round(current_timestamp - reply)
@@ -283,9 +283,10 @@ def portage_forced(myobject, machine):
         'sync'      :   _('Sync is in progress, abording...'),
         'world'     :   _('Global update is in progress, abording...'),
         'already'   :   _('Recompute already in progress, abording...'),
-        'too_early' :   _(f'Recompute have just been completed {additionnal_msg[0]} ago.\n'
-                          f'{tab}You have to wait {additionnal_msg[1]} before you can run it again.'),
-        'running'   :   _(f'Order has been sent, see {additionnal_msg[0]} for more details.')
+        'too_early' :   _('Recompute have just been completed {0} ago.\n').format(additionnal_msg[0]) +
+                        _('{0}You have to wait ').format(tab) +
+                        _('{0} before you can run it again.').format(additionnal_msg[1]),
+        'running'   :   _('Order has been sent, see {0} for more details.').format(additionnal_msg[0])
         }
     
     if not machine:

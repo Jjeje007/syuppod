@@ -38,7 +38,7 @@ class GitDbus(GitHandler):
             super().__init__(**kwargs)
             # check if we have pull_state (from gitmanager -> GitWatcher object)
             # This intend to detect external (but also internal) git pull running
-            self.pull_state = kwargs.get('pull_state', 'disabled')
+            self.pull_state = False #kwargs.get('pull_state', 'disabled')
             # Init logger (even if there is already a logger in GitHandler)
             # better to have a separate logger
             # Don't override self.logger_name from GitHandler
@@ -130,12 +130,12 @@ class GitDbus(GitHandler):
             self.gdb_logger.debug('Failed: already running (internal).')
             return 'running'
         
-        if not self.pull_state == 'disabled':
-            if self.pull_state:
-                self.gdb_logger.debug('Failed: already running (external).')
-                return 'running'
-        else:
-            self.gdb_logger.debug('External git pull running checker is disabled.')
+        #if not self.pull_state == 'disabled':
+        if self.pull_state:
+            self.gdb_logger.debug('Failed: already running (external).')
+            return 'running'
+        #else:
+            #self.gdb_logger.debug('External git pull running checker is disabled.')
             # don't return 'running' as we don't know state so just pass to next
         
         if not self.pull['state'] == 'Failed':

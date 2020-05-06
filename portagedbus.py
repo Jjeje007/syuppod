@@ -26,6 +26,10 @@ class PortageDbus(PortageHandler):
                 <method name='forced_pretend'>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='_get_debug_attributes'>
+                    <arg type='s' name='debug_key' direction='in'/>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
             </interface>
         </node>
     """
@@ -38,8 +42,8 @@ class PortageDbus(PortageHandler):
                                                self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.pdb_logger = getattr(portagedbus_logger, kwargs['runlevel'])()
         self.pdb_logger.setLevel(kwargs['loglevel'])
-        self.sync_state = kwargs.get('sync_state', 'disabled')
-        self.world_state = kwargs.get('world_state', 'disabled')
+        self.sync_state = False #kwargs.get('sync_state', 'disabled')
+        self.world_state = False #kwargs.get('world_state', 'disabled')
     
 
     def get_sync_attribute(self, key):
@@ -89,22 +93,22 @@ class PortageDbus(PortageHandler):
             return 'sync'
         
         # same here but external sync
-        if not self.sync_state == 'disabled':
-            if self.sync_state:
-                self.pdb_logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
+        #if not self.sync_state == 'disabled':
+        if self.sync_state:
+            self.pdb_logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
                                       + ' is in progress (external).')
-        else:
-            self.pdb_logger.debug('External sync checker is disabled.')
-            # don't return 'sync' as we don't know state so just pass to the next check
+        #else:
+            #self.pdb_logger.debug('External sync checker is disabled.')
+            #don't return 'sync' as we don't know state so just pass to the next check
         
         # Don't run if world update is in progress
-        if not self.world_state == 'disabled':
-            if self.world_state:
-                self.pdb_logger.debug('Failed: global update is in progress.')
-                return 'world'
-        else:
-            self.pdb_logger.debug('External global update checker is disabled.')
-            # same here we don't the state of global update ...
+        #if not self.world_state == 'disabled':
+        if self.world_state:
+            self.pdb_logger.debug('Failed: global update is in progress.')
+            return 'world'
+        #else:
+            #self.pdb_logger.debug('External global update checker is disabled.')
+            # same here we don't know the state of global update ...
             
         # Don't run if pretend is running
         if self.world['status'] == 'running':
@@ -122,3 +126,17 @@ class PortageDbus(PortageHandler):
         self.world['pretend'] = True
         self.world['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])
+    
+    def _get_debug_attributes(self, key):
+        """
+        Retrieve specific attribute for debugging only
+        """
+        self.pdb_logger.name = f'{self.named_logger}_get_debug_attributes::'
+        self.pdb_logger.debug(f'Requesting: {key}.')
+        try:
+            return str(getattr(self, key))
+        except Exception as exc:
+            self.pdb_logger.debug(f'Got exception: {exc}')
+        else:
+            self.pdb_logger.debug('Returning: {0} (as string).'.format(getattr(self, key)))
+        

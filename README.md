@@ -74,8 +74,8 @@ cp syuppod-init /etc/init.d/syuppod
 
 ### About logs and debug
 
-Daemon have several logs all located in /var/log/syuppod/
-If you have troubles, check first /var/log/stderr.log and /var/log/debug.log (if debug is enable: -d)
+Daemon have several logs all located in /var/log/syuppod/\
+If you have troubles, check first /var/log/stderr.log and /var/log/debug.log (if debug is enable: -d)\
 But the best way, is running by hand in a terminal (so not using /etc/init.d/).
 
 Daemon and terminal mode write sync, pull and pretend process logs to, respectively:\

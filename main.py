@@ -29,7 +29,9 @@ from utils import StateInfo
 
 # TODO TODO TODO don't run as root ! investigate !
 # TODO : exit gracefully 
-# TODO : debug log level ! 
+# TODO : debug log level !
+# TODO threading we cannot share object attribute 
+#       or it will no be update ?!?
 
 try:
     from gi.repository import GLib
@@ -69,9 +71,19 @@ class MainDaemon(threading.Thread):
         logger.info('Start up completed.')
         while True:
             ### Portage stuff
+            # Check pending requests for 'sync'
+            # TEST workaround - but it have more latency 
+            if self.watcher['portage'].tasks['world']['inprogress']:
+                self.manager['portage'].world_state = True
+            else:
+                self.manager['portage'].world_state = False
+            if self.watcher['portage'].tasks['sync']['inprogress']:
+                self.manager['portage'].sync_state = True
+            else:
+                self.manager['portage'].sync_state = False
+            ### End workaround
             # get sync timestamp or world pretend only if emergelog have been close_write 
             # AND if there was an sync / update / both in progress.
-            # Check pending requests for 'sync'
             if self.watcher['portage'].tasks['sync']['requests']['pending'] \
                and not self.watcher['portage'].tasks['sync']['inprogress']:
                 # Take a copy so you can immediatly send back what you take and 
@@ -120,8 +132,9 @@ class MainDaemon(threading.Thread):
                     logger.debug('Changing state for world from \'completed\' to \'waiting\'.')
                     logger.debug('pretend_world() can be call again.')
                     self.manager['portage'].world['remain'] = self.manager['portage'].world['interval']
-                    self.manager['portage'].world['status'] == 'waiting'
-                self.manager['portage'].world['remain'] -= 1
+                    self.manager['portage'].world['status'] = 'waiting'
+                else:
+                    self.manager['portage'].world['remain'] -= 1
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
             if self.watcher['portage'].tasks['package']['requests']['pending'] \
@@ -174,6 +187,12 @@ class MainDaemon(threading.Thread):
             
             ### Git stuff
             if self.manager['git'].enable:
+                # TEST workaround but it have more latency 
+                if self.watcher['git'].tasks['pull']['inprogress']:
+                    self.manager['git'].pull_state = True
+                else:
+                    self.manager['git'].pull_state = True
+                ### End workaround
                 # TEST now watcher['git'] will handle update call depending on condition 
                 # TEST Only update every 30s 
                 if self.manager['git'].update:
@@ -283,7 +302,7 @@ def main():
             except OSError as error:
                 if error.errno == errno.EPERM or error.errno == errno.EACCES:
                     logger.critical(f'Got error while making directory: \'{error.strerror}: {error.filename}\'.')
-                    logger.critical(f'Daemon is intended to be run as sudo/root.')
+                    logger.critical('Daemon is intended to be run as sudo/root.')
                     sys.exit(1)
                 else:
                     logger.critical(f'Got unexcept error while making directory: \'{error}\'.')
@@ -307,17 +326,17 @@ def main():
     
     # Init Emerge log watcher first because we need status of sync and world process 
     # this is a workaround because EmergeLogWatcher need sync['repos']['msg']
-    # so init as :
+    # so init as NOT WORKING :
     myportwatcher = EmergeLogWatcher(pathdir, runlevel, logger.level, 'repo', 
                              name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init portagemanager
-    myportmanager = PortageDbus(sync_state=myportwatcher.tasks['sync']['inprogress'],
-                                world_state=myportwatcher.tasks['sync']['inprogress'], interval=args.sync,
-                                pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
+    # BUG sharing object's attribute over multiple thread is NOT working ?
+    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
     # TEST workaround 
+    # Ok So this is NOT working (sharing object attribute over multiple thread is NOT working)
     myportwatcher.sync_msg = myportmanager.sync['repos']['msg']
-        
+    
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)
     # Get last portage package
@@ -334,9 +353,9 @@ def main():
                        daemon=True)
         
         # Init gitmanager object through GitDbus class
-        mygitmanager = GitDbus(enable=True, pull_state=mygitwatcher.tasks['pull']['inprogress'],
-                               interval=args.pull, repo=args.repo, pathdir=pathdir, runlevel=runlevel,
-                               loglevel=logger.level)
+        # Same here: sharing not working
+        mygitmanager = GitDbus(enable=True, interval=args.pull, repo=args.repo, pathdir=pathdir, 
+                               runlevel=runlevel, loglevel=logger.level)
                
         # Get running kernel
         mygitmanager.get_running_kernel()
@@ -370,7 +389,7 @@ def main():
     # Init thread
     daemon_thread = MainDaemon(manager, watcher, name='Main Daemon Thread', daemon=True)
     
-    # Start all threads and dbus
+    # Start all threads and dbus thread
     watcher['portage'].start()
     if watcher['git']:
         watcher['git'].start()

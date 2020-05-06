@@ -16,12 +16,12 @@ import re
 from argsparser import ClientParserHandler
 from utils import _format_date
 from utils import _format_timestamp
-from portageclient import portage_state_status
-from portageclient import portage_error
+from portageclient import portage_state
+#from portageclient import portage_error
 from portageclient import portage_count
 from portageclient import portage_timestamp
 from portageclient import portage_interval
-from portageclient import portage_elapse_remain
+from portageclient import portage_elapsed_remain
 from portageclient import portage_available
 from portageclient import portage_packages
 from portageclient import portage_last
@@ -51,40 +51,40 @@ error_msg = [ ]
 # see --> https://stackoverflow.com/a/10174657/11869956 thx
 #localedir = os.path.join(os.path.dirname(__file__), 'locales')
 # or python > 3.4:
-try:
-    localedir = pathlib.Path(__file__).parent/'locales'
-    lang_translations = gettext.translation('client', localedir, languages=[mylocale[0]])
-    lang_translations.install()
-    translate = True
-    _ = lang_translations.gettext
-except Exception as exc:
-    error_msg.append('Error: unexcept error while initializing translation:')
-    error_msg.append(f'Error: {exc}')
-    error_msg.append(f'Error: localedir={localedir}, languages={mylocale[0]}')
-    error_msg.append('Error: translation has been disabled.')
-    translate = False
-    _ = gettext.gettext
+#try:
+localedir = pathlib.Path(__file__).parent/'locales'    
+lang_translations = gettext.translation('client', localedir, languages=[mylocale[0]], fallback=True)
+lang_translations.install()
+translate = True
+_ = lang_translations.gettext
+#except Exception as exc:
+    #error_msg.append('Error: unexcept error while initializing translation:')
+    #error_msg.append(f'Error: {exc}')
+    #error_msg.append(f'Error: localedir={localedir}, languages={mylocale[0]}')
+    #error_msg.append('Error: translation has been disabled.')
+    #translate = False
+    #_ = gettext.gettext
 
       
 def portage_parser(args):
     """Parser for portage implentation"""
     myobject  = bus.get("net.syuppod.Manager.Portage")
     portcaller = {
-        'state'     :   { 'func' : portage_state_status, 'args' : [myobject, 'state', args.machine] },
+        'state'     :   { 'func': portage_state, 'args' : [myobject, 'state', args.machine] },
                                                                 # Attribute is 'update' not 'status'
-        'status'    :   { 'func' : portage_state_status, 'args' : [myobject, 'update', args.machine] },
-        'error'     :   { 'func' : portage_error, 'args' : [myobject, args.machine] },
-        'count'     :   { 'func' : portage_count, 'args' : [myobject, args.count, args.machine] },
-        'timestamp' :   { 'func' : portage_timestamp, 'args' : [myobject, args.timestamp, args.machine, translate] },
-        'interval'  :   { 'func' : portage_interval, 'args' : [myobject, args.interval, args.machine, translate] },
-        'elapse'    :   { 'func' : portage_elapse_remain, 'args' : [myobject, 'elapse', args.elapse, args.machine,
+        #'status'    :   { 'func' : portage_state_status, 'args' : [myobject, 'update', args.machine] },
+        #'error'     :   { 'func' : portage_error, 'args' : [myobject, args.machine] },
+        'count'     :   { 'func': portage_count, 'args' : [myobject, args.count, args.machine] },
+        'timestamp' :   { 'func': portage_timestamp, 'args' : [myobject, args.timestamp, args.machine, translate] },
+        'interval'  :   { 'func': portage_interval, 'args' : [myobject, args.interval, args.machine, translate] },
+        'elapsed'   :   { 'func': portage_elapsed_remain, 'args' : [myobject, 'elapsed', args.elapsed, args.machine,
                                                                      translate] },
-        'remain'    :   { 'func' : portage_elapse_remain, 'args' : [myobject, 'remain', args.remain, args.machine, 
+        'remain'    :   { 'func': portage_elapsed_remain, 'args' : [myobject, 'remain', args.remain, args.machine, 
                                                                      translate] },
-        'available' :   { 'func' : portage_available, 'args' : [myobject, args.available, args.machine] },
-        'packages'  :   { 'func' : portage_packages, 'args' : [myobject, args.machine] },
-        'last'      :   { 'func' : portage_last, 'args' : [myobject, args.last, args.machine, translate] },
-        'forced'    :   { 'func' : portage_forced, 'args' : [myobject, args.machine] }
+        'available' :   { 'func': portage_available, 'args' : [myobject, args.available, args.machine] },
+        'packages'  :   { 'func': portage_packages, 'args' : [myobject, args.machine] },
+        'last'      :   { 'func': portage_last, 'args' : [myobject, args.last, args.machine, translate] },
+        'forced'    :   { 'func': portage_forced, 'args' : [myobject, args.machine] }
         }
     
     for key in portcaller:

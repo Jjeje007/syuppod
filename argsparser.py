@@ -71,13 +71,13 @@ class CustomArgsCheck:
     
     def _check_args_portage_timestamp(self, timestamp):
         """Checking portage timestamp argument"""
-        pattern = re.compile(r'^date{0}$|^elapse{1}$|^unix$'.format(self.shared_date, self.shared_timestamp))
+        pattern = re.compile(r'^date{0}$|^elapsed{1}$|^unix$'.format(self.shared_date, self.shared_timestamp))
         if not pattern.match(timestamp):
-            self.parser.error(f'invalid choice: \'{timestamp}\' (choose from \'date\', \'elapse\' or \'unix\').')
+            self.parser.error(f'invalid choice: \'{timestamp}\' (choose from \'date\', \'elapsed\' or \'unix\').')
         return timestamp
     
     def _check_args_portage_elapse_remain(self, opt):
-        """Checking portage elapse or remain argument"""
+        """Checking portage elapsed or remain argument"""
         pattern = re.compile(r'^seconds$|^human{0}$'.format(self.shared_timestamp))
         if not pattern.match(opt):
             self.parser.error(f'invalid choice: \'{opt}\' (choose from \'seconds\' or \'human\').')
@@ -93,12 +93,12 @@ class CustomArgsCheck:
     
     def _check_args_portage_last(self, last):
         """Checking portage last argument"""
-        pattern = re.compile(r'^state$|^failed$|^total$|^start{0}$|^stop{0}$|^elapse{1}$|^duration{1}$'.format(
+        pattern = re.compile(r'^state$|^failed$|^total$|^start{0}$|^stop{0}$|^elapsed{1}$|^duration{1}$'.format(
                                                                                                 self.shared_date,
                                                                                                 self.shared_timestamp))
         if not pattern.match(last):
             self.parser.error(f'invalid choice: \'{last}\' (choose from \'state\', \'start\', \'stop\', \'total\' '
-                                                          f'\'failed\', \'elapse\' or \'duration\').')
+                                                          f'\'failed\', \'elapsed\' or \'duration\').')
         return last
 
 
@@ -232,11 +232,11 @@ class ClientParserHandler(CustomArgsCheck):
                                   const = 'date',
                                   type = self._check_args_portage_timestamp,
                                   help = 'Display last update timestamp. Where \'tsp\' should be one of: '
-                                  '\'date[:date_format]\', \'elapse[:elapse_format]\' or \'unix\'. '
+                                  '\'date[:date_format]\', \'elapsed[:elapsed_format]\' or \'unix\'. '
                                   '\'date\' output an formatted localized date, optionnal tweak using '
                                   '\'[:date_format]\': [:s]hort, [:m]edium, [:l]ong or [:f]ull (default: [:l]'
-                                  'ong). \'elapse\' an localized elapsed time, optional rounded and tweak using '
-                                  '\'[:elapse_format]\' (with: [:r]ounded, [:u]nrounded and [:1]-5 to choose '
+                                  'ong). \'elapsed\' an localized elapsed time, optional rounded and tweak using '
+                                  '\'[:elapsed_format]\' (with: [:r]ounded, [:u]nrounded and [:1]-5 to choose '
                                   'granularity level - this can be collapse, ex: [:r:5]). \'unix\' an unix '
                                   'timestamp. Default: \'date\' with date_format = long. ')
         portage_args.add_argument('--interval',
@@ -252,12 +252,12 @@ class ClientParserHandler(CustomArgsCheck):
                                   ' [:seconds], [:r]ounded, [:u]nrounded and [:1]-5 to choose granularity level'
                                   ' - this can be collapse, ex: [:r:5]). Default is [:r]ounded and granularity '
                                   'is [:2]. ' 'Exemple: \'display:u:3\'.' )
-        portage_args.add_argument('--elapse',
+        portage_args.add_argument('--elapsed',
                                   metavar = 'ela',
                                   nargs = '?',
                                   const = 'human:3',
                                   type = self._check_args_portage_elapse_remain,
-                                  help = 'Display elapse time since last update tree. Where \'ela\' should '
+                                  help = 'Display elapsed time since last update tree. Where \'ela\' should '
                                   'be one of: \'human\' or \'seconds\'. \'human\' output an formatted elapsed '
                                   'rounded time. Optionnal unrounded or tweak can be execute using: [:r]ounded'
                                   ', [:u]nrounded and [:1]-5 to choose granularity level - this can be collapse,'
@@ -279,11 +279,11 @@ class ClientParserHandler(CustomArgsCheck):
         portage_args.add_argument('--last',
                                   metavar = 'lst',
                                   nargs = '?',
-                                  const = 'elapse:r:2',
+                                  const = 'elapsed:r:2',
                                   type = self._check_args_portage_last,
                                   help = 'Display last world update informations. Where \'lst\' could be: '
                                   '\'state\', \'start[:date]\', \'stop[:date]\', \'total\', \'failed\', '
-                                  '\'elapse[:format]\' and \'duration[:format]\'. \'state\' could be in completed if'
+                                  '\'elapsed[:format]\' and \'duration[:format]\'. \'state\' could be in completed if'
                                   ' last world update didn\'t failed, incompleted '
                                   'if it failed and partial if it failed but the switch --keep-going was enable (so it'
                                   ' restart). \'total\' is the total package which was update. \'failed\' is  count ('
@@ -291,7 +291,7 @@ class ClientParserHandler(CustomArgsCheck):
                                   '\'[:date_format]\': [:s]hort, [:m]edium, [:l]ong or [:f]ull (default: [:l]ong). '
                                   '\'[format]\' could be: [:r]ounded, [:u]nrounded and '
                                   '[:1]-5 to choose granularity level - this can be collapse, ex: [:u:3]. Default: '
-                                  '\'elapse:r:2\'')
+                                  '\'elapsed:r:2\'')
         portage_args.add_argument('--forced',
                                   action = 'store_true',
                                   help = 'Force recalculation of the packages informations. This will run '
