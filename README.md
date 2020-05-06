@@ -35,15 +35,11 @@ whatever program (as long as it use dbus or syuppo-cli output).
 ```bash
 git clone https://github.com/Jjeje007/syuppod.git
 ```
-2. Switch to branch testing:
-```bash
-git checkout testing
-```
-3. Copy the dbus configuration file to authorize dbus request:
+2. Copy the dbus configuration file to authorize dbus request:
 ```bash
 cp syuppod.conf /usr/share/dbus-1/system.d/
 ```
-4. Install dependencies using emerge or pip.
+3. Install dependencies using emerge or pip.
 
 ### If you just want to test it:
 
@@ -91,7 +87,6 @@ This is a work in progress so i haven't yet planned to make a release.\
 The API is still in developpement and it's not yet stabilized.\
 My priority is to stabilize daemon API.
 
-
 ## Meta
 
 Venturi Jerôme – jerome.venturi@gmail.com
@@ -104,5 +99,5 @@ Please open an issue and don't forget to attach logs: stderr.log and debug.log.
 
 ## Contributing
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+Pull requests and translations are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
