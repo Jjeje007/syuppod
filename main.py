@@ -4,6 +4,8 @@
 # Starting : 2019-08-08
 
 # This is a SYnc UPdate POrtage Daemon
+# This is a GIt KErnel Updater Daemon
+# Gikeud
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
@@ -18,9 +20,6 @@ import asyncio
 import threading
 
 from portagedbus import PortageDbus
-from gitdbus import GitDbus
-from gitmanager import check_git_dir
-from gitmanager import GitWatcher
 from portagemanager import EmergeLogWatcher
 from logger import MainLoggingHandler
 from logger import RedirectFdToLogger
@@ -52,7 +51,6 @@ pathdir = {
     'debuglog'      :   '/var/log/' + prog_name + '/debug.log',
     'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
     'statelog'      :   '/var/lib/' + prog_name + '/state.info',
-    'gitlog'        :   '/var/log/' + prog_name + '/git.log', 
     # TODO TODO TODO : add a check to see if user which run the program 
     # have enough right to perform all this operations
     'synclog'       :   '/var/log/' + prog_name + '/sync.log',
@@ -60,10 +58,9 @@ pathdir = {
 }
 
 class MainDaemon(threading.Thread):
-    def __init__(self, manager, watcher, *args, **kwargs):
+    def __init__(self, myport, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.manager = manager
-        self.watcher = watcher
+        self.myport = myport
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
     
@@ -73,22 +70,22 @@ class MainDaemon(threading.Thread):
             ### Portage stuff
             # Check pending requests for 'sync'
             # TEST workaround - but it have more latency 
-            if self.watcher['portage'].tasks['world']['inprogress']:
-                self.manager['portage'].world_state = True
+            if self.myport['watcher'].tasks['world']['inprogress']:
+                self.myport['manager'].world_state = True
             else:
-                self.manager['portage'].world_state = False
-            if self.watcher['portage'].tasks['sync']['inprogress']:
-                self.manager['portage'].sync_state = True
+                self.myport['manager'].world_state = False
+            if self.myport['watcher'].tasks['sync']['inprogress']:
+                self.myport['manager'].sync_state = True
             else:
-                self.manager['portage'].sync_state = False
+                self.myport['manager'].sync_state = False
             ### End workaround
             # get sync timestamp or world pretend only if emergelog have been close_write 
             # AND if there was an sync / update / both in progress.
-            if self.watcher['portage'].tasks['sync']['requests']['pending'] \
-               and not self.watcher['portage'].tasks['sync']['inprogress']:
+            if self.myport['watcher'].tasks['sync']['requests']['pending'] \
+               and not self.myport['watcher'].tasks['sync']['inprogress']:
                 # Take a copy so you can immediatly send back what you take and 
                 # still process it here
-                sync_requests = self.watcher['portage'].tasks['sync']['requests']['pending'].copy()
+                sync_requests = self.myport['watcher'].tasks['sync']['requests']['pending'].copy()
                 msg = ''
                 if len(sync_requests) > 1:
                     msg = 's'
@@ -96,16 +93,16 @@ class MainDaemon(threading.Thread):
                              + ' (id{0}={1})'.format(msg, '|'.join(sync_requests)) 
                              + ' for sync informations.')
                 # Send reply
-                self.watcher['portage'].tasks['sync']['requests']['completed'] = sync_requests[-1]
-                self.manager['portage'].check_sync()
+                self.myport['watcher'].tasks['sync']['requests']['completed'] = sync_requests[-1]
+                self.myport['manager'].check_sync()
             # pretend running and world is running as well so call cancel
-            if self.manager['portage'].world['status'] == 'running' \
-               and self.watcher['portage'].tasks['world']['inprogress']:
-                self.manager['portage'].world['cancel'] = True
+            if self.myport['manager'].world['status'] == 'running' \
+               and self.myport['watcher'].tasks['world']['inprogress']:
+                self.myport['manager'].world['cancel'] = True
             # Check pending requests for 'world' <=> global update
-            if self.watcher['portage'].tasks['world']['requests']['pending'] \
-               and not self.watcher['portage'].tasks['world']['inprogress']:
-                world_requests = self.watcher['portage'].tasks['world']['requests']['pending'].copy()
+            if self.myport['watcher'].tasks['world']['requests']['pending'] \
+               and not self.myport['watcher'].tasks['world']['inprogress']:
+                world_requests = self.myport['watcher'].tasks['world']['requests']['pending'].copy()
                 msg = ''
                 if len(world_requests) > 1:
                     msg = 's'
@@ -113,35 +110,35 @@ class MainDaemon(threading.Thread):
                              + ' (id{0}={1})'.format(msg, '|'.join(world_requests)) 
                              + ' for global update informations.')
                 # Send reply
-                self.watcher['portage'].tasks['world']['requests']['completed'] = world_requests[-1]
+                self.myport['watcher'].tasks['world']['requests']['completed'] = world_requests[-1]
                 # Call get_last_world so we can know if world has been update and it will call pretend
-                self.manager['portage'].get_last_world_update()
+                self.myport['manager'].get_last_world_update()
             # This is the case where we want to call pretend, there is not sync and world in progress
             # and pretend is waiting and it was cancelled so recall pretend :p
-            if not self.watcher['portage'].tasks['sync']['inprogress'] \
-               and not self.watcher['portage'].tasks['world']['inprogress'] \
-               and self.manager['portage'].world['status'] == 'waiting' \
-               and self.manager['portage'].world['cancelled']:
+            if not self.myport['watcher'].tasks['sync']['inprogress'] \
+               and not self.myport['watcher'].tasks['world']['inprogress'] \
+               and self.myport['manager'].world['status'] == 'waiting' \
+               and self.myport['manager'].world['cancelled']:
                 logger.warning('Recalling package(s) update\'s search as it was cancelled.')
-                self.manager['portage'].world['pretend'] = True
-                self.manager['portage'].world['cancelled'] = False
+                self.myport['manager'].world['pretend'] = True
+                self.myport['manager'].world['cancelled'] = False
             # Every thing is OK: pretend was wanted, has been called and is completed 
-            if self.manager['portage'].world['status'] == 'completed':
+            if self.myport['manager'].world['status'] == 'completed':
                 # TEST Wait between two pretend_world() run 
-                if self.manager['portage'].world['remain'] <= 0:
+                if self.myport['manager'].world['remain'] <= 0:
                     logger.debug('Changing state for world from \'completed\' to \'waiting\'.')
                     logger.debug('pretend_world() can be call again.')
-                    self.manager['portage'].world['remain'] = self.manager['portage'].world['interval']
-                    self.manager['portage'].world['status'] = 'waiting'
+                    self.myport['manager'].world['remain'] = self.myport['manager'].world['interval']
+                    self.myport['manager'].world['status'] = 'waiting'
                 else:
-                    self.manager['portage'].world['remain'] -= 1
+                    self.myport['manager'].world['remain'] -= 1
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
-            if self.watcher['portage'].tasks['package']['requests']['pending'] \
-               and self.manager['portage'].portage['remain'] <= 0: # \
-               #and not self.watcher['portage'].tasks['sync']['inprogress'] \
-               #and not self.watcher['portage'].tasks['world']['inprogress']:
-                package_requests = self.watcher['portage'].tasks['package']['requests']['pending'].copy()
+            if self.myport['watcher'].tasks['package']['requests']['pending'] \
+               and self.myport['manager'].portage['remain'] <= 0: # \
+               #and not self.myport['watcher'].tasks['sync']['inprogress'] \
+               #and not self.myport['watcher'].tasks['world']['inprogress']:
+                package_requests = self.myport['watcher'].tasks['package']['requests']['pending'].copy()
                 msg = ''
                 if len(package_requests) > 1:
                     msg = 's'
@@ -149,24 +146,24 @@ class MainDaemon(threading.Thread):
                              + ' (id{0}={1})'.format(msg, '|'.join(package_requests)) 
                              + ' for portage\'s package update informations.')
                 # Send reply
-                self.watcher['portage'].tasks['package']['requests']['completed'] = package_requests[-1] 
+                self.myport['watcher'].tasks['package']['requests']['completed'] = package_requests[-1] 
                 # Set timer to 30s between two (group) of request  
-                self.manager['portage'].available_portage_update()
-                self.watcher['portage'].refresh_package_search_done = True
-            self.manager['portage'].portage['remain'] -= 1    
+                self.myport['manager'].available_portage_update()
+                self.myport['watcher'].refresh_package_search_done = True
+            self.myport['manager'].portage['remain'] -= 1    
             # Regular sync
-            if self.manager['portage'].sync['remain'] <= 0 and not self.manager['portage'].sync['status'] \
-               and not self.watcher['portage'].tasks['sync']['inprogress']:
+            if self.myport['manager'].sync['remain'] <= 0 and not self.myport['manager'].sync['status'] \
+               and not self.myport['watcher'].tasks['sync']['inprogress']:
                 # recompute time remain
-                if self.manager['portage'].check_sync(recompute=True):
+                if self.myport['manager'].check_sync(recompute=True):
                     # sync not blocking using asyncio and thread 
                     # this is for python 3.5+ / None -> default ThreadPoolExecutor 
                     # where max_workers = n processors * 5
                     # TODO FIXME should we need all ?
                     logger.debug('Running dosync()')
-                    self.scheduler.run_in_executor(None, self.manager['portage'].dosync, ) # -> ', )' = No args
-            self.manager['portage'].sync['remain'] -= 1  # Should be 1 second or almost ;)
-            self.manager['portage'].sync['elapsed'] += 1
+                    self.scheduler.run_in_executor(None, self.myport['manager'].dosync, ) # -> ', )' = No args
+            self.myport['manager'].sync['remain'] -= 1  # Should be 1 second or almost ;)
+            self.myport['manager'].sync['elapsed'] += 1
             # Run pretend_world() if authorized 
             # Leave other check (sync running ? pretend already running ? world update running ?)
             # to portagedbus module so it can reply to client.
@@ -174,118 +171,17 @@ class MainDaemon(threading.Thread):
             # Better to go with watcher over manager because it could be an external sync which will not be detected
             # by manager
             # Don't run pretend if world / sync in progress or if not status == 'waiting'
-            if self.manager['portage'].world['pretend'] \
-               and self.manager['portage'].world['status'] == 'waiting' \
-               and not self.watcher['portage'].tasks['sync']['inprogress'] \
-               and not self.watcher['portage'].tasks['world']['inprogress']:
-                if self.manager['portage'].world['forced']:
+            if self.myport['manager'].world['pretend'] \
+               and self.myport['manager'].world['status'] == 'waiting' \
+               and not self.myport['watcher'].tasks['sync']['inprogress'] \
+               and not self.myport['watcher'].tasks['world']['inprogress']:
+                if self.myport['manager'].world['forced']:
                     logger.warning('Forcing pretend world as requested by dbus client.')
-                    self.manager['portage'].world['forced'] = False
+                    self.myport['manager'].world['forced'] = False
                 logger.debug('Running pretend_world()')
                 # Making async and non-blocking
-                self.scheduler.run_in_executor(None, self.manager['portage'].pretend_world, ) # -> ', )' = same here
+                self.scheduler.run_in_executor(None, self.myport['manager'].pretend_world, ) # -> ', )' = same here
             
-            ### Git stuff
-            if self.manager['git'].enable:
-                # TEST workaround but it have more latency 
-                if self.watcher['git'].tasks['pull']['inprogress']:
-                    self.manager['git'].pull_state = True
-                else:
-                    self.manager['git'].pull_state = True
-                ### End workaround
-                # TEST now watcher['git'] will handle update call depending on condition 
-                # TEST Only update every 30s 
-                if self.manager['git'].update:
-                    # pull have been run, request refresh 
-                    if self.watcher['git'].tasks['pull']['requests']['pending'] \
-                       and not self.manager['git'].pull['status'] \
-                       and not self.watcher['git'].tasks['pull']['inprogress'] \
-                       and not self.watcher['git'].repo_read:
-                        # Wait until there is nothing more to read (so pack all the request together)
-                        # TODO we could wait 10s before processing ? (so make sure every thing is packed)
-                        # Any way this have to be more TEST-ed
-                        # Ok enumerate request(s) on pull and save latest
-                        # This will 'block' to the latest know request (know in main)
-                        pull_requests = self.watcher['git'].tasks['pull']['requests']['pending'].copy()
-                        msg = ''
-                        if len(pull_requests) > 1:
-                            msg = 's'
-                        logger.debug(f'Got refresh request{msg}'
-                                     + ' (id{0}={1})'.format(msg, '|'.join(pull_requests)) 
-                                     + ' for git pull informations.')
-                        # Immediatly send back latest request proceed so watcher can remove all the already proceed
-                        # requests
-                        self.watcher['git'].tasks['pull']['requests']['completed'] = pull_requests[-1]
-                        # TEST Don't recompute here
-                        self.manager['git'].pull['recompute'] = False
-                        self.manager['git'].check_pull()
-                        self.manager['git'].get_all_kernel()
-                        self.manager['git'].get_branch('remote')
-                        self.manager['git'].update = False
-                    # Other git repo related request(s)
-                    if self.watcher['git'].tasks['repo']['requests']['pending'] \
-                       and not self.watcher['git'].repo_read:
-                        # Same here as well
-                        repo_requests = self.watcher['git'].tasks['repo']['requests']['pending'].copy()
-                        msg = ''
-                        if len(repo_requests) > 1:
-                            msg = 's'
-                        logger.debug(f'Got refresh request{msg}'
-                                     + ' (id{0}={1})'.format(msg, '|'.join(repo_requests)) 
-                                     + ' for git repo informations.')
-                        # Same here send back latest request id (know here)
-                        self.watcher['git'].tasks['repo']['requests']['completed'] = repo_requests[-1]
-                        self.manager['git'].get_branch('local')
-                        self.manager['git'].get_available_update('branch')
-                        # Other wise let's modules related handle this
-                        # by using update_installed_kernel()
-                        if not self.watcher['git'].tasks['mod']['requests']['pending']:
-                            self.manager['git'].get_available_update('kernel')
-                        self.manager['git'].update = False
-                    # For '/lib/modules/' related request (installed kernel)
-                    if self.watcher['git'].tasks['mod']['requests']['pending'] \
-                       and not self.watcher['git'].mod_read:
-                        # Also here
-                        mod_requests = self.watcher['git'].tasks['mod']['requests']['pending'].copy()
-                        msg = ''
-                        if len(mod_requests) > 1:
-                            msg = 's'
-                        logger.debug(f'Got refresh request{msg}'
-                                     + ' (id{0}={1})'.format(msg, '|'.join(mod_requests)) 
-                                     + ' for modules informations.')
-                        if self.watcher['git'].tasks['mod']['created']:
-                            logger.debug('Found created: {0}'.format(' '.join(
-                                                             self.watcher['git'].tasks['mod']['created'])))
-                        if self.watcher['git'].tasks['mod']['deleted']:
-                            logger.debug('Found deleted: {0}'.format(' '.join(
-                                                             self.watcher['git'].tasks['mod']['deleted'])))
-                        # Any way pass every thing to update_installed_kernel()
-                        self.manager['git'].update_installed_kernel(
-                                                    deleted=self.watcher['git'].tasks['mod']['deleted'],
-                                                    added=self.watcher['git'].tasks['mod']['created'])
-                        # Wait until update_installed_kernel() otherwise watcher will erase 'deleted' and
-                        # 'created'...
-                        self.watcher['git'].tasks['mod']['requests']['completed'] = mod_requests[-1]
-                        self.manager['git'].get_available_update('kernel')
-                        self.manager['git'].update = False
-                else:
-                    if self.manager['git'].remain <= 0:
-                        # TODO : lower  this to have more sensibility ?
-                        self.manager['git'].remain = 30
-                        self.manager['git'].update = True
-                    self.manager['git'].remain -= 1
-                # pull
-                if self.manager['git'].pull['remain'] <= 0 and not self.manager['git'].pull['status'] \
-                   and not self.watcher['git'].tasks['pull']['inprogress']:
-                    # TEST recompute here
-                    self.manager['git'].pull['recompute'] = True
-                    # Is an external git command in progress ? / recompute remain / bypass if network problem
-                    if self.manager['git'].check_pull():
-                        # Pull async and non blocking 
-                        self.scheduler.run_in_executor(None, self.manager['git'].dopull, ) # -> ', )' = same here
-                self.manager['git'].pull['remain'] -= 1
-                self.manager['git'].pull['elapsed'] += 1
-                
             time.sleep(1)
 
 
@@ -318,12 +214,6 @@ def main():
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
     
-    # Init manager
-    manager = { }
-    
-    # Init watcher
-    watcher = { }
-    
     # Init Emerge log watcher first because we need status of sync and world process 
     # this is a workaround because EmergeLogWatcher need sync['repos']['msg']
     # so init as NOT WORKING :
@@ -344,63 +234,28 @@ def main():
     myportmanager.available_portage_update()
     # Same here: Check if global update has been run 
     myportmanager.get_last_world_update()
-               
-    if args.git:
-        logger.debug('Git kernel tracking has been enable.')
-        
-        # Init git watcher first so we can get pull (external) running status
-        mygitwatcher = GitWatcher(pathdir, runlevel, logger.level, args.repo, name='Git Watcher Daemon',
-                       daemon=True)
-        
-        # Init gitmanager object through GitDbus class
-        # Same here: sharing not working
-        mygitmanager = GitDbus(enable=True, interval=args.pull, repo=args.repo, pathdir=pathdir, 
-                               runlevel=runlevel, loglevel=logger.level)
-               
-        # Get running kernel
-        mygitmanager.get_running_kernel()
-        
-        # Update all attributes
-        # Recompute enable
-        mygitmanager.pull['recompute'] = True
-        mygitmanager.check_pull(init_run=True) # We need this to print logger.info only one time
-        mygitmanager.get_installed_kernel()
-        mygitmanager.get_all_kernel()
-        mygitmanager.get_available_update('kernel')
-        mygitmanager.get_branch('all')
-        mygitmanager.get_available_update('branch')       
-    else:
-        # Init only logger TEST needed for logging process 
-        mygitmanager = GitDbus(enable=False, pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
-        mygitwatcher = False
     
-    # Adding objects to manager
-    manager['git'] = mygitmanager
-    manager['portage'] = myportmanager
+    # Adding objet to manager
+    myport = { }
+    myport['manager'] = myportmanager
     
-    # Adding objects to watcher
-    watcher['portage'] = myportwatcher
-    watcher['git'] = mygitwatcher
+    # Adding object to watcher
+    myport['watcher'] = myportwatcher
     
     # Adding dbus publishers
-    dbus_session.publish('net.syuppod.Manager.Git', mygitmanager)
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
         
     # Init thread
-    daemon_thread = MainDaemon(manager, watcher, name='Main Daemon Thread', daemon=True)
+    daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
     
     # Start all threads and dbus thread
-    watcher['portage'].start()
-    if watcher['git']:
-        watcher['git'].start()
+    myport['watcher'].start()
     daemon_thread.start()
     dbusloop.run()
     
     daemon_thread.join()
-    watcher['portage'].join()
-    if watcher['git']:
-        watcher['git'].join()
-       
+    myport['watcher'].join()
+           
     
 if __name__ == '__main__':
 

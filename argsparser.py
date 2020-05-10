@@ -6,7 +6,6 @@
 import re
 import argparse
 import sys
-from gitmanager import check_git_dir
 
 # TODO: add --dry-run opt to not write to statefile 
 # TODO  argcomplete --> https://github.com/kislyuk/argcomplete
@@ -50,17 +49,6 @@ class CustomArgsCheck:
         if converted < 86400:
             self.parser.error(f'Interval \'{interval}\' too small: minimum is 24 hours / 1 day !')
         return converted
-        
-    def _check_args_git(self):
-        """Checking git directory args"""
-        mygitdir = check_git_dir(self.args.repo)
-        if not mygitdir[0]:
-            if mygitdir[1] == 'dir':
-                self.parser.error(f'\'{self.args.repo}\' is not a valid path !')
-            elif mygitdir[1] == 'read':
-                self.parser.error(f'\'{self.args.repo}\' is not a readable dir !')
-            elif mygitdir[1] == 'git':
-                self.parser.error(f'\'{self.args.repo}\' is not a valid git repo !')
     
     def _check_args_portage_count(self, count):
         """Checking portage count argument"""
@@ -93,9 +81,9 @@ class CustomArgsCheck:
     
     def _check_args_portage_last(self, last):
         """Checking portage last argument"""
-        pattern = re.compile(r'^state$|^failed$|^total$|^start{0}$|^stop{0}$|^elapsed{1}$|^duration{1}$'.format(
-                                                                                                self.shared_date,
-                                                                                                self.shared_timestamp))
+        pattern = re.compile(r'^state$|^failed$|^total$|'
+                             r'^start{0}$|^stop{0}$|'.format(self.shared_date)
+                             + r'^elapsed{0}$|^duration{0}$'.format(self.shared_timestamp))
         if not pattern.match(last):
             self.parser.error(f'invalid choice: \'{last}\' (choose from \'state\', \'start\', \'stop\', \'total\' '
                                                           f'\'failed\', \'elapsed\' or \'duration\').')
@@ -107,10 +95,12 @@ class DaemonParserHandler(CustomArgsCheck):
     def __init__(self, pathdir, version):
         prog = 'syuppod'
         self.pathdir = pathdir
-        self.parser = argparse.ArgumentParser(description='Daemon which automate git kernel update.' 
-                                     + ' Auto update portage tree and pretend world update for gentoo portage package manager.', 
-                                     epilog='By default, %(prog)s will start in log level \'info\'. Interactive mode: log to terminal. Init mode: log to system log, debug to \'{0}\' and stderr to \'{1}\'.'.format(self.pathdir['debuglog'],
-                                     self.pathdir['fdlog']))
+        self.parser = argparse.ArgumentParser(description='Daemon which auto update portage tree' 
+                                              ' and pretend world update for gentoo portage package manager.', 
+                                              epilog='By default, %(prog)s will start in log level \'info\'.' 
+                                              ' Interactive mode: log to terminal. Init mode: log to system' 
+                                              ' log, debug to \'{0}\''.format(self.pathdir['debuglog']) 
+                                              + ' and stderr to \'{0}\'.'.format(self.pathdir['fdlog']))
         # Optionnal arguments 
         # Changing title to reflect other title 
         # thx --> https://stackoverflow.com/a/16981688/11869956
@@ -118,8 +108,9 @@ class DaemonParserHandler(CustomArgsCheck):
         self.parser.add_argument('-v', 
                             '--version', 
                             action = 'version', 
-                            version = '%(prog)s: version ' + version + 
-                            ' - Copyright (C) 2019-2020 Jérôme Venturi, <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
+                            version = '%(prog)s: version ' + version 
+                            + ' - Copyright (C) 2019-2020 Jérôme Venturi,' 
+                            ' <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
         # Logging Options
         log_arg = self.parser.add_argument_group('<log options>')
         log_arg.add_argument('-d', 
@@ -130,23 +121,6 @@ class DaemonParserHandler(CustomArgsCheck):
                         '--quiet', 
                         help = 'start daemon in log level \'quiet\'.', 
                         action = 'store_true')
-        # Git Options
-        git_arg = self.parser.add_argument_group('<git options>')
-        git_arg.add_argument('-g', 
-                        '--git', 
-                        help = 'enable git kernel tracking.', 
-                        action = 'store_true')
-        git_arg.add_argument('-r', 
-                        '--repo', 
-                        help = 'specify git kernel \'dir\' (default=\'/usr/src/linux\').',
-                        default = '/usr/src/linux', 
-                        metavar = 'dir')
-        git_arg.add_argument('-p', 
-                        '--pull', 
-                        help = 'pull interval. Where \'int\' should be this form: 1w = 1 week, 1d = 1 day and 1h = 1 hour. Can be add together, for exemple: 2w1d12h, 2d1h... Minimum is 1d (1 day) and default is 1w (1 week).',
-                        default = 604800,
-                        type=self._check_args_interval,
-                        metavar = 'int')
         # Portage Options
         portage_arg = self.parser.add_argument_group('<portage options>')
         portage_arg.add_argument('-s',
@@ -158,8 +132,6 @@ class DaemonParserHandler(CustomArgsCheck):
     
     def parsing(self):
         self.args = self.parser.parse_args()
-        if self.args.git:
-            self._check_args_git()
         return self.args
 
 # TODO : Interactive shell  : https://code-maven.com/interactive-shell-with-cmd-in-python
@@ -186,12 +158,11 @@ class ClientParserHandler(CustomArgsCheck):
                                  '--quiet',
                                  action = 'store_true',
                                  help = 'disable error messages.')
-        
+        ## TODO ## TODO
         self.parser._optionals.title = '<optional arguments>'
         # Add subparsers
         subparsers = self.parser.add_subparsers(title = '<valid subcommands>',
                                                 dest = 'subparser_name')
-                                               #description='This is a description')
         ## Portagedbus options
         self.portage_parser = subparsers.add_parser('portage', 
                                                help = 'portage implantation.')

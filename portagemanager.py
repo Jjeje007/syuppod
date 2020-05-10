@@ -62,8 +62,8 @@ class PortageHandler:
         self.logger.setLevel(kwargs['loglevel'])
         # Init save/load info file
         self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level)
-        # Init Class UpdateInProgress
-        self.update_inprogress = UpdateInProgress(self.logger)
+        #Init Class UpdateInProgress
+        #self.update_inprogress = UpdateInProgress(self.logger)
         # Remain for check_sync()
         # This avoid at maximum parsing emerge.log twice at the same time
         self.remain = 31
@@ -71,16 +71,14 @@ class PortageHandler:
         self.sync = {
             'status'        :   False, # True when running / False when not
             'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
-            #'recompute_done':   False, # True when recompute already done / False when not
-                                       # reset in method dosync()
             'network_error' :   int(self.stateinfo.load('sync network_error')),
             'retry'         :   int(self.stateinfo.load('sync retry')),
             'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
-            'global_count'         :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
+            'global_count'  :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
                                                                           # int' or vice versa
             'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
             'interval'      :   kwargs['interval'],
-            'elapsed'        :   0,
+            'elapsed'       :   0,
             'remain'        :   0,
             'session_count' :   0,   # Counting sync count since running (current session)
             'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
@@ -680,12 +678,17 @@ class PortageHandler:
         """Check if an update to portage is available"""
         # TODO: be more verbose for debug !
         # TODO save only version 
+        # TODO this have to be more tested 
         # Change name of the logger
         self.logger.name = f'{self.logger_name}available_portage_update::'
         # Reset remain here as we return depending of the situation
         self.portage['remain'] = 30
         
         self.available = False
+        self.latest = False
+        self.current = False
+        latest_version = False
+        current_version = False
         # This mean first run ever / or reset statefile 
         if self.portage['current'] == '0.0' and self.portage['latest'] == '0.0':
             # Return list any way, see --> https://dev.gentoo.org/~zmedico/portage/doc/api/portage.dbapi-pysrc.html 
@@ -798,12 +801,15 @@ class PortageHandler:
                     self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
                     # This print if there a new version of portage available
                     # even if there is already an older version available
-                    if key == 'latest' and self.portage['logflow']:
+                    # TEST
+                    if key == 'latest' and self.portage['logflow'] and latest_version:
                         self.logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
                         
       
     def _get_repositories(self):
-        """Get repos informations and return formatted"""
+        """
+        Get repos informations and return formatted
+        """
         self.logger.name = f'{self.logger_name}_get_repositories::'
         names = portdbapi().getRepositories()
         if names:
@@ -1528,14 +1534,6 @@ class EmergeLogWatcher(threading.Thread):
         self.logger.setLevel(loglevel)
         # Init Class UpdateInProgress
         self.update_inprogress = UpdateInProgress(self.logger)
-        #self.update_inprogress_sync = False
-        #self.refresh_sync = False
-        #self.refresh_sync_done = False
-        #self.update_inprogress_world = False
-        #self.refresh_world = False
-        #self.refresh_world_done = False
-        #self.refresh_package_search = False
-        #self.refresh_package_search_done = False
         self.tasks = {
             'sync'  : {
                     'inprogress'    :   False,

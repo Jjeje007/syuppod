@@ -17,7 +17,6 @@ from argsparser import ClientParserHandler
 from utils import _format_date
 from utils import _format_timestamp
 from portageclient import portage_state
-#from portageclient import portage_error
 from portageclient import portage_count
 from portageclient import portage_timestamp
 from portageclient import portage_interval
@@ -26,9 +25,6 @@ from portageclient import portage_available
 from portageclient import portage_packages
 from portageclient import portage_last
 from portageclient import portage_forced
-
-from gitclient import git_available_version
-from gitclient import reset_pull_error
 
 try:
     from pydbus import SystemBus
@@ -97,18 +93,6 @@ def portage_parser(args):
             portcaller[key]['func'](*portcaller[key]['args'])
 
 
-def git_parser(args):
-    """Parser for git implentation"""
-    myobject  = bus.get("net.syuppod.Manager.Git")
-    gitcaller = {
-        'available'  :   { 'func' : git_available_version, 'args' : [myobject, args.available, args.machine]},
-        'reset'      :   { 'func' : reset_pull_error, 'args' : [myobject, args.machine ] }
-        }
-    
-    for key in gitcaller:
-        if getattr(args, key):
-            gitcaller[key]['func'](*gitcaller[key]['args'])
-
 
 ### MAIN ###
 myargsparser = ClientParserHandler(version='dev')
@@ -116,8 +100,7 @@ args = myargsparser.parsing()
 
 # Caller for subcomand
 mycall = { 'portage'    :   portage_parser,
-           'git'        :   git_parser
-           }
+        }
 
 # Print errors if not -q
 if not args.quiet:
