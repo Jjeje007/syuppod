@@ -149,25 +149,14 @@ class ClientParserHandler(CustomArgsCheck):
                                 '--version', 
                                 action = 'version', 
                                 version = '%(prog)s: version ' + version + 
-                                ' - Copyright (C) 2019 Jérôme Venturi, <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
+                                ' - Copyright (C) 2019-2020 Jérôme Venturi,' 
+                                ' <jerome dot venturi at gmail dot com> - License: GNU/GPL V3.')
         self.parser.add_argument('-m',
                                  '--machine',
                                  action = 'store_true',
                                  help = 'display output to machine language.')
-        self.parser.add_argument('-q',
-                                 '--quiet',
-                                 action = 'store_true',
-                                 help = 'disable error messages.')
-        ## TODO ## TODO
         self.parser._optionals.title = '<optional arguments>'
-        # Add subparsers
-        subparsers = self.parser.add_subparsers(title = '<valid subcommands>',
-                                                dest = 'subparser_name')
-        ## Portagedbus options
-        self.portage_parser = subparsers.add_parser('portage', 
-                                               help = 'portage implantation.')
-        self.portage_parser._optionals.title = '<optional arguments>'        
-        portage_args   = self.portage_parser.add_argument_group('<portage options>')
+        portage_args   = self.parser.add_argument_group('<portage options>')
         portage_args.add_argument('--state',
                                   action = 'store_true',
                                   help = 'Display state of the last update tree.')
@@ -272,42 +261,17 @@ class ClientParserHandler(CustomArgsCheck):
         portage_args.add_argument('--all',
                                   action = 'store_true',
                                   help='Display all the informations in one time with defaults options.')
-
-        ## Gitdbus options
-        self.git_parser = subparsers.add_parser('git',
-                                           help='git implantation.')
-        git_args = self.git_parser.add_argument_group('<Git options>')
-        git_args.add_argument('--available',
-                              metavar = 'avl',
-                              choices = ['branch', 'kernel'],
-                              help = 'Display available \'kernel\' or \'branch\' update.')
-        git_args.add_argument('--reset',
-                              action = 'store_true',
-                              help = 'Reset pull error so daemon can resume is operation and forced pull.')
-        
         
     def parsing(self):
         args = self.parser.parse_args()
-        # Print general help if no arg has been given
-        if not args.subparser_name:
-            self.parser.print_help(file=sys.stderr)
-            self.parser.exit(status=1)
-        # Check if we have args for selected subcommand
+        # Print usage if no arg has been given
         noarg = True
         for arg in vars(args):
-            # Pass for subparser_name as it will be always defined - at this point 
-            if arg == 'subparser_name':
-                continue
             if getattr(args, arg):
                 noarg = False
                 break
-        # Print help if no arg has been give for the selected subcommand
-        subparser = { 
-                    'portage'   :   self.portage_parser,
-                    'git'       :   self.git_parser
-                    }
         if noarg:
-            getattr(subparser[args.subparser_name], 'print_help')()
+            self.parser.print_usage(file=sys.stderr)
             self.parser.exit(status=1)
         # everything is ok ;)
         return args

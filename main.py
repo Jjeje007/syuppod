@@ -45,6 +45,7 @@ prog_name = 'syuppod'
 
 pathdir = {
     'prog_name'     :   prog_name,
+    'prog_version'  :   __version__,
     'basedir'       :   '/var/lib/' + prog_name,
     'logdir'        :   '/var/log/' + prog_name,
     'emergelog'     :   '/var/log/emerge.log',
@@ -205,10 +206,10 @@ def main():
                     sys.exit(1)
        
     # Init StateInfo
-    mystateinfo = StateInfo(pathdir, runlevel, logger.level)
+    #mystateinfo = StateInfo(pathdir, runlevel, logger.level)
     
     # Check state file
-    mystateinfo.config()
+    #mystateinfo.config()
         
     # Init dbus service
     dbusloop = GLib.MainLoop()

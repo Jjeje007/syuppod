@@ -60,10 +60,32 @@ class PortageHandler:
                                                self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
         self.logger.setLevel(kwargs['loglevel'])
-        # Init save/load info file
-        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level)
-        #Init Class UpdateInProgress
-        #self.update_inprogress = UpdateInProgress(self.logger)
+        # Init save/load info file 
+        # Default opts for state file
+        self.stateopts = (
+            '# Wrote by {0} version {1}:'.format(self.pathdir['prog_name'], self.pathdir['prog_version']), 
+            '# Sync Opts:',
+            'sync count: 0',
+            'sync state: never sync',
+            'sync network_error: 0',
+            'sync retry: 0',
+            'sync update: unknow',
+            'sync timestamp: 0',
+            '# World Opts:',
+            'world packages: 0',
+            'world last start: 0',
+            'world last stop: 0',
+            'world last state: unknow',
+            'world last total: 0',
+            'world last failed: 0',
+            '# Portage Opts',
+            'portage available: False',
+            'portage current: 0.0',
+            'portage latest: 0.0'
+            )
+        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, self.stateopts)
+        #  TEST moving check from main
+        self.stateinfo.config()
         # Remain for check_sync()
         # This avoid at maximum parsing emerge.log twice at the same time
         self.remain = 31
@@ -705,15 +727,17 @@ class PortageHandler:
             if self.latest == self.portage['current']:
                 mysplit = pkgsplit(self.latest)
                 if not mysplit[2] == 'r0':
-                    myversion = '-'.join(mysplit[-2:])
+                    current_version = '-'.join(mysplit[-2:])
                 else:
-                    myversion = mysplit[1]
-                self.logger.debug(f'No update to portage package is available (current version: {myversion})')
+                    current_version = mysplit[1]
+                self.logger.debug('No update to portage package is available' 
+                                 + f' (current version: {current_version})')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
                 if self.portage['available'] == 'True':
                         self.portage['available'] = False
-                        self.stateinfo.save('portage available', 'portage available: ' + str(self.portage['available']))
+                        self.stateinfo.save('portage available', 'portage available: '
+                                            + str(self.portage['available']))
                 # Just make sure that self.portage['latest'] is also the same
                 if self.latest == self.portage['latest']:
                     # Don't need to update any thing 
@@ -742,26 +766,24 @@ class PortageHandler:
         # 1 if pkg1 is greater than pkg2
         # -1 if pkg1 is less than pkg2
         # 0 if pkg1 equals pkg2
-        
         self.current = portage_list[0]
         self.result = pkgcmp(pkgsplit(self.latest),pkgsplit(self.current))
         
         if self.result == None or self.result == -1:
             if not self.result:
-                self.logger.error('Got no result when comparing latest available with installed portage package version.')
+                self.logger.error('Got no result when comparing latest' 
+                                + ' available with installed portage package version.')
             else:
-                self.logger.error('Got unexcept result when comparing latest available with installed portage package version.')
-                self.logger.error('Result indicate that the latest available portage package version is lower than the installed one...')
+                self.logger.error('Got unexcept result when comparing latest' 
+                                + ' available with installed portage package version.')
+                self.logger.error('Result indicate that the latest available' 
+                                + ' portage package version is lower than the installed one...')
             
             self.logger.error(f'Installed portage: \'{self.current}\', latest: \'{self.latest}\'.')
             if len(portage_list) > 1:
-                self.logger.error('As we got more than one result when querying portage db for installed portage package,')
-                self.logger.error('this could explain strange result.')
-            # TODO: Should we reset all attributes ?
-            # Ok reset logflow to try to fix bug :
-            # 2020-04-15 09:55:38    File "/data/01/src/syuppod/portagemanager.py", line 820, in available_portage_update
-            # 2020-04-15 09:55:38      self.logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
-            # 2020-04-15 09:55:38  UnboundLocalError: local variable 'latest_version' referenced before assignment
+                self.logger.error('As we got more than one result when querying' 
+                                + ' portage db for installed portage package.')
+                self.logger.error('This could explain strange result.')
             self.portage['logflow'] = False
             return False
         else:
@@ -789,7 +811,8 @@ class PortageHandler:
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
-                self.logger.debug(f'No update to portage package is available (current version: {current_version})')
+                self.logger.debug('No update to portage package is available' 
+                                  + f' (current version: {current_version})')
                 self.available = False
             
             # Update only if change
@@ -803,7 +826,8 @@ class PortageHandler:
                     # even if there is already an older version available
                     # TEST
                     if key == 'latest' and self.portage['logflow'] and latest_version:
-                        self.logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+                        self.logger.info('Found an update to portage' 
+                                      + f' (from {current_version} to {latest_version}).')
                         
       
     def _get_repositories(self):
