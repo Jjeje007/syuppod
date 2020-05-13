@@ -60,18 +60,20 @@ class PortageHandler:
                                                self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
         self.logger.setLevel(kwargs['loglevel'])
+        
         # Init save/load info file 
         # Default opts for state file
         self.stateopts = (
-            '# Wrote by {0} version {1}:'.format(self.pathdir['prog_name'], self.pathdir['prog_version']), 
-            '# Sync Opts:',
+            '# Wrote by {0} version: {1}'.format(self.pathdir['prog_name'], self.pathdir['prog_version']),
+            '# Please don\'t edit this file.',
+            '# Sync Opts',
             'sync count: 0',
             'sync state: never sync',
             'sync network_error: 0',
             'sync retry: 0',
             'sync update: unknow',
             'sync timestamp: 0',
-            '# World Opts:',
+            '# World Opts',
             'world packages: 0',
             'world last start: 0',
             'world last stop: 0',
@@ -84,11 +86,8 @@ class PortageHandler:
             'portage latest: 0.0'
             )
         self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, self.stateopts)
-        #  TEST moving check from main
-        self.stateinfo.config()
-        # Remain for check_sync()
-        # This avoid at maximum parsing emerge.log twice at the same time
-        self.remain = 31
+        self.stateinfo.config()     # TEST-ing 
+        
         # Sync attributes
         self.sync = {
             'status'        :   False, # True when running / False when not

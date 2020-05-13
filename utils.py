@@ -51,8 +51,12 @@ class StateInfo:
                                         self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(mainlogger, runlevel)()
         self.logger.setLevel(loglevel)
-        # Load opts
+        # Load factory opts
         self.stateopts = stateopts
+        # Re(s) for search over option
+        # so normal_opt match everything except line starting with #
+        self.normal_opt = re.compile(r'^(?!#)(.*:\s)(.*)$')
+        self.hashtag_opt = re.compile(r'^(#.*)$')
     
     
     def config(self):
@@ -61,12 +65,13 @@ class StateInfo:
         
         try:
             if not pathlib.Path(self.pathdir['statelog']).is_file():
-                # If new file, factory info
+                # If new file, factory options
                 self.logger.debug('Creating state file: \'{0}\'.'.format(self.pathdir['statelog']))
                 with pathlib.Path(self.pathdir['statelog']).open(mode='w') as mystatefile:
                     for option in self.stateopts:
                         self.logger.debug(f'Adding default option: \'{option}\'.')
                         mystatefile.write(option + '\n')
+                return
             else:
                 self.logger.debug('Inspecting state file: {0}'.format(self.pathdir['statelog']))
                 with pathlib.Path(self.pathdir['statelog']).open(mode='r') as mystatefile:
@@ -84,77 +89,123 @@ class StateInfo:
             self.logger.critical('Exiting with status \'1\'.')
             sys.exit(1)  
         
-        regex = re.compile(r'^(.*):.*$')
+        # this will definied if we need to rewrite statefile or not
+        changed = False
         
-        ischanged = False
-        self.overwritten = [ ]
-                    
-        # Check if options from self.stateopts list is found in current statefile list
+        # First remove wrong opt
+        index = 0
+        for item in statefile[:]:
+            found = False
+            myre = False
+            re_ref = False
+            if self.hashtag_opt.match(item):
+                re_ref = 'hashtag_opt'
+            elif self.normal_opt.match(item):
+                re_ref = 'normal_opt'
+            else:
+                # So item is wrong anyway ?
+                self.logger.debug('Line {0}:'.format(index+1) 
+                                  + f' \'{item}\' didn\'t' 
+                                  + ' match any filters.')
+                # 'jump' streight to remove
+                re_ref = False
+                
+            if re_ref:
+                myre = getattr(self, re_ref)
+                for option in self.stateopts:
+                    if myre.match(option):
+                        if myre.match(item).group(1) == myre.match(option).group(1):
+                            found = True
+                            break
+            if not found:
+                self.logger.debug('Removing wrong option (line {0}):'.format(index+1)
+                                      + f' \'{item}\'.')
+                del statefile[index]
+                # So remove 1 to index
+                index -= 1
+            # Add one to index
+            index += 1
+        
+        
+        # Check duplicate / merge options
         for option in self.stateopts:
+            # Here we can use index() because there is no duplicate
             index = self.stateopts.index(option)
-            isfound = False
+            found = False
+            haschanged = False
+            filtered_option = False
+            filtered_statefile = False
             try:
-                if regex.match(option).group(1) == regex.match(statefile[index]).group(1):
+                # Get current option filtered
+                # Set re_ref using option filtered
+                if self.hashtag_opt.match(option):
+                    filtered_option = self.hashtag_opt.match(option).group(1)
+                    re_ref = 'hashtag_opt'
+                elif self.normal_opt.match(option):
+                    filtered_option = self.normal_opt.match(option).group(1)
+                    re_ref = 'normal_opt'
+                # Get current statefile filtered
+                if self.hashtag_opt.match(statefile[index]):
+                    filtered_statefile = self.hashtag_opt.match(statefile[index]).group(1)
+                elif self.normal_opt.match(statefile[index]):
+                    filtered_statefile = self.normal_opt.match(statefile[index]).group(1)
+            except AttributeError as error:
+                # This should't arrived
+                # TODO remove ?
+                if len(statefile) < index+1:
+                    self.logger.debug('Got unexcept AttributeError on statefile line' 
+                                      + ' {0}: out of range.'.format(index+1)
+                                      + f' (option searched: {option}).')
+                else:
+                    self.logger.debug('Got unexcept AttributeError on statefile line' 
+                                      + ' {0}: \'{1}\''.format(index+1, statefile[index])
+                                      + f' (option searched: \'{option}\').')
+            except IndexError as error:
+                # Ok so this mean end of line for statefile (no more option)
+                # so let 'found' do the job
+                self.logger.debug(f'Got IndexError, missing option: \'{option}\'.')
+                # Reset filtered_statefile so go straight to not found
+                filtered_statefile = False
+            
+            if filtered_option and filtered_statefile:
+                if filtered_option == filtered_statefile:
                     self.logger.debug('Found option' 
-                                      + ' (line={0}):'.format(index+1) 
+                                      + ' (line {0}):'.format(index+1) 
                                       + ' \'{0}\'.'.format(statefile[index]))
-                    isfound = True
+                    found = True
                     # Even we found item and in the right place make sure threre is no duplicate
-                    (founded, haschanged, statefile) = self._search_opt(option, statefile, index, opt_founded=statefile[index])
+                    (duplicate, haschanged, statefile) = self._search_opt(option, statefile, index,
+                                                                        re_ref, founded_opt=statefile[index])
                     self.logger.name = f'{self.logger_name}config::'
-                    if founded:
-                        self.logger.debug(f'Merging founded option \'{option}\''
-                                          + ' (line={0}, overwritten={1})'.format(index+1, statefile[index])
-                                          + f' with greater/newer value: \'{founded}\'')
-                        statefile[index] = founded
-                    if haschanged:
-                        ischanged = True
+                    if duplicate:
+                        self.logger.debug(f'Merging option \'{option}\''
+                                          + ' (line {0}, overwritten \'{1}\')'.format(index+1, statefile[index])
+                                          + f' with greater/newer value: \'{duplicate}\'.')
+                        statefile[index] = duplicate
                 else:
                     # Search over statefile list
-                    (founded, haschanged, statefile) = self._search_opt(option, statefile, index)
+                    (duplicate, haschanged, statefile) = self._search_opt(option, statefile, index, re_ref)
                     self.logger.name = f'{self.logger_name}config::'
-                    if founded:
-                        self.logger.debug('Moving founded option' 
-                                          + f' \'{founded}\''
-                                          + ' to line: {0}'.format(index+1))
-                        isfound = True
-                        statefile.insert(index, founded)
-                    if haschanged:
-                        ischanged = True
-            except AttributeError as error:
-                # Same here as well
-                self.logger.name = f'{self.logger_name}config::'
-                self.logger.debug(f'Got unexcept AttributeError: {error}')
-                # TODO TEST skip ??
-                continue
-            except IndexError as error:
-                # This mean end of stateopts list, just pass and let not isfound doing the job
-                self.logger.debug('Got IndexError when inspecting line \'{0}\''.format(index+1)
-                                  + f' for option: {option}')
-                self.logger.debug(f'Error is: {error}')
-                pass
+                    if duplicate:
+                        self.logger.debug('Moving option' 
+                                           + f' \'{duplicate}\''
+                                           + ' to line {0}.'.format(index+1))
+                        found = True
+                        statefile.insert(index, duplicate)
+                # something changes during this loop
+                if haschanged:
+                    changed = True
                 
             # Ok so option have not been found
-            if not isfound:
+            if not found:
                 self.logger.debug('Will write new option'
-                                   + ' (line={0})'.format(index+1)
+                                   + ' (line {0}):'.format(index+1)
                                    + f' \'{option}\'.')
                 statefile.insert(index, option)
-                ischanged = True
-                    
-        # Make sure there is no other line
-        if len(statefile) > len(self.stateopts):
-            line = len(self.stateopts) + 1
-            for item in statefile[len(self.stateopts):len(statefile)]:
-                index = statefile.index(item)
-                self.logger.debug('Will remove wrong option'
-                                   + f' (line={line}): \'{item}\'.')
-                del statefile[index]
-                ischanged = True
-                line += 1
-                    
+                changed = True
+                
         # Erase file and rewrite only if needed
-        if ischanged:
+        if changed:
             try:
                 with pathlib.Path(self.pathdir['statelog']).open(mode='r+') as mystatefile:
                     mystatefile.seek(0)
@@ -211,7 +262,7 @@ class StateInfo:
         
         self.logger.name = f'{self.logger_name}load::'
         
-        regex = re.compile(r'^' + pattern + r':.(.*)$')
+        regex = re.compile(r'^' + pattern + r':\s(.*)$')
         
         try:
             with pathlib.Path(self.pathdir['statelog']).open() as mystatefile: 
@@ -226,7 +277,7 @@ class StateInfo:
             sys.exit(1)
    
    
-    def _compare_version(self, opt1, opt2):
+    def _compare_version(self, opt1, opt2, option):
         """
         Private method to compare vars using type StrictVersion()
         """
@@ -235,22 +286,21 @@ class StateInfo:
         
         try:
             if StrictVersion(opt1) > StrictVersion(opt2):
-                self.logger.debug(f'Found opt1 ({opt1}) greater than opt2 ({opt2})')
+                self.logger.debug(f'{option} opt1 ({opt1}) greater than opt2 ({opt2})')
                 return opt1
             elif StrictVersion(opt1) < StrictVersion(opt2):
-                self.logger.debug(f'Found opt2 ({opt2}) greater than opt1 ({opt1})')
+                self.logger.debug(f'{option} opt2 ({opt2}) greater than opt1 ({opt1})')
                 return opt2
             # opt1 == opt2 so return opt1
             else:
-                self.logger.debug(f'Found opt1 ({opt1}) equal to opt2 ({opt2})')
+                self.logger.debug(f'{option} opt1 ({opt1}) equal to opt2 ({opt2})')
                 return opt1
         except ValueError as error:
-            self.logger.debug(f'comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
-            # So return False
+            self.logger.debug(f'{option} comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
             return False
     
     
-    def _compare_int(self, opt1, opt2):
+    def _compare_int(self, opt1, opt2, option):
         """
         Private method to compare vars using type int()
         """
@@ -259,103 +309,135 @@ class StateInfo:
         
         try:
             if int(opt1) > int(opt2):
-                self.logger.debug(f'Found opt1 ({opt1}) greater than opt2 ({opt2})')
+                self.logger.debug(f'{option} opt1 ({opt1}) greater than opt2 ({opt2})')
                 return opt1
             elif int(opt1) < int(opt2):
-                self.logger.debug(f'Found opt2 ({opt2}) greater than opt1 ({opt1})')
+                self.logger.debug(f'{option} opt2 ({opt2}) greater than opt1 ({opt1})')
                 return opt2
             # opt1 == opt2 so return opt1
             else:
-                self.logger.debug(f'Found opt1 ({opt1}) equal to opt2 ({opt2})')
+                self.logger.debug(f'{option} opt1 ({opt1}) equal to opt2 ({opt2})')
                 return opt1
         except ValueError as error:
-            self.logger.debug(f'comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
-            # So return False
+            self.logger.debug(f'{option} comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
             return False
         
-    def _search_opt(self, opt, mylist, searched_index, opt_founded=False):
+    def _search_opt(self, searched_opt, mylist, searched_index, re_ref, founded_opt=False):
         """
-        Search over list missing and/or duplicate entry and proceed/merge.
+        Search over list missing and/or duplicate entry and compare/merge greater depending on var type.
         """
         self.logger.name = f'{self.logger_name}_search_opt::'
         
-        regex = re.compile(r'^(.*):\s*(.*)$')
-        founded = [ ]
-        if opt_founded:
-            founded.append(regex.match(opt_founded).group(2))
-        ischanged = False
-        
-        
-        for item in mylist[:]:
-            try:
-                if regex.match(opt).group(1) == regex.match(item).group(1):
-                    # So happen to founded_list and remove opt 
-                    current_index = mylist.index(item)
-                    # make sure we haven't founded the already founded or excepted
-                    # founded in the right index
-                    if not searched_index == current_index:
-                        self.logger.debug('Found option:'
-                                        + f' \'{item}\''
-                                        + ' (expected line={0},'.format(searched_index+1)
-                                        + ' found line={0}).'.format(current_index+1))
-                        # save only value !
-                        founded.append(regex.match(item).group(2))
-                        # Removing
-                        del mylist[current_index]
-                        ischanged = True
-            except AttributeError as error:
-                # This is 'normal' if option is other then 'name and more: other' 
-                # exemple 'name_other' will not match group(1) and will raise 
-                # exception AttributeError. So this mean that the option is wrong anyway.
-                current_index = mylist.index(item)
-                self.logger.debug(f'While searching for option: \'{opt}\','
-                                  + ' removing wrong option (line={0}):'.format(current_index+1)
-                                  + ' \'{0}\'.'.format(mylist[current_index]))
-                del mylist[current_index]
-                ischanged = True
-        
-        default_value = regex.match(opt).group(2)
+        # Default values
+        default_value = False
+        myre = getattr(self, re_ref)
         comparable = True
         greatest = False
-        # Ok so now, inspect founded_list
-        if founded and len(founded) > 1:
+        changed = False
+        found = [ ]
+        opt_only = myre.match(searched_opt).group(1)
+        # 'hashtag_opt' don't need to be comparable
+        # we just want to remove duplicate:
+        if not re_ref == 'hashtag_opt':
+            default_value = myre.match(searched_opt).group(2)
+            if founded_opt:
+                found.append(myre.match(founded_opt).group(2))
+        
+        index = 0
+        for item in mylist[:]:
+            filtered_item = False
+            item_value = False
+            try:
+                # Get current item filtered
+                if self.hashtag_opt.match(item):
+                    filtered_item = self.hashtag_opt.match(item).group(1)
+                elif self.normal_opt.match(item):
+                    filtered_item = self.normal_opt.match(item).group(1)
+                    item_value = self.normal_opt.match(item).group(2)
+            except AttributeError as error:
+                # This should't arrived
+                # TODO remove ??
+                self.logger.debug(f'Got unexcept AttributeError: {error}')
+                self.logger.debug('Line {0}: \'{1}\','.format(current_index+1, item)
+                                  + f' option searched: \'{searched_opt}\' and using filter: \'{re_ref}\'.')
+                
+            # make sure we compare the 'right' group (hashtag_opt vs normal_opt)
+            if opt_only == filtered_item:
+                # make sure we haven't founded the already founded (if founded_opt)
+                # or excepted founded in the right index (searched_index)
+                if not searched_index == index:
+                    # So happen value only to founded_list and remove opt
+                    # 'hashtag_opt' have no value - it have only one sub group()
+                    if re_ref == 'hashtag_opt':
+                        if not founded_opt:
+                            self.logger.debug('Found option:'
+                                       + f' \'{item}\''
+                                       + ' (expected line {0},'.format(searched_index+1)
+                                       + ' found line {0}).'.format(index+1))
+                        else:
+                            self.logger.debug('Removing duplicate option:'
+                                       + f' \'{item}\''
+                                       + ' (expected line {0},'.format(searched_index+1)
+                                       + ' duplicate at line {0}).'.format(index+1))
+                        found.append(item)
+                    else:
+                        self.logger.debug('Found option:'
+                                       + f' \'{item}\''
+                                       + ' (expected line {0},'.format(searched_index+1)
+                                       + ' found line {0}).'.format(index+1))
+                        found.append(item_value)
+                    # Removing
+                    del mylist[index]
+                    # If removing then remove 1 to index also
+                    index -= 1
+                    changed = True
+            index += 1
+            
+        # Ok so now, inspect founded_list and try to compare
+        if found and len(found) > 1 and not re_ref == 'hashtag_opt':
             greatest = default_value
-            for item in founded:
-                greater = self._compare_int(greatest, item)
+            for item in found:
+                greater = self._compare_int(greatest, item, opt_only)
                 self.logger.name = f'{self.logger_name}_search_opt::'
                 if greater:
                     greatest = greater
                 else:
-                    greater = self._compare_version(greatest, item)
+                    greater = self._compare_version(greatest, item, opt_only)
                     self.logger.name = f'{self.logger_name}_search_opt::'
                     if greater:
                         greatest = greater
                     else:
                         self.logger.debug('All check failed, data cannot be compared/merged:' 
-                                          + ' {0}'.format('|'.join(founded)))
+                                          + ' {0}'.format('|'.join(found)))
                         comparable = False
                         break
         # it's not comparable
-        if founded and len(founded) > 1 and not comparable:
-            # Try to not get default_value
+        if found and len(found) > 1 and not comparable and not re_ref == 'hashtag_opt':
+            # Try to avoid getting default_value
             greatest = default_value
-            for item in founded:
+            for item in found:
                 if not item == greatest:
                     self.logger.debug(f'Selecting: {item}' 
                                       + f' (over: default_value={default_value} and' 
-                                      + ' list={0}).'.format('|'.join(founded)))
+                                      + ' list={0}).'.format('|'.join(found)))
                     greatest = item
                     break
-        elif founded and len(founded) == 1 and not opt_founded:
+        elif found and len(found) == 1 and not founded_opt and not re_ref == 'hashtag_opt':
             # we don't care about merge because we have only one item in the list so...
-            greatest = founded[0]
-        # else: Nothing founded, keep greatest=False
+            greatest = found[0]
+        # hashtag_opt setup return only if not already found
+        if found and re_ref == 'hashtag_opt' and not founded_opt:
+            greatest = found[0]
+        # else: Nothing found, keep greatest=False
         
-        # return also ischanged because we could only founded wrong opt :p
+        # return also changed because we could only founded wrong opt :p
         if greatest:
-            # So greatest is only the value of the opt so repack
-            greatest = '{0}: {1}'.format(regex.match(opt).group(1), greatest)
-        return (greatest, ischanged, mylist)
+            # So greatest is only the value of the opt so repack 
+            # but not for hashtag_opt setup
+            # normal_opt will match ': ' so don't need to add here
+            if not re_ref == 'hashtag_opt':
+                greatest = '{0}{1}'.format(myre.match(searched_opt).group(1), greatest)
+        return (greatest, changed, mylist)
             
 
  

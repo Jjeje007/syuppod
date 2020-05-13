@@ -204,13 +204,7 @@ def main():
                 else:
                     logger.critical(f'Got unexcept error while making directory: \'{error}\'.')
                     sys.exit(1)
-       
-    # Init StateInfo
-    #mystateinfo = StateInfo(pathdir, runlevel, logger.level)
-    
-    # Check state file
-    #mystateinfo.config()
-        
+                    
     # Init dbus service
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
