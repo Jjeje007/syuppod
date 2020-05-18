@@ -13,9 +13,11 @@ import signal
 import gettext
 import locale
 
+from distutils.version import StrictVersion
+from distutils.util import strtobool
 from ctypes import cdll
 from logger import MainLoggingHandler
-from distutils.version import StrictVersion
+
 
 try:
     from babel.dates import format_datetime
@@ -37,6 +39,8 @@ lang_translations = gettext.translation('utils', localedir, languages=[mylocale[
 lang_translations.install()
 _ = lang_translations.gettext
 
+
+
 class StateInfo:
     """
     Write, edit or get info to and from state file
@@ -54,393 +58,432 @@ class StateInfo:
         # Load factory opts
         self.stateopts = stateopts
         # Re(s) for search over option
-        # so normal_opt match everything except line starting with #
-        self.normal_opt = re.compile(r'^(?!#)(.*:\s)(.*)$')
+        # so normal_opt match everything except line starting with '#'
+        self.normal_opt = re.compile(r'^(?!#)(.*):\s(.*)$')
         self.hashtag_opt = re.compile(r'^(#.*)$')
+        # Detected newfile
+        # True if newfile have been create so default opts have been 
+        # written, then don't need to load with calling self.load() just load 
+        # from stateopts directly
+        self.newfile = False
+        # Create / check statefile otps
+        self.__check_config()
     
     
-    def config(self):
-        """Create, check state file and its options"""
-        self.logger.name = f'{self.logger_name}config::'
-        
-        try:
-            if not pathlib.Path(self.pathdir['statelog']).is_file():
-                # If new file, factory options
-                self.logger.debug('Creating state file: \'{0}\'.'.format(self.pathdir['statelog']))
-                with pathlib.Path(self.pathdir['statelog']).open(mode='w') as mystatefile:
-                    for option in self.stateopts:
-                        self.logger.debug(f'Adding default option: \'{option}\'.')
-                        mystatefile.write(option + '\n')
-                return
-            else:
-                self.logger.debug('Inspecting state file: {0}'.format(self.pathdir['statelog']))
-                with pathlib.Path(self.pathdir['statelog']).open(mode='r') as mystatefile:
-                    # Get the content in the list,  TEST rstrip trailing whitespace
-                    statefile = [ line.rstrip() for line in mystatefile ]
-                # Close
-        except (OSError, IOError) as error:
-            self.logger.critical('Error while checking / creating state file:' 
-                                 + ' \'{0}\'.'.format(self.pathdir['statelog']))
-            if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                self.logger.critical(f'Error: \'{error.strerror}: {error.filename}\'.')
-                self.logger.critical('Daemon is intended to be run as sudo/root.')
-            else:
-                self.logger.critical(f'Error: \'{error}\'.')
-            self.logger.critical('Exiting with status \'1\'.')
-            sys.exit(1)  
-        
-        # this will definied if we need to rewrite statefile or not
-        changed = False
-        
-        # First remove wrong opt
-        index = 0
-        for item in statefile[:]:
-            found = False
-            myre = False
-            re_ref = False
-            if self.hashtag_opt.match(item):
-                re_ref = 'hashtag_opt'
-            elif self.normal_opt.match(item):
-                re_ref = 'normal_opt'
-            else:
-                # So item is wrong anyway ?
-                self.logger.debug('Line {0}:'.format(index+1) 
-                                  + f' \'{item}\' didn\'t' 
-                                  + ' match any filters.')
-                # 'jump' streight to remove
-                re_ref = False
-                
-            if re_ref:
-                myre = getattr(self, re_ref)
-                for option in self.stateopts:
-                    if myre.match(option):
-                        if myre.match(item).group(1) == myre.match(option).group(1):
-                            found = True
-                            break
-            if not found:
-                self.logger.debug('Removing wrong option (line {0}):'.format(index+1)
-                                      + f' \'{item}\'.')
-                del statefile[index]
-                # So remove 1 to index
-                index -= 1
-            # Add one to index
-            index += 1
-        
-        
-        # Check duplicate / merge options
-        for option in self.stateopts:
-            # Here we can use index() because there is no duplicate
-            index = self.stateopts.index(option)
-            found = False
-            haschanged = False
-            filtered_option = False
-            filtered_statefile = False
-            try:
-                # Get current option filtered
-                # Set re_ref using option filtered
-                if self.hashtag_opt.match(option):
-                    filtered_option = self.hashtag_opt.match(option).group(1)
-                    re_ref = 'hashtag_opt'
-                elif self.normal_opt.match(option):
-                    filtered_option = self.normal_opt.match(option).group(1)
-                    re_ref = 'normal_opt'
-                # Get current statefile filtered
-                if self.hashtag_opt.match(statefile[index]):
-                    filtered_statefile = self.hashtag_opt.match(statefile[index]).group(1)
-                elif self.normal_opt.match(statefile[index]):
-                    filtered_statefile = self.normal_opt.match(statefile[index]).group(1)
-            except AttributeError as error:
-                # This should't arrived
-                # TODO remove ?
-                if len(statefile) < index+1:
-                    self.logger.debug('Got unexcept AttributeError on statefile line' 
-                                      + ' {0}: out of range.'.format(index+1)
-                                      + f' (option searched: {option}).')
-                else:
-                    self.logger.debug('Got unexcept AttributeError on statefile line' 
-                                      + ' {0}: \'{1}\''.format(index+1, statefile[index])
-                                      + f' (option searched: \'{option}\').')
-            except IndexError as error:
-                # Ok so this mean end of line for statefile (no more option)
-                # so let 'found' do the job
-                self.logger.debug(f'Got IndexError, missing option: \'{option}\'.')
-                # Reset filtered_statefile so go straight to not found
-                filtered_statefile = False
-            
-            if filtered_option and filtered_statefile:
-                if filtered_option == filtered_statefile:
-                    self.logger.debug('Found option' 
-                                      + ' (line {0}):'.format(index+1) 
-                                      + ' \'{0}\'.'.format(statefile[index]))
-                    found = True
-                    # Even we found item and in the right place make sure threre is no duplicate
-                    (duplicate, haschanged, statefile) = self._search_opt(option, statefile, index,
-                                                                        re_ref, founded_opt=statefile[index])
-                    self.logger.name = f'{self.logger_name}config::'
-                    if duplicate:
-                        self.logger.debug(f'Merging option \'{option}\''
-                                          + ' (line {0}, overwritten \'{1}\')'.format(index+1, statefile[index])
-                                          + f' with greater/newer value: \'{duplicate}\'.')
-                        statefile[index] = duplicate
-                else:
-                    # Search over statefile list
-                    (duplicate, haschanged, statefile) = self._search_opt(option, statefile, index, re_ref)
-                    self.logger.name = f'{self.logger_name}config::'
-                    if duplicate:
-                        self.logger.debug('Moving option' 
-                                           + f' \'{duplicate}\''
-                                           + ' to line {0}.'.format(index+1))
-                        found = True
-                        statefile.insert(index, duplicate)
-                # something changes during this loop
-                if haschanged:
-                    changed = True
-                
-            # Ok so option have not been found
-            if not found:
-                self.logger.debug('Will write new option'
-                                   + ' (line {0}):'.format(index+1)
-                                   + f' \'{option}\'.')
-                statefile.insert(index, option)
-                changed = True
-                
-        # Erase file and rewrite only if needed
-        if changed:
-            try:
-                with pathlib.Path(self.pathdir['statelog']).open(mode='r+') as mystatefile:
-                    mystatefile.seek(0)
-                    mystatefile.truncate()
-                    self.logger.debug('Writing changes to state file.')
-                    for line in statefile:
-                        mystatefile.write(line + '\n')
-            except (OSError, IOError) as error:
-                self.logger.critical('Error while checking / creating state file:' 
-                                 + ' \'{0}\'.'.format(self.pathdir['statelog']))
-                if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                    self.logger.critical(f'Error: \'{error.strerror}: {error.filename}\'.')
-                    self.logger.critical('Daemon is intended to be run as sudo/root.')
-                else:
-                    self.logger.critical(f'Error: \'{error}\'.')
-                self.logger.critical('Exiting with status \'1\'.')
-                sys.exit(1)  
-        else:
-            self.logger.debug('All good, keeping previously state file untouched.')
-                 
-      
-      
-    def save(self, pattern, to_write):
-        """Edit info to specific line of state file"""
+    def save(self, *args):
+        """
+        save specific(s) information(s) to already create statefile
+        """
         
         self.logger.name = f'{self.logger_name}save::'
         
-        regex = re.compile(r'^' + pattern + r':.*$')
-                
-        try:
-            with pathlib.Path(self.pathdir['statelog']).open(mode='r+') as mystatefile:
-                statefile = mystatefile.readlines()   # Pull the file contents to a list
-                
+        with self.__open('r+') as mystatefile:
+            statefile = mystatefile.readlines()   # Pull the file contents to a list
+            changed = False
+            for item in args:
+                option = str(item[0])
+                value = str(item[1])
+                found = False
+                skip = False
+                for index, line in enumerate(statefile):
+                    if re.match(r'^' + option + r':.*$', line):
+                        # make sure save request option != current line option
+                        current_value = re.match(r'^' + option + r':\s*(.*)$', line).group(1)
+                        if current_value == value:
+                            self.logger.debug(f'Reject requested operation on save for option' 
+                                              + f' \'{option}\', using value: \'{value}\':'
+                                              + f' loaded value is equal ({current_value}).')
+                            # Any way we found it, but we skip
+                            found = True
+                            skip = True
+                            break
+                        self.logger.debug(f'\'{option}: {value}\'.')
+                        # Change line 
+                        statefile[index] = f'{option}: {value}\n'
+                        found = True
+                        changed = True
+                        break
+                    # We have a problem !
+                if not found and not skip:
+                    self.logger.debug(f'Match failed for option: {option}: {value} !')
+                    self.logger.error(f'Failed to write \'{option}: {value}\''
+                                        + ' to statefile: {0}'.format(self.pathdir['statelog'])
+                                        + ' (please report this !)')
+            # So now erase / rewrite only if something change
+            # but it should !!
+            if changed:
                 # Erase the file
                 mystatefile.seek(0)
                 mystatefile.truncate()
-                
-                # Rewrite 
+                    
                 for line in statefile:
-                    if regex.match(line):
-                        self.logger.debug(f'\'{to_write}\'.')
-                        mystatefile.write(to_write + '\n')
-                    else:
-                        mystatefile.write(line)
-        except (OSError, IOError) as error:
-            self.logger.critical('Error while modifing \'{0}\' state file.'.format(self.pathdir['statelog']))
-            self.logger.debug(f'\tTried to write: \'{to_write}\' in section: \'{pattern}\'.')
-            self.logger.critical(f'\tGot: \'{error}\'.')
-            sys.exit(1)
+                    mystatefile.write(line)
+            else:
+                self.logger.debug('Hum... Nothing to write... Ciao...')
+                
 
-
-    def load(self, pattern):
-        """Read info from specific state file"""
+    def load(self, *args):
+        """
+        Read all opts line (line starting with '#' is ignored)
+        and return as dict with key: option and value: value from line 'option: value'.
+        Return all if no args or only specific from args.
+        Args should be valid option(s) or it will be rejected.
+        """
         
         self.logger.name = f'{self.logger_name}load::'
+        self.logger.debug('Extracting options from statefile: {0}'.format(self.pathdir['statelog']))
         
-        regex = re.compile(r'^' + pattern + r':\s(.*)$')
-        
-        try:
-            with pathlib.Path(self.pathdir['statelog']).open() as mystatefile: 
-                for line in mystatefile:
-                     if regex.match(line):
-                        self.logger.debug('\'{0}: {1}\''.format(pattern, regex.match(line).group(1)))
-                        return regex.match(line).group(1)
-        except (OSError, IOError) as error:
-            self.logger.critical('Error while reading \'{0}\' state file.'.format(self.pathdir['statelog']))
-            self.logger.debug(f'\tTried to read section: \'{pattern}\'.')
-            self.logger.critical(f'\tGot: \'{error}\'')
-            sys.exit(1)
-   
-   
-    def _compare_version(self, opt1, opt2, option):
-        """
-        Private method to compare vars using type StrictVersion()
-        """
-        
-        self.logger.name = f'{self.logger_name}_compare_version::'
-        
-        try:
-            if StrictVersion(opt1) > StrictVersion(opt2):
-                self.logger.debug(f'{option} opt1 ({opt1}) greater than opt2 ({opt2})')
-                return opt1
-            elif StrictVersion(opt1) < StrictVersion(opt2):
-                self.logger.debug(f'{option} opt2 ({opt2}) greater than opt1 ({opt1})')
-                return opt2
-            # opt1 == opt2 so return opt1
+        with self.__open('r') as mystatefile:
+            statefile = [ line.rstrip('\n') for line in mystatefile ]
+        # Ok so we load all strip line from statefile at once
+        # Any way, construct all the dict, then return all if no args, or only specified by args
+        stateopts_load = { }
+        for line in statefile:
+            key = False
+            value = False
+            if self.normal_opt.match(line):
+                key = self.normal_opt.match(line).group(1)
+                # So try to convert value
+                value = self.normal_opt.match(line).group(2)
+                value = self.__convert(value)
+                self.logger.name = f'{self.logger_name}load::'
+                self.logger.debug(f'Add key: \'{key}\' and value: \'{value}\' to load list.')
+                stateopts_load[key] = value
             else:
-                self.logger.debug(f'{option} opt1 ({opt1}) equal to opt2 ({opt2})')
-                return opt1
-        except ValueError as error:
-            self.logger.debug(f'{option} comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
-            return False
-    
-    
-    def _compare_int(self, opt1, opt2, option):
-        """
-        Private method to compare vars using type int()
-        """
+                self.logger.debug(f'Reject line: \'{line}\'.')
+        # Ok so now we have construct dict then return all if full=True or key specified by to_load
+        if not stateopts_load:
+            self.logger.debug('Failed to parse options: nothing have been add to load list...')
+            self.logger.error('Failed to parse options for statefile:' 
+                              + ' {0}'.format(self.pathdir['statelog']))
+            # So load default values from self.stateopts
+            for key, value in self.stateopts.items():
+                if not re.match(r'^#.*$', key):
+                    # Don't need to convert because self.stateopts have already good type
+                    self.logger.debug(f'Add default key: \'{key}\' and default' 
+                                      + f' value: \'{value}\' to load list.')
+                    stateopts_load[key] = value
+            self.logger.error('Loaded default options for statefile (please report this).')
         
-        self.logger.name = f'{self.logger_name}_compare_int::'
+        if not args:
+            self.logger.debug('Returning all load list.')
+            return stateopts_load
         
-        try:
-            if int(opt1) > int(opt2):
-                self.logger.debug(f'{option} opt1 ({opt1}) greater than opt2 ({opt2})')
-                return opt1
-            elif int(opt1) < int(opt2):
-                self.logger.debug(f'{option} opt2 ({opt2}) greater than opt1 ({opt1})')
-                return opt2
-            # opt1 == opt2 so return opt1
-            else:
-                self.logger.debug(f'{option} opt1 ({opt1}) equal to opt2 ({opt2})')
-                return opt1
-        except ValueError as error:
-            self.logger.debug(f'{option} comparing opt1 ({opt1}) and opt2 ({opt2}): {error}.')
-            return False
-        
-    def _search_opt(self, searched_opt, mylist, searched_index, re_ref, founded_opt=False):
-        """
-        Search over list missing and/or duplicate entry and compare/merge greater depending on var type.
-        """
-        self.logger.name = f'{self.logger_name}_search_opt::'
-        
-        # Default values
-        default_value = False
-        myre = getattr(self, re_ref)
-        comparable = True
-        greatest = False
-        changed = False
-        found = [ ]
-        opt_only = myre.match(searched_opt).group(1)
-        # 'hashtag_opt' don't need to be comparable
-        # we just want to remove duplicate:
-        if not re_ref == 'hashtag_opt':
-            default_value = myre.match(searched_opt).group(2)
-            if founded_opt:
-                found.append(myre.match(founded_opt).group(2))
-        
-        index = 0
-        for item in mylist[:]:
-            filtered_item = False
-            item_value = False
+        partial_stateopts_load = { }
+        for item in args:
             try:
-                # Get current item filtered
-                if self.hashtag_opt.match(item):
-                    filtered_item = self.hashtag_opt.match(item).group(1)
-                elif self.normal_opt.match(item):
-                    filtered_item = self.normal_opt.match(item).group(1)
-                    item_value = self.normal_opt.match(item).group(2)
-            except AttributeError as error:
-                # This should't arrived
-                # TODO remove ??
-                self.logger.debug(f'Got unexcept AttributeError: {error}')
-                self.logger.debug('Line {0}: \'{1}\','.format(current_index+1, item)
-                                  + f' option searched: \'{searched_opt}\' and using filter: \'{re_ref}\'.')
-                
-            # make sure we compare the 'right' group (hashtag_opt vs normal_opt)
-            if opt_only == filtered_item:
-                # make sure we haven't founded the already founded (if founded_opt)
-                # or excepted founded in the right index (searched_index)
-                if not searched_index == index:
-                    # So happen value only to founded_list and remove opt
-                    # 'hashtag_opt' have no value - it have only one sub group()
-                    if re_ref == 'hashtag_opt':
-                        if not founded_opt:
-                            self.logger.debug('Found option:'
-                                       + f' \'{item}\''
-                                       + ' (expected line {0},'.format(searched_index+1)
-                                       + ' found line {0}).'.format(index+1))
-                        else:
-                            self.logger.debug('Removing duplicate option:'
-                                       + f' \'{item}\''
-                                       + ' (expected line {0},'.format(searched_index+1)
-                                       + ' duplicate at line {0}).'.format(index+1))
-                        found.append(item)
-                    else:
-                        self.logger.debug('Found option:'
-                                       + f' \'{item}\''
-                                       + ' (expected line {0},'.format(searched_index+1)
-                                       + ' found line {0}).'.format(index+1))
-                        found.append(item_value)
-                    # Removing
-                    del mylist[index]
-                    # If removing then remove 1 to index also
-                    index -= 1
-                    changed = True
-            index += 1
-            
-        # Ok so now, inspect founded_list and try to compare
-        if found and len(found) > 1 and not re_ref == 'hashtag_opt':
-            greatest = default_value
-            for item in found:
-                greater = self._compare_int(greatest, item, opt_only)
-                self.logger.name = f'{self.logger_name}_search_opt::'
-                if greater:
-                    greatest = greater
-                else:
-                    greater = self._compare_version(greatest, item, opt_only)
-                    self.logger.name = f'{self.logger_name}_search_opt::'
-                    if greater:
-                        greatest = greater
-                    else:
-                        self.logger.debug('All check failed, data cannot be compared/merged:' 
-                                          + ' {0}'.format('|'.join(found)))
-                        comparable = False
-                        break
-        # it's not comparable
-        if found and len(found) > 1 and not comparable and not re_ref == 'hashtag_opt':
-            # Try to avoid getting default_value
-            greatest = default_value
-            for item in found:
-                if not item == greatest:
-                    self.logger.debug(f'Selecting: {item}' 
-                                      + f' (over: default_value={default_value} and' 
-                                      + ' list={0}).'.format('|'.join(found)))
-                    greatest = item
-                    break
-        elif found and len(found) == 1 and not founded_opt and not re_ref == 'hashtag_opt':
-            # we don't care about merge because we have only one item in the list so...
-            greatest = found[0]
-        # hashtag_opt setup return only if not already found
-        if found and re_ref == 'hashtag_opt' and not founded_opt:
-            greatest = found[0]
-        # else: Nothing found, keep greatest=False
+                partial_stateopts_load[item] = stateopts_load[item]
+            except KeyError as error:
+                self.logger.debug(f'Reject wrong load request: \'{item}\'')
+                continue
+            else:
+                self.logger.debug(f'Returning requested \'{item}\':' 
+                                  + f' \'{stateopts_load[item]}\'.')
+        return partial_stateopts_load if partial_stateopts_load else False
         
-        # return also changed because we could only founded wrong opt :p
-        if greatest:
-            # So greatest is only the value of the opt so repack 
-            # but not for hashtag_opt setup
-            # normal_opt will match ': ' so don't need to add here
-            if not re_ref == 'hashtag_opt':
-                greatest = '{0}{1}'.format(myre.match(searched_opt).group(1), greatest)
-        return (greatest, changed, mylist)
-            
 
- 
+    def __open(self, request_mode):
+        """
+        Open specific statefile, this intend to be used as context manager.
+        """
+        # Don't need to change logger_name, keep caller name
+        msg = 'writing' if request_mode == 'r+' else 'reading'
+        try:
+            if pathlib.Path(self.pathdir['statelog']).is_file():
+                return pathlib.Path(self.pathdir['statelog']).open(mode=request_mode)
+            else:
+                msg = 'creating'
+                return pathlib.Path(self.pathdir['statelog']).open(mode='w')
+        except (OSError, IOError) as error:
+            self.logger.critical(f'While {msg}'
+                                + ' \'{0}\' state file:'.format(self.pathdir['statelog']))
+            self.logger.critical(f'{error}.')
+            self.logger.critical('Exiting with status \'1\'.')
+            sys.exit(1)
+    
+    
+    def __convert(self, opt):
+        """
+        Try to convert opt from str() to int() or bool()
+        if failed return original opt (so str()), StrictVersion need str()
+        """
+        self.logger.name = f'{self.logger_name}convert::'
+        from_type = type(opt)
+        converters = {
+            'int'   :   int,
+            'bool'  :   [ bool, strtobool ]
+            }
+        for key, convert in converters.items():
+            try:
+                if key == 'bool':
+                    opt = convert[0](convert[1](opt))
+                else:
+                    opt = convert(opt)
+            except ValueError as error:
+                self.logger.debug(f'Reject \'{opt}\' mismatch filter {key}(): {error}')
+                continue
+            else:
+                self.logger.debug(f'Convert \'{opt}\' from {from_type}() to {key}().')
+                break
+        return opt
+    
+    
+    def __compare(self, *opts, **kwargs):
+        """
+        compare vars using type int() or type StrictVersion() and return greatest if possible
+        """
+        self.logger.name = f'{self.logger_name}compare::'
+        
+        option = kwargs.get('option', '')
+        # remove duplicate
+        list(set(opts))
+        self.logger.debug(f'List for option \'{option}\':'
+                          + ' \'{0}\'.'.format(', '.join(str(x) for x in opts)))
+        # Do we need to compare ?
+        if len(opts) == 1:
+            # we don't really know what we return: mean it could type != StrictVersion()/int()
+            return opts[0]
+        # Ok then compare
+        ref_type = {
+            'int'           :   int,
+            'StrictVersion' :   StrictVersion
+            }
+        validate = [ ]
+        greatest = False
+        for key, comparator in ref_type.items():
+            for value in opts:
+                try:
+                    # fixbug: AttributeError: 'StrictVersion' object has no attribute 'version'
+                    # convert to str() because 'False' will match with filter StrictVersion (?!?) 
+                    # then throw AttributeError at the second loop (validate)...
+                    comparator(str(value))
+                except ValueError as error:
+                    self.logger.debug(f'Reject \'{value}\' mismatch filter {key}(): {error}')
+                    continue
+                else:
+                    validate.append(value)
+            if validate:
+                greatest = validate[0]
+                for value in validate:
+                    if comparator(value) > comparator(greatest):
+                        greatest = value
+            if greatest:
+                break
+        return greatest
+                
+                
+    def __check_config(self):
+        """
+        Check state file and its options, eventually create and add default options.
+        So make statefile ready to load from and save to.
+        """
+        
+        self.logger.name = f'{self.logger_name}config::'
+        
+        with self.__open('r+') as mystatefile:
+            if mystatefile.mode == 'w':
+                self.newfile = True
+                self.logger.debug('Creating state file: {0}.'.format(self.pathdir['statelog']))
+                for option, value in self.stateopts.items():
+                        msg = f': {value}' if not value == '' else ''
+                        self.logger.debug(f'Adding default option: \'{option}{msg}\'')
+                        mystatefile.write(f'{option}: {value}\n')
+            else:
+                self.logger.debug('Inspecting state file: {0}'.format(self.pathdir['statelog']))
+                
+                # Ok so we have to reconstruct statefile list 
+                # and remove all bad, wrong option 
+                # move to right place good one (first pass)
+                # Second pass, add missing option (at the end)
+                # Third pass : merge duplicate / select greatest if possible
+                # extract key (option) / value form dict and make lists to access from index
+                default_option = list(self.stateopts)
+                default_value = list(self.stateopts.values())
+                changed = False
+                statefile = [ ]
+                tomerge = { }
+                nline = 1
+                index = 0
+                # First pass
+                for line in mystatefile:
+                    # Remove '\n'
+                    line = line.rstrip('\n')
+                    found = False
+                    ref = False
+                    option = False
+                    value = False
+                    ## For bad option
+                    # And also extract option / value from current line
+                    if self.hashtag_opt.match(line):
+                        ref = 'hashtag_opt'
+                        option = self.hashtag_opt.match(line).group(1)
+                        value = ''
+                    elif self.normal_opt.match(line):
+                        ref = 'normal_opt'
+                        option = self.normal_opt.match(line).group(1)
+                        value = self.normal_opt.match(line).group(2)
+                    else:
+                        changed = True
+                        if len(self.stateopts) < index+1:
+                            self.logger.debug(f'Reject out of range line {nline}, mismatch any filters: \'{line}\'.')
+                            nline += 1
+                            continue
+                        else:
+                            self.logger.debug(f'Reject line {nline}, mismatch any filters: \'{line}\'.')
+                            # Then add default option
+                            statefile.append([ default_option[index], default_value[index] ])
+                            msg = ''
+                            if not default_value[index] == '':
+                                msg = f': {default_value[index]}'
+                            self.logger.debug(f'Adding default option to line {nline}:'
+                                            + ' \'{0}{1}\'.'.format(default_option[index], msg))
+                            nline += 1
+                            index += 1
+                            continue
+                    # line match regular expressions
+                    ## For wrong option
+                    if not option in self.stateopts:
+                        changed = True
+                        if len(self.stateopts) < index+1:
+                            self.logger.debug(f'Reject out of range line {nline},' 
+                                              + f' wrong or obsolete option: \'{line}\'.')
+                            nline += 1
+                            continue
+                        else:
+                            self.logger.debug(f'Reject line {nline}, wrong or obsolete option: \'{line}\'.')
+                            # Then add default option
+                            statefile.append([ default_option[index], default_value[index] ])
+                            msg = ''
+                            if not default_value[index] == '':
+                                msg = f': {default_value[index]}'
+                            # index+1 over nline
+                            self.logger.debug('Adding default option to line {0}:'.format(index+1)
+                                            + ' \'{0}{1}\'.'.format(default_option[index], msg))
+                            nline += 1
+                            index += 1
+                            continue
+                    ## Now at this point: line is validate, it's a valid option
+                    ## For right place option
+                    # First: if index is out of range then add to tomerge list (only if not hashtag)
+                    if len(self.stateopts) < index+1:
+                        self.logger.debug(f'Found out of range option at line {nline}: \'{line}\'.')
+                        changed = True
+                        # append tomerge list only normal_opt
+                        if ref == 'hashtag_opt':
+                            self.logger.debug(f'Unselect line {nline}, hashtag option merging is useless: \'{line}\'.')
+                            continue
+                        # the key will be the option and list will be value
+                        if not option in tomerge:
+                            tomerge[option] = [ ]
+                        tomerge[option].append(value)
+                        continue
+                        # Nothing to had because self.stateopts is IndexError (out of range)
+                    # Second check if it's in good place
+                    if not default_option[index] == option:
+                        self.logger.debug(f'Found unexcepted option at line {nline}: \'{line}\'.')
+                        changed = True
+                        # append tomerge list only normal_opt
+                        if ref == 'hashtag_opt':
+                            self.logger.debug(f'Unselect line {nline}, hashtag option merging is useless: \'{line}\'.')
+                            continue
+                        # the key will be the option and list will be value
+                        if not option in tomerge:
+                            tomerge[option] = [ ]
+                        tomerge[option].append(value)
+                        # Then add default option
+                        statefile.append([ default_option[index], default_value[index] ])
+                        msg = ''
+                        if not default_value[index] == '':
+                            msg = f': {default_value[index]}'
+                        self.logger.debug('Adding default option to line {0}:'.format(index+1)
+                                        + ' \'{0}{1}\'.'.format(default_option[index], msg))
+                        # We add something so increment vars
+                        index += 1
+                        nline += 1
+                        # Then jump to the next item
+                        continue
+                    ## All are validate
+                    # Write to statefile list of list the validate line
+                    self.logger.debug(f'Option Validate on line {nline}: \'{line}\'')
+                    statefile.append([option, value ])
+                    # increment vars
+                    index += 1
+                    nline += 1
+               
+                # Second pass: check missing option (at the end)
+                nline = index + 1
+                if len(statefile) < len(self.stateopts):
+                    changed = True
+                    for index in range(index, len(self.stateopts)):
+                        statefile.append([ default_option[index], default_value[index] ])
+                        msg = ''
+                        if not default_value[index] == '':
+                            msg = f': {default_value[index]}'
+                        self.logger.debug(f'Adding default option to line {nline}:'
+                                          + ' \'{0}{1}\'.'.format(default_option[index], msg))
+                        nline += 1
+                
+                # Third pass: duplicate value / default value to greater
+                # So here there is only normal_opt which will be merged
+                if tomerge:
+                    for item in statefile:
+                        # If duplicate exits
+                        if item[0] in tomerge:
+                            # Try to compare using int() then StrictVersion()
+                            greatest = self.__compare(*tomerge[item[0]], item[1], option=item[0])
+                            self.logger.name = f'{self.logger_name}config::'
+                            if greatest:        
+                                self.logger.debug(f'Merging value for option \'{item[0]}\':'
+                                                    + f' current: \'{item[1]}\', newer: \'{greatest}\'.')
+                                item[1] = greatest
+                                continue
+                            self.logger.debug('All filters failed, data cannot be' 
+                                            + f' compared/merged for option \'{item[0]}\':'
+                                            + ' \'{0}\'.'.format('|'.join(tomerge[item[0]])))
+                            # First test if current value != default_value then keep it
+                            # make self.stateopts str() because extracted value is/are str()
+                            if not item[1] == str(self.stateopts[item[0]]):
+                                self.logger.debug(f'Keeping value \'{item[1]}\'' 
+                                                + f' (over: default_value=\'{self.stateopts[item[0]]}\' and' 
+                                                + ' list=\'{0}\')'.format('|'.join(tomerge[item[0]]))
+                                                + f' for option: \'{item[0]}\'.')
+                            else:
+                                # Pick the first value in the list 
+                                # which is != default_value
+                                found = False
+                                for value in tomerge[item[0]]:
+                                    # same here: make str() 
+                                    if not value == str(self.stateopts[item[0]]):
+                                        self.logger.debug(f'Selecting arbitrarily: \'{value}\'' 
+                                                + f' (over: default_value=\'{self.stateopts[item[0]]}\' and' 
+                                                + ' list=\'{0}\')'.format('|'.join(tomerge[item[0]]))
+                                                + f' for option: \'{option}\'.')
+                                        item[1] = value
+                                        found = True
+                                        break
+                                if not found:
+                                    # Ok so take default_value...
+                                    self.logger.debug(f'Selecting default value: \'{self.stateopts[item[0]]}\'' 
+                                                    + f' (over: current=\'{item[1]}\' and' 
+                                                    + ' list=\'{0}\')'.format('|'.join(tomerge[item[0]]))
+                                                    + f' for option: \'{item[0]}\'.')
+                                    item[1] = self.stateopts[item[0]]
+                # End piouff ;p
+                if changed:
+                    # Erase file
+                    mystatefile.seek(0)
+                    mystatefile.truncate()
+                    for option in statefile:
+                        # Work around for hashtag
+                        value = f': {option[1]}' if not option[1] == '' else ''
+                        line = f'{option[0]}{value}\n'
+                        mystatefile.write(line)
+                    self.logger.debug('Write changes to statefile: Success.')
+                else:
+                    self.logger.debug('All good, keeping previously state file untouched.')
+
+
+
 class FormatTimestamp:
     """Convert seconds to time, optional rounded, depending of granularity's degrees.
         inspired by https://stackoverflow.com/a/24542445/11869956"""
@@ -679,156 +722,6 @@ class FormatTimestamp:
         else:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in _format(result))
-
-
-
-class UpdateInProgress:
-    """Check if update is in progress..."""
-
-    def __init__(self, logger):
-        """Arguments:
-            (callable) @log : an logger from logging module"""
-        self.logger = logger
-        # Avoid spamming with log.info
-        self.logflow =  {
-            'Sync'      :   0,   
-            'World'     :   0,
-            'Git'       :   0
-            }
-        self.timestamp = {
-            'Sync'      :   0, 
-            'World'     :   0,
-            'Git'       :   0
-            }
-        self.msg = {
-            'Sync'  :   'Syncing ',
-            'World' :   'Global update',
-            'Git'   :   'Git pull'
-            }
-        
-        
-    def check(self, tocheck, additionnal_msg='', repogit=False, quiet=False):
-        """...depending on tocheck var
-        Arguments:
-            (str) @tocheck : call with 'World' or 'Sync' or 'Git'
-            (str) @repogit : full path to git repo (use only with @tocheck == 'Git'
-            (str) @quiet : enable or disable quiet output
-        @return: True or False
-        Adapt from https://stackoverflow.com/a/31997847/11869956"""
-        
-        # TODO: system as well 
-        pids_only = re.compile(r'^\d+$')
-        # For world
-        # Added @world TODO: keep testing don't know if \s after (?:world|@world) is really needed...
-        world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
-        pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
-        # For sync
-        sync = re.compile(r'.*emerge\s--sync\s*$')
-        webrsync = re.compile(r'.*emerge-webrsync\s*.*$')
-        # For git 
-        git_pull = re.compile(r'.*git\s{1}(?:pull|fetch).*')
-        
-        if repogit:
-            self.repogit = os.path.realpath(repogit)
-            
-        inprogress = False
-        
-        # TODO maybe we could collect for sync and world in one pass 
-        # performance is 2x faster (almost) (means from ~0.025s to ~0.015s)
-        
-        pids = [ ]
-        for dirname in os.listdir('/proc'):
-            if pids_only.match(dirname):
-                try:
-                    with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
-                        content = myfd.read().decode().split('\x00')
-                # IOError exception when pid as finish between getting the dir list and open it each
-                except IOError:
-                    continue
-                except Exception as exc:
-                    self.logger.error(f'Got unexcept error: {exc}')
-                    # TODO: Exit or not ?
-                    continue
-                # Check world update
-                if tocheck == 'World':
-                    if world.match(' '.join(content)):
-                        #  Don't match any -p or --pretend opts
-                        if not pretend.match(' '.join(content)):
-                            inprogress = True
-                            break
-                # Check sync update
-                elif tocheck == 'Sync':
-                    if sync.match(' '.join(content)):
-                        inprogress = True
-                        break
-                    elif webrsync.match(' '.join(content)):
-                        inprogress = True
-                        break
-                # Check git pull / fetch
-                elif tocheck == 'Git':
-                    if git_pull.match(' '.join(content)):
-                        try:
-                            # We need to get the path to besure that it is 
-                            # the right git pull / fetch process
-                            path = os.readlink('/proc/{0}/cwd'.format(dirname))
-                            if not repogit:
-                                self.logger.error('Missing repogit args !')
-                                return False # TODO : hum don't know :)
-                            # Then compare path
-                            elif os.path.samefile(path, self.repogit):
-                                inprogress = True
-                                break
-                        # Same as upper 
-                        except IOError:
-                            continue
-                        except Exception as exc:
-                            self.logger.error(f'Got unexcept error: {exc}')
-                            # TODO: Exit or not ?
-                            continue
-                else:
-                    self.logger.critical(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
-                                      f' method: check(), tocheck: \'{tocheck}\'.')
-                    self.logger.critical('Exiting with status \'1\'...')
-                    sys.exit(1)
-            
-        displaylog = False
-        current_timestamp = time.time()
-        
-        if inprogress:
-            self.logger.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
-            # We just detect 'inprogress'
-            if self.timestamp[tocheck] == 0:
-                displaylog = True
-                # add 30 minutes (1800s)
-                self.timestamp[tocheck] = current_timestamp + 1800
-                self.logflow[tocheck] = 1                
-            else:
-                # It's running
-                if self.timestamp[tocheck] <= current_timestamp:
-                    displaylog = True
-                    if self.logflow[tocheck] == 1:
-                        # Add 1 hour (3600s)
-                        self.timestamp[tocheck] = current_timestamp + 3600
-                        self.logflow[tocheck] = 2
-                    elif self.logflow[tocheck] >= 2:
-                        # Add 2 hours (7200s) forever
-                        self.timestamp[tocheck] = current_timestamp + 7200 
-                        self.logflow[tocheck] = 3
-                    else:
-                        self.logger.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
-                                          f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
-                        self.logger.warning('Resetting all attributes')
-                        self.timestamp[tocheck] = 0
-                        self.logflow[tocheck] = 0
-            if displaylog and not quiet:
-                self.logger.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
-            return True
-        else:
-            self.logger.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
-            # Reset attributes
-            self.timestamp[tocheck] = 0
-            self.logflow[tocheck] = 0
-            return False
 
 
 

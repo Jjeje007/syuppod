@@ -19,7 +19,6 @@ from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
 from utils import FormatTimestamp
 from utils import StateInfo
-from utils import UpdateInProgress
 from utils import on_parent_exit
 from logger import MainLoggingHandler
 from logger import ProcessLoggingHandler
@@ -33,14 +32,17 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
+# TODO TODO TODO TODO ok rewrite PortageHandler it's really a mess !!
+# TODO TODO TODO stablize API
 # TODO TODO get news :p
-# TODO port UpdateInProgress from utils to here
 # TODO add load checking before running pretend_world()
 # TODO add choice for pretend_world(): use emerge or eix --installed --update but this will be only approximative ?
 
 
 class PortageHandler:
-    """Portage tracking class"""
+    """
+    Portage tracking class
+    """
     def __init__(self, **kwargs):
         for key in 'interval', 'pathdir', 'runlevel', 'loglevel':
             if not key in kwargs:
@@ -61,43 +63,51 @@ class PortageHandler:
         self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
         self.logger.setLevel(kwargs['loglevel'])
         
-        # Init save/load info file 
         # Default opts for state file
-        self.stateopts = (
-            '# Wrote by {0} version: {1}'.format(self.pathdir['prog_name'], self.pathdir['prog_version']),
-            '# Please don\'t edit this file.',
-            '# Sync Opts',
-            'sync count: 0',
-            'sync state: never sync',
-            'sync network_error: 0',
-            'sync retry: 0',
-            'sync update: unknow',
-            'sync timestamp: 0',
-            '# World Opts',
-            'world packages: 0',
-            'world last start: 0',
-            'world last stop: 0',
-            'world last state: unknow',
-            'world last total: 0',
-            'world last failed: 0',
-            '# Portage Opts',
-            'portage available: False',
-            'portage current: 0.0',
-            'portage latest: 0.0'
-            )
-        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, self.stateopts)
-        self.stateinfo.config()     # TEST-ing 
+        default_stateopts = {
+            '# Wrote by {0}'.format(self.pathdir['prog_name']) 
+             + ' version: {0}'.format(self.pathdir['prog_version']): '',
+            '# Please don\'t edit this file.':   '',
+            '# Sync Opts'                    :   '',
+            'sync count'                     :   0, 
+            'sync state'                     :   'never sync',
+            'sync network_error'             :   0,
+            'sync retry'                     :   0,
+            'sync timestamp'                 :   0,
+            '# World Opts'                   :   '',
+            'world packages'                 :   0,
+            'world last start'               :   0,
+            'world last stop'                :   0,
+            'world last state'               :   'unknow',
+            'world last total'               :   0,
+            'world last failed'              :   0,
+            '# Portage Opts'                 :   '',
+            'portage available'              :   False,
+            'portage current'                :   '0.0',
+            'portage latest'                 :   '0.0',
+            }
         
-        # Sync attributes
+        # Init save/load info file 
+        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, default_stateopts)
+        loaded_stateopts = False
+        if self.stateinfo.newfile:
+            # Don't need to load from StateInfo as it just create file and
+            # add default_stateopts from here
+            loaded_stateopts = default_stateopts
+        else:
+            # Ok load from StateInfo in one time
+            # We don't need to convert from str() to another type
+            # it's done auto by class StateInfo
+            loaded_stateopts = self.stateinfo.load()
+                
+        # Sync attributes TODO clean up ?
         self.sync = {
             'status'        :   False, # True when running / False when not
-            'state'         :   self.stateinfo.load('sync state'), # 'Success' / 'Failed'
-            'network_error' :   int(self.stateinfo.load('sync network_error')),
-            'retry'         :   int(self.stateinfo.load('sync retry')),
-            'log'           :   'TODO', # TODO CF gitmanager.py -> __init__ -> self.pull['log']
-            'global_count'  :   str(self.stateinfo.load('sync count')),   # str() or get 'TypeError: must be str, not 
-                                                                          # int' or vice versa
-            'timestamp'     :   int(self.stateinfo.load('sync timestamp')),
+            'state'         :   loaded_stateopts.get('sync state'),
+            'network_error' :   loaded_stateopts.get('sync network_error'),
+            'retry'         :   loaded_stateopts.get('sync retry'),
+            'global_count'  :   loaded_stateopts.get('sync count'),
+            'timestamp'     :   loaded_stateopts.get('sync timestamp'),
             'interval'      :   kwargs['interval'],
             'elapsed'       :   0,
             'remain'        :   0,
@@ -113,12 +123,13 @@ class PortageHandler:
                              self.format_timestamp.convert(self.sync['interval'], granularity=6)))
         
         # World attributes
+        # TODO split this to 'world' and 'pretend' could be really better for understanding
         self.world = {
-            'status'    :   'waiting',   # waiting : ready | running : running :p | completed: just finished
+            'status'    :   'waiting',   # TODO move waiting to ready | running : running :p | completed: just finished
             'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
             'update'    :   False,   # True when global update is in progress / False if not
-            'updated'   :   False,   # True if system has been updated / False otherwise
-            'packages'  :   int(self.stateinfo.load('world packages')), # Packages to update
+            'updated'   :   False,   # True if system has been updated / False otherwise # TODO remove
+            'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
             'interval'  :   600,    # Interval between two pretend_world() run TODO this could be tweaked !
             'remain'    :   600,    # TEST this the time between two pretend_world() lauch (avoid spamming)
                                     # for now it's 10min
@@ -128,19 +139,19 @@ class PortageHandler:
             'cancelled' :   False,  # same here so we know it has been cancelled if True
             # attributes for last world update informations extract from emerge.log file
             'last'      :   {
-                    'state'     :   self.stateinfo.load('world last state'), 
-                    'start'     :   int(self.stateinfo.load('world last start')),
-                    'stop'      :   int(self.stateinfo.load('world last stop')),
-                    'total'     :   int(self.stateinfo.load('world last total')),
-                    'failed'    :   self.stateinfo.load('world last failed')
+                    'state'     :   loaded_stateopts.get('world last state'), 
+                    'start'     :   loaded_stateopts.get('world last start'),
+                    'stop'      :   loaded_stateopts.get('world last stop'),
+                    'total'     :   loaded_stateopts.get('world last total'),
+                    'failed'    :   loaded_stateopts.get('world last failed')
                 }
             }
         
         # Portage attributes
         self.portage = {
-            'current'   :   self.stateinfo.load('portage current'),
-            'latest'    :   self.stateinfo.load('portage latest'),
-            'available' :   self.stateinfo.load('portage available'),
+            'current'   :   loaded_stateopts.get('portage current'),
+            'latest'    :   loaded_stateopts.get('portage latest'),
+            'available' :   loaded_stateopts.get('portage available'),
             'remain'    :   30,     # check every 30s when 'available' is True
             'logflow'   :   True    # Control log info flow to avoid spamming syslog
             }
@@ -215,7 +226,7 @@ class PortageHandler:
             if update_statefile:
                 self.logger.debug('Saving \'sync timestamp: {0}\' to {1}.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
-                self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
+                self.stateinfo.save(['sync timestamp', self.sync['timestamp']])
             else:
                 self.logger.debug('Skip saving \'sync timestamp: {0}\' to {1}: already in good state.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
@@ -230,6 +241,8 @@ class PortageHandler:
         """ Updating repo(s) """
         # Change name of the logger
         self.logger.name = f'{self.logger_name}dosync::'
+        
+        tosave = [ ]
         
         # Check if already running
         # BUT this shouldn't happend
@@ -426,7 +439,7 @@ class PortageHandler:
             old_count_global = self.sync['global_count']
             old_count = self.sync['session_count']
             
-            self.sync['global_count'] = int(self.sync['global_count'])
+            #self.sync['global_count'] = self.sync['global_count']
             self.sync['global_count'] += 1
             self.logger.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
                                                                                            self.sync['global_count']))
@@ -435,7 +448,9 @@ class PortageHandler:
                                                                                     self.sync['session_count']))
             self.logger.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
                                                                                  self.pathdir['statelog']))
-            self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['global_count']))
+            # TEST try to group save in save in one time
+            tosave.append(['sync count', self.sync['global_count']])
+            #self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['global_count']))
                 
             # Get sync timestamp from emerge.log
             self.logger.debug('Initializing emerge log parser:')
@@ -453,7 +468,8 @@ class PortageHandler:
                     self.sync['timestamp'] = sync_timestamp
                     self.logger.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
-                    self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
+                    #self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
+                    tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
             self.world['pretend'] = True
             self.logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
@@ -467,11 +483,15 @@ class PortageHandler:
         for value in 'state', 'retry', 'network_error':
             if not self.sync[value] == getattr(self, value):
                 self.sync[value] = getattr(self, value)
-                self.stateinfo.save(f'sync {value}', f'sync {value}: ' + str(getattr(self, value)))
+                tosave.append([f'sync {value}', self.sync[value]])
+                #self.stateinfo.save(f'sync {value}', f'sync {value}: ' + str(getattr(self, value)))
         if not self.sync['status']:
             self.logger.error('We are about to leave syncing process, but just found status already to False,'.format(
                                                                                         self.sync['repos']['msg']))
             self.logger.error('which mean syncing is/was NOT in progress, please check and report if True')
+        # Then save every thing in one shot
+        if tosave:
+            self.stateinfo.save(*tosave)
         self.sync['status'] = False
         return                 
             
@@ -488,7 +508,8 @@ class PortageHandler:
         # TODO : give the choice cf EmergeLogParser() --> last_world_update()
         get_world_info = myparser.last_world_update()
         self.logger.name = f'{self.logger_name}get_last_world_update::'
-            
+        
+        tosave = [ ]
         if get_world_info:
             to_print = True                
             # Write only if change
@@ -503,17 +524,18 @@ class PortageHandler:
                         to_print = False
                             
                     self.world['last'][key] = get_world_info[key]
-                    self.logger.debug(f'Saving \'world last {key}: '
-                                    + '\'{0}\' '.format(self.world['last'][key]) 
-                                    + 'to \'{0}\'.'.format(self.pathdir['statelog']))
-                    self.stateinfo.save('world last ' + key, 
-                                        'world last ' + key 
-                                        + ': ' + str(self.world['last'][key]))
+                    tosave.append([f'world last {key}', self.world['last'][key]])
+                    #self.logger.debug(f'Saving \'world last {key}: '
+                                    #+ '\'{0}\' '.format(self.world['last'][key]) 
+                                    #+ 'to \'{0}\'.'.format(self.pathdir['statelog']))
+                    #self.stateinfo.save('world last ' + key, 
+                                        #'world last ' + key 
+                                        #+ ': ' + str(self.world['last'][key]))
             if not self.world['updated']:
                 self.logger.debug('Global update hasn\'t been run, keeping last know informations.')
-            
-        # Reset remain :)
-        #self.world['remain'] = 5
+        # Saving
+        if tosave:
+            self.stateinfo.save(*tosave)
         return
     
     
@@ -522,6 +544,8 @@ class PortageHandler:
         # TODO more verbose for debug
         # Change name of the logger
         self.logger.name = f'{self.logger_name}pretend_world::'
+        
+        tosave = [ ]
         
         if not self.world['pretend']:
             self.logger.error('We are about to search available package(s) update and found pretend to False,')
@@ -674,15 +698,17 @@ class PortageHandler:
         if update_packages:
             if not self.world['packages'] == update_packages:
                 self.world['packages'] = update_packages
-                self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
+                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
+                                                                                 #self.pathdir['statelog']))
+                tosave.append(['world packages', self.world['packages']])
+                #self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
         else:
             if not self.world['packages'] == 0:
                 self.world['packages'] = 0
-                self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
+                tosave.append(['world packages', self.world['packages']])
+                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
+                                                                                 #self.pathdir['statelog']))
+                #self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
         
         # At the end
         if self.world['cancelled']:
@@ -692,6 +718,9 @@ class PortageHandler:
         if self.world['status'] == 'completed':
             self.logger.error('We are about to leave pretend process, but just found status already to completed,')
             self.logger.error('which mean process is/was NOT in progress, please check and report if True')
+        # Save
+        if tosave:
+            self.stateinfo.save(*tosave)
         self.world['status'] = 'completed'
 
 
@@ -733,16 +762,19 @@ class PortageHandler:
                                  + f' (current version: {current_version})')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
-                if self.portage['available'] == 'True':
-                        self.portage['available'] = False
-                        self.stateinfo.save('portage available', 'portage available: '
-                                            + str(self.portage['available']))
+                # TEST var is bool even loaded from statefile
+                if self.portage['available']:
+                    self.portage['available'] = False
+                    self.stateinfo.save(['portage available', self.portage['available']])
+                    #self.stateinfo.save('portage available', 'portage available: '
+                                            #+ str(self.portage['available']))
                 # Just make sure that self.portage['latest'] is also the same
                 if self.latest == self.portage['latest']:
                     # Don't need to update any thing 
                     return True
                 else:
-                    self.stateinfo.save('portage latest', 'portage latest: ' + str(self.portage['latest']))
+                    self.stateinfo.save(['portage latest', self.portage['latest']])
+                    #self.stateinfo.save('portage latest', 'portage latest: ' + str(self.portage['latest']))
                     return True
             else:
                 portage_list = vardbapi().match('portage')
@@ -814,19 +846,23 @@ class PortageHandler:
                                   + f' (current version: {current_version})')
                 self.available = False
             
+            tosave = [ ]
             # Update only if change
             for key in 'current', 'latest', 'available':
                 if not self.portage[key] == getattr(self, key):
                     self.portage[key] = getattr(self, key)
-                    self.logger.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
-                                                                                 self.pathdir['statelog']))
-                    self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
+                    #self.logger.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
+                                                                                 #self.pathdir['statelog']))
+                    #self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
+                    tosave.append([f'portage {key}', self.portage[key]])
                     # This print if there a new version of portage available
                     # even if there is already an older version available
                     # TEST
                     if key == 'latest' and self.portage['logflow'] and latest_version:
                         self.logger.info('Found an update to portage' 
                                       + f' (from {current_version} to {latest_version}).')
+            if tosave:
+                self.stateinfo.save(*tosave)
                         
       
     def _get_repositories(self):
@@ -1610,20 +1646,18 @@ class EmergeLogWatcher(threading.Thread):
                                   + ' for portage\'s package informations refresh.')
                 # For sync: run only if not already detected
                 if not self.tasks['sync']['inprogress']:
-                    if self.update_inprogress.check('Sync', additionnal_msg=self.sync_msg):
-                        #self.logger.debug(f'Syncing {self.sync_msg} in progress.')
+                    if self.update_inprogress.check('sync', additionnal_msg=self.sync_msg):
                         self.tasks['sync']['inprogress'] = True
                 # For world: same here
                 if not self.tasks['world']['inprogress']:
-                    if self.update_inprogress.check('World'):
+                    if self.update_inprogress.check('world'):
                         self.tasks['world']['inprogress'] = True
-            # TODO we could lower this to improve detection speed 
-            # But class UpdateInProgress has to be rewritten !!
+                        
             if remain <= 0:
                 remain = 10
                 # Sync have been detected so check if still in progress
                 if self.tasks['sync']['inprogress']:
-                    if self.update_inprogress.check('Sync', additionnal_msg=self.sync_msg):
+                    if self.update_inprogress.check('sync', additionnal_msg=self.sync_msg):
                         # Let's delegate class UpdateInProgress print 
                         # sync / world in progress 
                         self.tasks['sync']['inprogress'] = True
@@ -1638,7 +1672,7 @@ class EmergeLogWatcher(threading.Thread):
                             self.tasks['sync']['inprogress'] = False
                 # World update have been detected so check if still in progress
                 if self.tasks['world']['inprogress']: 
-                    if self.update_inprogress.check('World'):
+                    if self.update_inprogress.check('world'):
                         # Same here
                         self.tasks['world']['inprogress'] = True
                     else:
@@ -1684,3 +1718,115 @@ class EmergeLogWatcher(threading.Thread):
             
             time.sleep(1)
     
+
+
+class UpdateInProgress:
+    """
+    Check if process is running using /proc dir 
+    """
+
+    def __init__(self, logger):
+        """Arguments:
+            (callable) @log : an logger from logging module"""
+        self.logger = logger
+        # Avoid spamming with log.info
+        self.logflow =  {
+            'sync'      :   0,   
+            'world'     :   0
+            }
+        self.timestamp = {
+            'sync'      :   0, 
+            'world'     :   0
+            }
+        self.msg = {
+            'sync'  :   'Syncing ',
+            'world' :   'Global update'
+            }
+        
+        
+    def check(self, tocheck, additionnal_msg='', quiet=False):
+        """
+        Do the check
+        Arguments:
+            (str) @tocheck : call with 'world' or 'sync'
+            (str) @quiet : enable or disable quiet output
+        @return: True or False
+        Adapt from https://stackoverflow.com/a/31997847/11869956
+        """
+        
+        pids_only = re.compile(r'^\d+$')
+        world_proc = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
+        pretend_opt = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
+        sync_proc = re.compile(r'.*emerge\s--sync\s*$')
+        wrsync_proc = re.compile(r'.*emerge-webrsync\s*.*$')
+        
+        inprogress = False
+        
+        pids = [ ]
+        with pathlib.Path('/proc') as listdir:
+            for dirname in listdir.iterdir():
+                if pids_only.match(dirname):
+                    try:
+                        with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
+                            content = myfd.read().decode().split('\x00')
+                    # IOError exception when pid is terminate between getting the dir list and open it each
+                    except IOError:
+                        continue
+                    except Exception as exc:
+                        self.logger.error(f'Got unexcept error: {exc}')
+                        # TODO: Exit or not ?
+                        continue
+                    # Check world update
+                    if tocheck == 'world':
+                        if world_proc.match(' '.join(content)):
+                            #  Don't match any -p or --pretend opts
+                            if not pretend_opt.match(' '.join(content)):
+                                inprogress = True
+                                break
+                    # Check sync update
+                    elif tocheck == 'sync':
+                        if sync_proc.match(' '.join(content)):
+                            inprogress = True
+                            break
+                        elif wrsync_proc.match(' '.join(content)):
+                            inprogress = True
+                            break
+            
+        displaylog = False
+        current_timestamp = time.time()
+        
+        if inprogress:
+            self.logger.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            # We just detect 'inprogress'
+            if self.timestamp[tocheck] == 0:
+                displaylog = True
+                # add 30 minutes (1800s)
+                self.timestamp[tocheck] = current_timestamp + 1800
+                self.logflow[tocheck] = 1                
+            else:
+                # It's running
+                if self.timestamp[tocheck] <= current_timestamp:
+                    displaylog = True
+                    if self.logflow[tocheck] == 1:
+                        # Add 1 hour (3600s)
+                        self.timestamp[tocheck] = current_timestamp + 3600
+                        self.logflow[tocheck] = 2
+                    elif self.logflow[tocheck] >= 2:
+                        # Add 2 hours (7200s) forever
+                        self.timestamp[tocheck] = current_timestamp + 7200 
+                        self.logflow[tocheck] = 3
+                    else:
+                        self.logger.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                                          f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
+                        self.logger.warning('Resetting all attributes')
+                        self.timestamp[tocheck] = 0
+                        self.logflow[tocheck] = 0
+            if displaylog and not quiet:
+                self.logger.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            return True
+        else:
+            self.logger.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
+            # Reset attributes
+            self.timestamp[tocheck] = 0
+            self.logflow[tocheck] = 0
+            return False
