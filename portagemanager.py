@@ -14,6 +14,8 @@ import io
 import threading
 import uuid
 
+# compatibility for python < 3.7
+from collections import OrderedDict 
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
@@ -63,29 +65,54 @@ class PortageHandler:
         self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
         self.logger.setLevel(kwargs['loglevel'])
         
-        # Default opts for state file
-        default_stateopts = {
-            '# Wrote by {0}'.format(self.pathdir['prog_name']) 
-             + ' version: {0}'.format(self.pathdir['prog_version']): '',
-            '# Please don\'t edit this file.':   '',
-            '# Sync Opts'                    :   '',
-            'sync count'                     :   0, 
-            'sync state'                     :   'never sync',
-            'sync network_error'             :   0,
-            'sync retry'                     :   0,
-            'sync timestamp'                 :   0,
-            '# World Opts'                   :   '',
-            'world packages'                 :   0,
-            'world last start'               :   0,
-            'world last stop'                :   0,
-            'world last state'               :   'unknow',
-            'world last total'               :   0,
-            'world last failed'              :   0,
-            '# Portage Opts'                 :   '',
-            'portage available'              :   False,
-            'portage current'                :   '0.0',
-            'portage latest'                 :   '0.0',
-            }
+        # compatibility for python < 3.7 (dict is not ordered)
+        if sys.version_info[:2] < (3, 7):
+            default_stateopts = OrderedDict(
+            ('# Wrote by {0}'.format(self.pathdir['prog_name']) 
+             + ' version: {0}'.format(self.pathdir['prog_version']), ''),
+            ('# Please don\'t edit this file.',   ''),
+            ('# Sync Opts'                    ,   ''),
+            ('sync count'                     ,   0), 
+            ('sync state'                     ,   'never sync'),
+            ('sync network_error'             ,   0),
+            ('sync retry'                     ,   0),
+            ('sync timestamp'                 ,   0),
+            ('# World Opts'                   ,   ''),
+            ('world packages'                 ,   0),
+            ('world last start'               ,   0),
+            ('world last stop'                ,   0),
+            ('world last state'               ,   'unknow'),
+            ('world last total'               ,   0),
+            ('world last failed'              ,   0),
+            ('# Portage Opts'                 ,   ''),
+            ('portage available'              ,   False),
+            ('portage current'                ,   '0.0'),
+            ('portage latest'                 ,   '0.0'),
+            )
+        else:
+            # python >= 3.7 preserve dict order 
+            default_stateopts = {
+                '# Wrote by {0}'.format(self.pathdir['prog_name']) 
+                + ' version: {0}'.format(self.pathdir['prog_version']): '',
+                '# Please don\'t edit this file.':   '',
+                '# Sync Opts'                    :   '',
+                'sync count'                     :   0, 
+                'sync state'                     :   'never sync',
+                'sync network_error'             :   0,
+                'sync retry'                     :   0,
+                'sync timestamp'                 :   0,
+                '# World Opts'                   :   '',
+                'world packages'                 :   0,
+                'world last start'               :   0,
+                'world last stop'                :   0,
+                'world last state'               :   'unknow',
+                'world last total'               :   0,
+                'world last failed'              :   0,
+                '# Portage Opts'                 :   '',
+                'portage available'              :   False,
+                'portage current'                :   '0.0',
+                'portage latest'                 :   '0.0',
+                }
         
         # Init save/load info file 
         self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, default_stateopts)

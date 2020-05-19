@@ -21,7 +21,7 @@ whatever program (as long as it use dbus or syuppo-cli output).
 
 ## Dependencies
 
-* [python](https://www.python.org/) >= 3.5 (tested: v3.6.x)
+* [python](https://www.python.org/) >= 3.5 (tested: v3.6.x - v3.7.7, recommanded: v3.7.x)
 * [pydbus](https://github.com/LEW21/pydbus)
 * [GitPython](https://github.com/gitpython-developers/GitPython)
 * [numpy](https://numpy.org/)
