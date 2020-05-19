@@ -4,14 +4,11 @@
 > SYnc UPdate POrtage Daemon
 
 Syuppod is a python3 daemon which automate syncing and pretending update
-for gentoo portage manager. It can also, optionally, manage git kernel update (pull) and 
-list new branch or new kernel, for the moment only for [zen-kernel](https://github.com/zen-kernel/zen-kernel).
-It intend to be run as a root service using /etc/init.d/ but for debugging puproses it can be run in a terminal. 
-Any way, it as to be run as root.
+for gentoo portage manager. It intend to be run as a root service using /etc/init.d/ but for debugging puproses 
+it can be run in a terminal. Any way, it as to be run as root.
 
 It uses dbus to expose informations to user space tools and it have an already written client (trival).
-With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats and,
-for git, available kernel depending on which is available from git and which have been installed.
+With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats.
 And many more (also more to come).
 
 I'm using it with [conky](https://github.com/brndnmtthws/conky) to display some informations. But it have no 
@@ -23,7 +20,6 @@ whatever program (as long as it use dbus or syuppo-cli output).
 
 * [python](https://www.python.org/) >= 3.5 (tested: v3.6.x - v3.7.7, recommanded: v3.7.x)
 * [pydbus](https://github.com/LEW21/pydbus)
-* [GitPython](https://github.com/gitpython-developers/GitPython)
 * [numpy](https://numpy.org/)
 * [pexpect](https://github.com/pexpect/pexpect)
 * [inotify_simple](https://github.com/chrisjbillington/inotify_simple)
@@ -31,13 +27,13 @@ whatever program (as long as it use dbus or syuppo-cli output).
 
 ## Installation / Usage
 
-1. Clone the repo:
+1. Clone the repo (--recursive because it have shared libs):
 ```bash
-git clone https://github.com/Jjeje007/syuppod.git
+git clone --recursive https://github.com/Jjeje007/syuppod.git
 ```
 2. Copy the dbus configuration file to authorize dbus request:
 ```bash
-cp syuppod.conf /usr/share/dbus-1/system.d/
+cp syuppod-dbus.conf /usr/share/dbus-1/system.d/
 ```
 3. Install dependencies using emerge or pip.
 
@@ -52,7 +48,7 @@ cp syuppod.conf /usr/share/dbus-1/system.d/
 
 1. Copy init file:
 ```bash
-cp syuppod-init /etc/init.d/syuppod
+cp init /etc/init.d/syuppod
 ```
 2. Edit lines:\
     command=\ 
@@ -71,12 +67,11 @@ cp syuppod-init /etc/init.d/syuppod
 ### About logs and debug
 
 Daemon have several logs all located in /var/log/syuppod/\
-If you have troubles, check first /var/log/stderr.log and /var/log/debug.log (if debug is enable: -d)\
+If you have troubles, check first /var/log/syuppod/stderr.log and /var/log/syuppod/debug.log (if debug is enable: -d)\
 But the best way, is running by hand in a terminal (so not using /etc/init.d/).
 
-Daemon and terminal mode write sync, pull and pretend process logs to, respectively:\
+Daemon and terminal mode write sync and pretend process logs to, respectively:\
 /var/log/syuppod/sync.log\
-/var/log/syuppod/git.log\
 /var/log/syuppod/pretend.log
 
 All logs are autorotate.
