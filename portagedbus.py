@@ -4,7 +4,7 @@
 # Distributed under the terms of the GNU General Public License v3
 
 from portagemanager import PortageHandler
-from logger import MainLoggingHandler
+from lib.logger import MainLoggingHandler
 
 class PortageDbus(PortageHandler):
     """

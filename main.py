@@ -21,10 +21,9 @@ import threading
 
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
-from logger import MainLoggingHandler
-from logger import RedirectFdToLogger
+from lib.logger import MainLoggingHandler
+from lib.logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
-from utils import StateInfo
 
 # TODO TODO TODO don't run as root ! investigate !
 # TODO : exit gracefully 

@@ -19,11 +19,11 @@ from collections import OrderedDict
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
-from utils import FormatTimestamp
-from utils import StateInfo
-from utils import on_parent_exit
-from logger import MainLoggingHandler
-from logger import ProcessLoggingHandler
+from lib.utils import FormatTimestamp
+from lib.utils import StateInfo
+from lib.utils import on_parent_exit
+from lib.logger import MainLoggingHandler
+from lib.logger import ProcessLoggingHandler
 
 
 try:

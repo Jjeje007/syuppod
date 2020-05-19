@@ -13,9 +13,9 @@ import pathlib
 import re
 
 from argsparser import ClientParserHandler
-from utils import _format_date
-from utils import _format_timestamp
-from utils import FormatTimestamp
+from lib.utils import _format_date
+from lib.utils import _format_timestamp
+from lib.utils import FormatTimestamp
 
 
 try:
