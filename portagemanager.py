@@ -34,6 +34,7 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
+# TODO TODO TODO TODO TODO make mod look like init mode 
 # TODO TODO TODO TODO ok rewrite PortageHandler it's really a mess !!
 # TODO TODO TODO stablize API
 # TODO TODO get news :p
@@ -1792,32 +1793,33 @@ class UpdateInProgress:
         pids = [ ]
         with pathlib.Path('/proc') as listdir:
             for dirname in listdir.iterdir():
-                if pids_only.match(dirname):
-                    try:
-                        with pathlib.Path('/proc/{0}/cmdline'.format(dirname)).open('rb') as myfd:
-                            content = myfd.read().decode().split('\x00')
-                    # IOError exception when pid is terminate between getting the dir list and open it each
-                    except IOError:
-                        continue
-                    except Exception as exc:
-                        self.logger.error(f'Got unexcept error: {exc}')
-                        # TODO: Exit or not ?
-                        continue
-                    # Check world update
-                    if tocheck == 'world':
-                        if world_proc.match(' '.join(content)):
-                            #  Don't match any -p or --pretend opts
-                            if not pretend_opt.match(' '.join(content)):
+                if dirname.is_dir():
+                    # parts is a tulpe to access individual 'parts'
+                    if pids_only.match(dirname.parts[-1]):
+                        try:
+                            with pathlib.Path(f'{dirname}/cmdline').open('rb') as myfd:
+                                content = myfd.read().decode().split('\x00')
+                        # IOError exception when pid is terminate between getting the dir list and open it each
+                        except IOError:
+                            continue
+                        except Exception as exc:
+                            self.logger.error(f'Got unexcept error: {exc}')
+                            continue
+                        # Check world update
+                        if tocheck == 'world':
+                            if world_proc.match(' '.join(content)):
+                                #  Don't match any -p or --pretend opts
+                                if not pretend_opt.match(' '.join(content)):
+                                    inprogress = True
+                                    break
+                        # Check sync update
+                        elif tocheck == 'sync':
+                            if sync_proc.match(' '.join(content)):
                                 inprogress = True
                                 break
-                    # Check sync update
-                    elif tocheck == 'sync':
-                        if sync_proc.match(' '.join(content)):
-                            inprogress = True
-                            break
-                        elif wrsync_proc.match(' '.join(content)):
-                            inprogress = True
-                            break
+                            elif wrsync_proc.match(' '.join(content)):
+                                inprogress = True
+                                break
             
         displaylog = False
         current_timestamp = time.time()

@@ -4,8 +4,6 @@
 # Starting : 2019-08-08
 
 # This is a SYnc UPdate POrtage Daemon
-# This is a GIt KErnel Updater Daemon
-# Gikeud
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
@@ -252,7 +250,7 @@ def main():
            
     
 if __name__ == '__main__':
-
+    
     # Parse arguments
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
@@ -260,7 +258,7 @@ if __name__ == '__main__':
     # Creating log
     mainlog = MainLoggingHandler('::main::', pathdir['prog_name'], pathdir['debuglog'], pathdir['fdlog'])
     
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and not args.fakeinit:
         logger = mainlog.tty_run()      # create logger tty_run()
         logger.setLevel(mainlog.logging.INFO)
         runlevel = 'tty_run'
@@ -269,6 +267,8 @@ if __name__ == '__main__':
         # TODO
         print('\33]0; {0} - {1}  \a'.format(prog_name, __version__), end='', flush=True)
     else:
+        if args.fakeinit:
+            print('Running fake init.', file=sys.stderr)
         logger = mainlog.init_run()     # create logger init_run()
         logger.setLevel(mainlog.logging.INFO)
         runlevel = 'init_run'
@@ -279,6 +279,8 @@ if __name__ == '__main__':
         # This is NOT good if there is error before log(ger) is initialized...
         fd2 = RedirectFdToLogger(logger)
         sys.stderr = fd2
+        
+        #print('This is a test', file=sys.stderr)
        
     if args.debug and args.quiet or args.quiet and args.debug:
         logger.info('Both debug and quiet opts has been enable, falling back to log level info.')
@@ -290,7 +292,7 @@ if __name__ == '__main__':
     elif args.quiet:
         logger.setLevel(mainlog.logging.ERROR)
     
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and not args.fakeinit:
         logger.info('Interactive mode detected, all logs go to terminal.')
     
     # run MAIN

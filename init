@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+
+
+
+command=/data/01/src/syuppod/main.py
+command_args="-d"                   # ENABLE debug
+pidfile="/var/run/${RC_SVCNAME}.pid"
+name="syuppod daemon"
+command_background=true
+ 
+description="Syuppod is a daemon that auto sync and guess how many package to update version python"
+
+depend() {
+	# Need net to sync
+	need net
+	after logger
+}

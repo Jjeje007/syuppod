@@ -91,7 +91,9 @@ class CustomArgsCheck:
 
 
 class DaemonParserHandler(CustomArgsCheck):
-    """Handle daemon arguments parsing"""
+    """
+    Handle daemon arguments parsing
+    """
     def __init__(self, pathdir, version):
         prog = 'syuppod'
         self.pathdir = pathdir
@@ -129,7 +131,14 @@ class DaemonParserHandler(CustomArgsCheck):
                             metavar = 'int',
                             type=self._check_args_interval,
                             default = 86400)
-    
+        advanced_debug = self.parser.add_argument_group('<advanced debug options>')
+        advanced_debug.add_argument('-f',
+                                    '--fakeinit',
+                                    help = 'Debugging init crash. Start daemon like it\'s started by running'
+                                            + ' /etc/init.d/syuppod/ start. So this is only usefull if start from terminal.',
+                                    action = 'store_true')
+        # TODO add --dry-run (nothing will be write to logs/statefile)
+        
     def parsing(self):
         self.args = self.parser.parse_args()
         return self.args
