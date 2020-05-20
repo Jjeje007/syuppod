@@ -76,9 +76,9 @@ Daemon and terminal mode write sync and pretend process logs to, respectively:\
 
 All logs are autorotate.
 
-### About git submodule
+### About shared libs
 
-This project use shared lib from git submodule. If you want to automatically pull submodule
+This project use shared libs from git submodule. If you want to automatically pull submodule
 when you run 'git pull' in git's folder project then you should run:
 ```bash
 git config --global submodule.recurse true
