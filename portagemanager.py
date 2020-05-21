@@ -84,7 +84,7 @@ class PortageHandler:
             ('world last stop'                ,   0),
             ('world last state'               ,   'unknow'),
             ('world last total'               ,   0),
-            ('world last failed'              ,   0),
+            ('world last failed'              ,   'none'),
             ('# Portage Opts'                 ,   ''),
             ('portage available'              ,   False),
             ('portage current'                ,   '0.0'),
@@ -108,7 +108,7 @@ class PortageHandler:
                 'world last stop'                :   0,
                 'world last state'               :   'unknow',
                 'world last total'               :   0,
-                'world last failed'              :   0,
+                'world last failed'              :   'none',
                 '# Portage Opts'                 :   '',
                 'portage available'              :   False,
                 'portage current'                :   '0.0',
@@ -1037,7 +1037,7 @@ class EmergeLogParser:
                 'stop'      -> stop timestamp.
                 'total'     -> total packages which has been update.
                 'state'     -> 'completed' / 'partial' / 'incompleted'
-                'failed'    -> if 'completed': 0, if 'partial' / 'incompleted': package number which failed. 
+                'failed'    -> if 'completed': 'none', if 'partial' / 'incompleted': package number which failed. 
         @error: return False
         
         Exemple from emerge.log:
@@ -1249,7 +1249,7 @@ class EmergeLogParser:
             #   method get_last_world_update(), it will keep rewriting value 
             #   because int(0) != str(0) and - by the way - this will be treat 
             #   as an world update run.
-            self.group['failed'] = '0'
+            self.group['failed'] = 'none'
             self.collect['completed'].append(self.group)
             self.packages_count = 1
             self.logger.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
