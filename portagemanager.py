@@ -13,6 +13,7 @@ import subprocess
 import io
 import threading
 import uuid
+import logging
 
 # compatibility for python < 3.7
 from collections import OrderedDict 
@@ -34,13 +35,18 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
-# TODO TODO TODO TODO TODO make mod look like init mode 
 # TODO TODO TODO TODO ok rewrite PortageHandler it's really a mess !!
 # TODO TODO TODO stablize API
 # TODO TODO get news :p
 # TODO add load checking before running pretend_world()
 # TODO add choice for pretend_world(): use emerge or eix --installed --update but this will be only approximative ?
 
+# TEST
+
+#module_logger = logging.getLogger(f'::{__name__}')
+#print(module_logger.parent)
+#module_logger.setLevel(logging.DEBUG)
+#module_logger.debug('Hello how are you ?')
 
 class PortageHandler:
     """
@@ -61,10 +67,15 @@ class PortageHandler:
         self.format_timestamp = FormatTimestamp()
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
+        logger_test = logging.getLogger(f'{self.logger_name}init::')
+        print(logger_test.parent)
         portagemanager_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
                                                self.pathdir['debuglog'], self.pathdir['fdlog'])
         self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
+        print(self.logger.parent)
         self.logger.setLevel(kwargs['loglevel'])
+        
+        logger_test.debug('This is a test from portagemanager::PortageHandler::init')
         
         # compatibility for python < 3.7 (dict is not ordered)
         if sys.version_info[:2] < (3, 7):
@@ -140,7 +151,7 @@ class PortageHandler:
             'elapsed'       :   0,
             'remain'        :   0,
             'session_count' :   0,   # Counting sync count since running (current session)
-            'repos'         :   self._get_repositories()  # Repo's dict to sync with key 'names', 'formatted' 
+            'repos'         :   self._get_repositories()  # Repo's dict to sync with key: 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
         
@@ -152,27 +163,48 @@ class PortageHandler:
         
         # World attributes
         # TODO split this to 'world' and 'pretend' could be really better for understanding
-        self.world = {
-            'status'    :   'waiting',   # TODO move waiting to ready | running : running :p | completed: just finished
-            'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
-            'update'    :   False,   # True when global update is in progress / False if not
-            'updated'   :   False,   # True if system has been updated / False otherwise # TODO remove
-            'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
-            'interval'  :   600,    # Interval between two pretend_world() run TODO this could be tweaked !
-            'remain'    :   600,    # TEST this the time between two pretend_world() lauch (avoid spamming)
+        #self.world = {
+            #'status'    :   'ready',   # TODO move waiting to ready | running : running :p | completed: just finished
+            #'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
+            #'update'    :   False,   # True when global update is in progress / False if not
+            #'updated'   :   False,   # True if system has been updated / False otherwise # TODO remove
+            #'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
+            #'interval'  :   600,    # Interval between two pretend_world() run TODO this could be tweaked !
+            #'remain'    :   600,    # TEST this the time between two pretend_world() lauch (avoid spamming)
                                     # for now it's 10min
-            'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
+            #'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
                                     # this is for async call implantation.
-            'cancel'    :   False,  # this is for cancelling pretend_world subprocess when it detect an world update
-            'cancelled' :   False,  # same here so we know it has been cancelled if True
+            #'cancel'    :   False,  # this is for cancelling pretend_world subprocess when it detect an world update
+            #'cancelled' :   False,  # same here so we know it has been cancelled if True
             # attributes for last world update informations extract from emerge.log file
-            'last'      :   {
-                    'state'     :   loaded_stateopts.get('world last state'), 
-                    'start'     :   loaded_stateopts.get('world last start'),
-                    'stop'      :   loaded_stateopts.get('world last stop'),
-                    'total'     :   loaded_stateopts.get('world last total'),
-                    'failed'    :   loaded_stateopts.get('world last failed')
-                }
+            #'last'      :   {
+                    #'state'     :   loaded_stateopts.get('world last state'), 
+                    #'start'     :   loaded_stateopts.get('world last start'),
+                    #'stop'      :   loaded_stateopts.get('world last stop'),
+                    #'total'     :   loaded_stateopts.get('world last total'),
+                    #'failed'    :   loaded_stateopts.get('world last failed')
+                #}
+            #}
+        
+        # Last global update informations
+        # For more details see -> class EmergeLogParser -> last_world_update()
+        self.world = {
+            'state'     :   loaded_stateopts.get('world last state'), 
+            'start'     :   loaded_stateopts.get('world last start'),
+            'stop'      :   loaded_stateopts.get('world last stop'),
+            'total'     :   loaded_stateopts.get('world last total'),
+            'failed'    :   loaded_stateopts.get('world last failed')
+            }
+        # Manage pretend available packages updates 
+        self.pretend = {
+            'proceed'   :   False,      # True when pretend_world() should be run
+            'status'    :   'ready',    # values: ready | running | completed
+            'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
+            'interval'  :   600,        # Interval between two pretend_world() run TODO this could be tweaked !
+            'remain'    :   600,        # TEST this the time between two pretend_world() lauch (avoid spamming)
+            'forced'    :   False,      # (dbus) and for async call implantation.
+            'cancel'    :   False,      # cancelling pretend_world pexpect when it detect world update in progress
+            'cancelled' :   False       # same here so we know it has been cancelled if True
             }
         
         # Portage attributes
@@ -197,12 +229,7 @@ class PortageHandler:
         sync_timestamp = myparser.last_sync()
         self.logger.name = f'{self.logger_name}check_sync::'
         current_timestamp = time.time()
-        update_statefile = False
-        # Refresh repositories infos
-        # TEST don't need repo refreshed here because it's in __init__() 
-        # and in dosync()
-        #self.sync['repos'] = self._get_repositories()
-        #self.logger.name = f'{self.logger_name}check_sync::'
+        tosave = [ ]
         
         if sync_timestamp:
             # first run ever 
@@ -210,15 +237,15 @@ class PortageHandler:
                 self.logger.debug('Found sync {0} timestamp set to factory: 0.'.format(self.sync['repos']['msg']))
                 self.logger.debug(f'Setting to: {sync_timestamp}.')
                 self.sync['timestamp'] = sync_timestamp
-                update_statefile = True
+                tosave.append(['sync timestamp', self.sync['timestamp']])
                 recompute = True
             # Detected out of program sync
             elif not self.sync['timestamp'] == sync_timestamp:
-                self.logger.debug('{0} has been sync outside the program, forcing pretend world...'.format(
+                self.logger.debug('{0} have been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
-                self.world['pretend'] = True # So run pretend world update
+                self.pretend['proceed'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
-                update_statefile = True
+                tosave.append(['sync timestamp', self.sync['timestamp']])
                 recompute = True
             
             # Compute / recompute time remain
@@ -226,39 +253,38 @@ class PortageHandler:
             # because it will erase the arbitrary time remain set by method dosync()
             if recompute:
                 self.logger.debug('Recompute is enable.')
-                self.logger.debug('Current sync elapsed timestamp: {0}'.format(self.sync['elapsed']))
+                self.logger.debug('Current sync elapsed timestamp:' 
+                                  + ' {0}'.format(self.sync['elapsed']))
                 self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
-                self.logger.debug('Recalculate sync elapsed timestamp: {0}'.format(self.sync['elapsed']))
-                self.logger.debug('Current sync remain timestamp: {0}.'.format(self.sync['remain']))
+                self.logger.debug('Recalculate sync elapsed timestamp:' 
+                                  + ' {0}'.format(self.sync['elapsed']))
+                self.logger.debug('Current sync remain timestamp:' 
+                                  + ' {0}.'.format(self.sync['remain']))
                 self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
-                self.logger.debug('Recalculate sync remain timestamp: {0}'.format(self.sync['remain']))
+                self.logger.debug('Recalculate sync remain timestamp:' 
+                                  + ' {0}'.format(self.sync['remain']))
             
-            self.logger.debug('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['elapsed'])))
-            self.logger.debug('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['remain'])))
-            self.logger.debug('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['interval'])))
+            self.logger.debug('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
+            self.logger.debug('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
+            self.logger.debug('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
-                self.logger.info('Found {0} {1} to sync: {2}.'.format(self.sync['repos']['count'], 
-                                                                  self.sync['repos']['msg'],
-                                                                  self.sync['repos']['formatted']))
-                self.logger.info('{0} sync elapsed time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['elapsed'])))
-                self.logger.info('{0} sync remain time: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['remain'])))
-                self.logger.info('{0} sync interval: {1}.'.format(self.sync['repos']['msg'].capitalize(),
-                                                            self.format_timestamp.convert(self.sync['interval'])))
+                self.logger.info('Found {0}'.format(self.sync['repos']['count']) 
+                                 + ' {0} to sync:'.format(self.sync['repos']['msg']) 
+                                 + ' {0}.'.format(self.sync['repos']['formatted']))
+            self.logger.info('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
+            self.logger.info('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
+            self.logger.info('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
-            if update_statefile:
-                self.logger.debug('Saving \'sync timestamp: {0}\' to {1}.'.format(self.sync['timestamp'], 
-                                                                                 self.pathdir['statelog']))
-                self.stateinfo.save(['sync timestamp', self.sync['timestamp']])
-            else:
-                self.logger.debug('Skip saving \'sync timestamp: {0}\' to {1}: already in good state.'.format(self.sync['timestamp'], 
-                                                                                 self.pathdir['statelog']))
-            
+            if tosave:
+                self.stateinfo.save(*tosave)
+                
             if self.sync['remain'] <= 0:
                 return True # We can sync :)
             return False
@@ -499,11 +525,11 @@ class PortageHandler:
                     #self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
-            self.world['pretend'] = True
+            self.pretend['proceed'] = True
             self.logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             # Reset remain to interval
             self.sync['remain'] = self.sync['interval']
-            self.logger.info('Next syncing in {0}'.format(self.format_timestamp.convert(self.sync['interval'])))
+            self.logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
         # At the end
         self.sync['elapsed'] = 0
@@ -539,27 +565,22 @@ class PortageHandler:
         
         tosave = [ ]
         if get_world_info:
-            to_print = True                
+            to_print = True
+            updated = False
             # Write only if change
             for key in 'start', 'stop', 'state', 'total', 'failed':
-                if not self.world['last'][key] == get_world_info[key]:
+                if not self.world[key] == get_world_info[key]:
                     # Ok this mean world update has been run
                     # So run pretend_world()
-                    self.world['pretend'] = True
-                    self.world['updated'] = True
+                    self.pretend['proceed'] = True
+                    updated = True
                     if to_print:
                         self.logger.info('Global update has been run') # TODO: give more details
                         to_print = False
                             
-                    self.world['last'][key] = get_world_info[key]
-                    tosave.append([f'world last {key}', self.world['last'][key]])
-                    #self.logger.debug(f'Saving \'world last {key}: '
-                                    #+ '\'{0}\' '.format(self.world['last'][key]) 
-                                    #+ 'to \'{0}\'.'.format(self.pathdir['statelog']))
-                    #self.stateinfo.save('world last ' + key, 
-                                        #'world last ' + key 
-                                        #+ ': ' + str(self.world['last'][key]))
-            if not self.world['updated']:
+                    self.world[key] = get_world_info[key]
+                    tosave.append([f'world last {key}', self.world[key]])
+            if not updated:
                 self.logger.debug('Global update hasn\'t been run, keeping last know informations.')
         # Saving
         if tosave:
@@ -575,27 +596,27 @@ class PortageHandler:
         
         tosave = [ ]
         
-        if not self.world['pretend']:
+        if not self.pretend['proceed']:
             self.logger.error('We are about to search available package(s) update and found pretend to False,')
             self.logger.error('which mean this was NOT authorized, please report it.')
         # Disable pretend authorization
-        self.world['pretend'] = False
+        self.pretend['proceed'] = False
         # Make sure it's not already running        
-        if self.world['status'] == 'running':
+        if self.pretend[status] == 'running':
             self.logger.error('We are about to search available package(s) update and found status to True,')
             self.logger.error('which mean it is already in progress, please check and report if False.')
             return
-        self.world['status'] = 'running'
+        self.pretend[status] = 'running'
         
         # Don't need to run if cancel just received
-        if self.world['cancel']:
+        if self.pretend['cancel']:
             self.logger.warning('Stop searching available package(s) update as global update has been detected.')
             # Do we have already cancelled ?
-            if self.world['cancelled']:
+            if self.pretend['cancelled']:
                 self.logger.warning('The previously task was already cancelled, check and report if False.')
-            self.world['cancelled'] = True
-            self.world['cancel'] = False
-            self.world['status'] = 'waiting'
+            self.pretend['cancelled'] = True
+            self.pretend['cancel'] = False
+            self.pretend[status] = 'ready'
             return
         
         self.logger.debug('Start searching available package(s) update.')
@@ -643,28 +664,28 @@ class PortageHandler:
                     break
                     # What to do ? 
                     
-                if self.world['cancel']:
+                if self.pretend['cancel']:
                     # So we want to cancel
                     # Just break 
                     # child still alive
                     break
             
             # Keep TEST-ing 
-            if self.world['cancel']:                
+            if self.pretend['cancel']:                
                 self.logger.warning('Stop searching available package(s) update as global update has been detected.')
                 child.terminate(force=True)
                 # Don't really know but to make sure :)
                 child.close(force=True)
                 # Don't write log because it's has been cancelled (log is only partial)
-                if self.world['cancelled']:
+                if self.pretend['cancelled']:
                     self.logger.warning('The previously task was already cancelled, check and report if False.')
-                if self.world['status'] == 'waiting':
+                if self.pretend[status] == 'ready':
                     self.logger.error('We are about to leave pretend process, but just found status already to wait,')
                     self.logger.error('which mean process is/was NOT in progress, please check and report if True')
                 
-                self.world['cancelled'] = True
-                self.world['cancel'] = False
-                self.world['status'] = 'waiting'
+                self.pretend['cancelled'] = True
+                self.pretend['cancel'] = False
+                self.pretend[status] = 'ready'
                 # skip every thing else
                 return
             
@@ -724,32 +745,32 @@ class PortageHandler:
 
         # Make sure we have some update_packages
         if update_packages:
-            if not self.world['packages'] == update_packages:
-                self.world['packages'] = update_packages
-                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
+            if not self.pretend['packages'] == update_packages:
+                self.pretend['packages'] = update_packages
+                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.pretend['packages'], 
                                                                                  #self.pathdir['statelog']))
-                tosave.append(['world packages', self.world['packages']])
-                #self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
+                tosave.append(['world packages', self.pretend['packages']])
+                #self.stateinfo.save('world packages', 'world packages: ' + str(self.pretend['packages']))
         else:
-            if not self.world['packages'] == 0:
-                self.world['packages'] = 0
-                tosave.append(['world packages', self.world['packages']])
-                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.world['packages'], 
+            if not self.pretend['packages'] == 0:
+                self.pretend['packages'] = 0
+                tosave.append(['world packages', self.pretend['packages']])
+                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.pretend['packages'], 
                                                                                  #self.pathdir['statelog']))
-                #self.stateinfo.save('world packages', 'world packages: ' + str(self.world['packages']))
+                #self.stateinfo.save('world packages', 'world packages: ' + str(self.pretend['packages']))
         
         # At the end
-        if self.world['cancelled']:
+        if self.pretend['cancelled']:
             self.logger.debug('The previously task has been cancelled,' 
                              + ' resetting state to False (as this one is completed).')
-        self.world['cancelled'] = False
-        if self.world['status'] == 'completed':
+        self.pretend['cancelled'] = False
+        if self.pretend[status] == 'completed':
             self.logger.error('We are about to leave pretend process, but just found status already to completed,')
             self.logger.error('which mean process is/was NOT in progress, please check and report if True')
         # Save
         if tosave:
             self.stateinfo.save(*tosave)
-        self.world['status'] = 'completed'
+        self.pretend[status] = 'completed'
 
 
     def available_portage_update(self):
@@ -1316,7 +1337,7 @@ class EmergeLogParser:
                                     break
                             if unexcept_start:
                                 # FIXME for now avoid logging this as error because 
-                                # it's spam a LOT /var/log/messages (every self.world['remain'] seconds - 5s (2020-02-12))
+                                # it's spam a LOT /var/log/messages (every self.pretend['remain'] seconds - 5s (2020-02-12))
                                 # TODO maybe we -could- log only once this error...
                                 self.logger.debug(f'While parsing {self.emergelog}, got unexcept'
                                                 f' world update start opt:')

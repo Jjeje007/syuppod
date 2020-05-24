@@ -38,9 +38,6 @@ bus = SystemBus()
 
 mylocale = locale.getdefaultlocale()
 error_msg = [ ]
-# see --> https://stackoverflow.com/a/10174657/11869956 -> thx
-#localedir = os.path.join(os.path.dirname(__file__), 'locales')
-# or python > 3.4:
 localedir = pathlib.Path(__file__).parent/'locales'    
 lang_translations = gettext.translation('client', localedir, languages=[mylocale[0]], fallback=True)
 lang_translations.install()
@@ -48,6 +45,8 @@ lang_translations.install()
 translate = True
 _ = lang_translations.gettext
 
+## TODO wait until daemon API is stabilized then updat all this :p
+## TODO better english (try it :p )
 
 def state(myobject, opt, machine):
     """Display last tree repositories updater state or status"""
@@ -57,9 +56,7 @@ def state(myobject, opt, machine):
         'Success'       :   _('Success'),
         'Failed'        :   _('Failed'),
         'never sync'    :   _('Program never sync'),
-        #'Finish'        :   _('Finish'),
         'state'         :   _('Last state of the repositories syncronizer:')
-        #'update'        :   _('Current status of the repositories syncronizer:')
         }
     if not machine:
         print('[*] {0}'.format(_(msg[opt])))
@@ -161,7 +158,7 @@ def elapsed_remain(myobject, switch, opt, machine, translate):
     if not opt:
         opt = 'human:3'
     translate = {
-        'elapsed'    :   _('Current repositories synchronization elapsed time:'),
+        'elapsed'   :   _('Current repositories synchronization elapsed time:'),
         'remain'    :   _('Current repositories synchronization remain time:')
         }
     reply = int(myobject.get_sync_attribute(switch))
@@ -216,7 +213,7 @@ def available(myobject, available, machine):
       
 def packages(myobject, machine):
     """Display world packages to update"""
-    reply = myobject.get_world_attribute('packages', 'False')
+    reply = myobject.get_pretend_attribute('packages')
     msg = _('None')
     if reply:
         msg = reply
@@ -234,36 +231,36 @@ def last(myobject, last, machine, translate):
         last = 'elapsed:r:2'
     # Parse
     if 'state' in last:
-        msg = myobject.get_world_attribute('last', 'state')
+        msg = myobject.get_world_attribute('state')
         additionnal_msg = _('Last world update state:')
     elif 'total' in last:
-        msg = myobject.get_world_attribute('last', 'total')
+        msg = myobject.get_world_attribute('total')
         additionnal_msg = _('Last world update packages:')
     elif 'failed' in last:
-        reply = myobject.get_world_attribute('last', 'failed')
-        if reply == '0':
+        reply = myobject.get_world_attribute('failed')
+        if reply == 'none':
             msg = _('None')
             additionnal_msg = _('Last world update failed package:')
         else:
             msg = reply
             additionnal_msg = _('Last world update failed packages:')
     elif 'start' in last:
-        reply = int(myobject.get_world_attribute('last', 'start'))
+        reply = int(myobject.get_world_attribute('start'))
         msg = _('The {0}').format(_format_date(reply, last))
         additionnal_msg = _('Last world update started:')
     elif 'stop' in last:
-        reply = int(myobject.get_world_attribute('last', 'stop'))
+        reply = int(myobject.get_world_attribute('stop'))
         msg = _('The {0}').format(_format_date(reply, last))
         additionnal_msg = _('Last world update stoped:')
     elif 'elapsed' in last:
-        reply = int(myobject.get_world_attribute('last', 'stop'))
+        reply = int(myobject.get_world_attribute('stop'))
         current_timestamp = time.time()
         elapsed = round(current_timestamp - reply)
         msg = _('There is {0} ago').format(_format_timestamp(elapsed, last, translate))
         additionnal_msg = _('Last world update finished:')
     elif 'duration' in last:
-        start = int(myobject.get_world_attribute('last', 'start'))
-        stop = int(myobject.get_world_attribute('last', 'stop'))
+        start = int(myobject.get_world_attribute('start'))
+        stop = int(myobject.get_world_attribute('stop'))
         duration = round(stop - start)
         msg = _format_timestamp(duration, last, translate)
         additionnal_msg = _('Last world update lasted:')
@@ -310,7 +307,7 @@ def forced(myobject, machine):
         'too_early' :   _('Recompute have just been completed {0} ago.\n').format(additionnal_msg[0]) +
                         _('{0}You have to wait ').format(tab) +
                         _('{0} before you can run it again.').format(additionnal_msg[1]),
-        'running'   :   _('Order has been sent, see {0} for more details.').format(additionnal_msg[0])
+        'running'   :   _('Order have been sent, see {0} for more details.').format(additionnal_msg[0])
         }
     
     if not machine:
@@ -325,9 +322,6 @@ def parser(args):
     myobject  = bus.get("net.syuppod.Manager.Portage")
     portcaller = {
         'state'     :   { 'func': state, 'args' : [myobject, 'state', args.machine] },
-                                                                # Attribute is 'update' not 'status'
-        #'status'    :   { 'func' : portage_state_status, 'args' : [myobject, 'update', args.machine] },
-        #'error'     :   { 'func' : portage_error, 'args' : [myobject, args.machine] },
         'count'     :   { 'func': count, 'args' : [myobject, args.count, args.machine] },
         'timestamp' :   { 'func': timestamp, 'args' : [myobject, args.timestamp, args.machine, translate] },
         'interval'  :   { 'func': interval, 'args' : [myobject, args.interval, args.machine, translate] },

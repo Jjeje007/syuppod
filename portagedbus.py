@@ -16,7 +16,10 @@ class PortageDbus(PortageHandler):
                 </method>
                 <method name='get_world_attribute'>
                     <arg type='s' name='world_key' direction='in'/>
-                    <arg type='s' name='world_subkey' direction='in'/>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
+                <method name='get_pretend_attribute'>
+                    <arg type='s' name='pretend_key' direction='in'/>
                     <arg type='s' name='response' direction='out'/>
                 </method>
                 <method name='get_portage_attribute'>
@@ -56,18 +59,24 @@ class PortageDbus(PortageHandler):
         return str(self.sync[key])   # Best to return string over other 
 
 
-    def get_world_attribute(self, key, subkey):
+    def get_world_attribute(self, key):
         """
         Retrieve specific world attribute and return through dbus
         """
         self.pdb_logger.name = f'{self.named_logger}get_world_attribute::'
-        self.pdb_logger.debug(f'Requesting: {key} | {subkey}.')
-        # TODO ?? **kwargs or *args : list or dict 
-        if not subkey == 'False':   # Workaround because subkey could be str or bool ...
-            self.pdb_logger.debug('Returning: {0} (as string).'.format(self.world[key][subkey]))
-            return str(self.world[key][subkey])
+        self.pdb_logger.debug(f'Requesting: {key}')
         self.pdb_logger.debug('Returning: {0} (as string).'.format(self.world[key]))
         return str(self.world[key])
+    
+    
+    def get_pretend_attribute(self, key):
+        """
+        Retrieve specific pretend attribute and return through dbus
+        """
+        self.pdb_logger.name = f'{self.named_logger}get_pretend_attribute::'
+        self.pdb_logger.debug(f'Requesting: {key}')
+        self.pdb_logger.debug('Returning: {0} (as string).'.format(self.pretend[key]))
+        return str(self.pretend[key])
 
 
     def get_portage_attribute(self, key):
@@ -78,6 +87,7 @@ class PortageDbus(PortageHandler):
         self.pdb_logger.debug(f'Requesting: {key}.')
         self.pdb_logger.debug('Returning: {0} (as string).'.format(self.portage[key]))
         return str(self.portage[key])
+
         
     def forced_pretend(self):
         """
@@ -111,21 +121,22 @@ class PortageDbus(PortageHandler):
             # same here we don't know the state of global update ...
             
         # Don't run if pretend is running
-        if self.world['status'] == 'running':
+        if self.pretend['status'] == 'running':
             self.pdb_logger.debug('Failed: search for available package update already in progress.')
             return 'already'
         # Don't run if pretend have just been run 
-        if self.world['status'] == 'completed':
+        if self.pretend['status'] == 'completed':
             self.pdb_logger.debug('Failed: search for available package' 
                                  + ' update have just been completed' 
-                                 + ' (interval: {0}s'.format(self.world['interval'])
-                                 + ' | remain: {0}s).'.format(self.world['remain']))
-            return 'too_early {0} {1}'.format(self.world['interval'], self.world['remain'])
+                                 + ' (interval: {0}s'.format(self.pretend['interval'])
+                                 + ' | remain: {0}s).'.format(self.pretend['remain']))
+            return 'too_early {0} {1}'.format(self.pretend['interval'], self.pretend['remain'])
         
         # Every thing is ok :p pioufff ! ;)
-        self.world['pretend'] = True
-        self.world['forced'] = True
+        self.pretend['proceed'] = True
+        self.pretend['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])
+    
     
     def _get_debug_attributes(self, key):
         """

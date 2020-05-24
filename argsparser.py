@@ -7,6 +7,8 @@ import re
 import argparse
 import sys
 
+## TODO TODO TODO for client part, what about not just checking if option are ok
+#                 we should parse it, and return for exemple dict? 
 # TODO: add --dry-run opt to not write to statefile 
 # TODO  argcomplete --> https://github.com/kislyuk/argcomplete
 # TODO  make opt word not all required : like argparse default if --available you can write --a 

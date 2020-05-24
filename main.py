@@ -40,6 +40,7 @@ except Exception as exc:
 __version__ = "dev"
 prog_name = 'syuppod'  
 
+
 pathdir = {
     'prog_name'     :   prog_name,
     'prog_version'  :   __version__,
@@ -49,8 +50,6 @@ pathdir = {
     'debuglog'      :   '/var/log/' + prog_name + '/debug.log',
     'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
     'statelog'      :   '/var/lib/' + prog_name + '/state.info',
-    # TODO TODO TODO : add a check to see if user which run the program 
-    # have enough right to perform all this operations
     'synclog'       :   '/var/log/' + prog_name + '/sync.log',
     'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
 }
@@ -94,9 +93,9 @@ class MainDaemon(threading.Thread):
                 self.myport['watcher'].tasks['sync']['requests']['completed'] = sync_requests[-1]
                 self.myport['manager'].check_sync()
             # pretend running and world is running as well so call cancel
-            if self.myport['manager'].world['status'] == 'running' \
+            if self.myport['manager'].pretend['status'] == 'running' \
                and self.myport['watcher'].tasks['world']['inprogress']:
-                self.myport['manager'].world['cancel'] = True
+                self.myport['manager'].pretend['cancel'] = True
             # Check pending requests for 'world' <=> global update
             if self.myport['watcher'].tasks['world']['requests']['pending'] \
                and not self.myport['watcher'].tasks['world']['inprogress']:
@@ -115,21 +114,21 @@ class MainDaemon(threading.Thread):
             # and pretend is waiting and it was cancelled so recall pretend :p
             if not self.myport['watcher'].tasks['sync']['inprogress'] \
                and not self.myport['watcher'].tasks['world']['inprogress'] \
-               and self.myport['manager'].world['status'] == 'waiting' \
-               and self.myport['manager'].world['cancelled']:
-                logger.warning('Recalling package(s) update\'s search as it was cancelled.')
-                self.myport['manager'].world['pretend'] = True
-                self.myport['manager'].world['cancelled'] = False
+               and self.myport['manager'].pretend['status'] == 'ready' \
+               and self.myport['manager'].pretend['cancelled']:
+                logger.warning('Recalling available packages updates search as it was cancelled.')
+                self.myport['manager'].pretend['proceed'] = True
+                self.myport['manager'].pretend['cancelled'] = False
             # Every thing is OK: pretend was wanted, has been called and is completed 
-            if self.myport['manager'].world['status'] == 'completed':
+            if self.myport['manager'].pretend['status'] == 'completed':
                 # TEST Wait between two pretend_world() run 
-                if self.myport['manager'].world['remain'] <= 0:
-                    logger.debug('Changing state for world from \'completed\' to \'waiting\'.')
+                if self.myport['manager'].pretend['remain'] <= 0:
+                    logger.debug('Changing state for pretend process from \'completed\' to \'waiting\'.')
                     logger.debug('pretend_world() can be call again.')
-                    self.myport['manager'].world['remain'] = self.myport['manager'].world['interval']
-                    self.myport['manager'].world['status'] = 'waiting'
+                    self.myport['manager'].pretend['remain'] = self.myport['manager'].pretend['interval']
+                    self.myport['manager'].pretend['status'] = 'ready'
                 else:
-                    self.myport['manager'].world['remain'] -= 1
+                    self.myport['manager'].pretend['remain'] -= 1
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
             if self.myport['watcher'].tasks['package']['requests']['pending'] \
@@ -168,14 +167,14 @@ class MainDaemon(threading.Thread):
             # TEST Disable pretend_world() if sync is in progress other wise will run twice.
             # Better to go with watcher over manager because it could be an external sync which will not be detected
             # by manager
-            # Don't run pretend if world / sync in progress or if not status == 'waiting'
-            if self.myport['manager'].world['pretend'] \
-               and self.myport['manager'].world['status'] == 'waiting' \
+            # Don't run pretend if world / sync in progress or if not status == 'ready'
+            if self.myport['manager'].pretend['proceed'] \
+               and self.myport['manager'].pretend['status'] == 'ready' \
                and not self.myport['watcher'].tasks['sync']['inprogress'] \
                and not self.myport['watcher'].tasks['world']['inprogress']:
-                if self.myport['manager'].world['forced']:
-                    logger.warning('Forcing pretend world as requested by dbus client.')
-                    self.myport['manager'].world['forced'] = False
+                if self.myport['manager'].pretend['forced']:
+                    logger.warning('Recompute available packages updates as requested by dbus client.')
+                    self.myport['manager'].pretend['forced'] = False
                 logger.debug('Running pretend_world()')
                 # Making async and non-blocking
                 self.scheduler.run_in_executor(None, self.myport['manager'].pretend_world, ) # -> ', )' = same here
