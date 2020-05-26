@@ -67,8 +67,16 @@ cp init /etc/init.d/syuppod
 ### About logs and debug
 
 Daemon have several logs all located in /var/log/syuppod/\
-If you have troubles, check first /var/log/syuppod/stderr.log and /var/log/syuppod/debug.log (if debug is enable: -d)\
-But the best way, is running by hand in a terminal (so not using /etc/init.d/).
+
+Starting with git commit id: e1079ebd0f4a4b8b65fdf9ebfd448e02c7fc9e66, new logging process have been added
+to catch almost all error when running daemon in init mode (/etc/init.d/syuppod start). Unfortunately, 
+it introduce a more complex log flow. The earliest errors are redirect to syslog first. So if you encounter
+any issues you should first check /var/log/messages. Then: /var/log/syuppod/stderr.log and /var/log/syuppod/debug.log
+(if debug is enable: -d). 
+
+Running by hand in a terminal (so not using /etc/init.d/) is really intend to be a one shot test or for debugging.
+You have to note that there is also a debugging option: --fakeinit which mimic init process (so you won't get any output
+in terminal).
 
 Daemon and terminal mode write sync and pretend process logs to, respectively:\
 /var/log/syuppod/sync.log\
@@ -103,7 +111,7 @@ Distributed under the [GNU gpl v3 license](https://www.gnu.org/licenses/gpl-3.0.
 
 ## Bugs report
 
-Please open an issue and don't forget to attach logs: stderr.log and debug.log. 
+Please open an issue and don't forget to attach logs: messages (syslog), stderr.log and debug.log. 
 
 ## Contributing
 
