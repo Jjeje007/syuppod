@@ -4,7 +4,7 @@
 # Distributed under the terms of the GNU General Public License v3
 
 from portagemanager import PortageHandler
-from lib.logger import MainLoggingHandler
+import logging 
 
 class PortageDbus(PortageHandler):
     """
@@ -41,10 +41,7 @@ class PortageDbus(PortageHandler):
         super().__init__(**kwargs)
         # add specific logger
         self.named_logger = f'::{__name__}::PortageDbus::'
-        portagedbus_logger = MainLoggingHandler(self.named_logger, self.pathdir['prog_name'],
-                                               self.pathdir['debuglog'], self.pathdir['fdlog'])
-        self.pdb_logger = getattr(portagedbus_logger, kwargs['runlevel'])()
-        self.pdb_logger.setLevel(kwargs['loglevel'])
+        logger = logging.getLogger(f'{self.named_logger}init::')
         self.sync_state = False #kwargs.get('sync_state', 'disabled')
         self.world_state = False #kwargs.get('world_state', 'disabled')
     
@@ -53,9 +50,9 @@ class PortageDbus(PortageHandler):
         """
         Retrieve specific sync attribute and return through dbus.
         """
-        self.pdb_logger.name = f'{self.named_logger}get_sync_attribute::'
-        self.pdb_logger.debug(f'Requesting: {key}.')
-        self.pdb_logger.debug('Returning: {0} (as string).'.format(self.sync[key]))
+        logger = logging.getLogger(f'{self.named_logger}get_sync_attribute::')
+        logger.debug(f'Requesting: {key}.')
+        logger.debug('Returning: {0} (as string).'.format(self.sync[key]))
         return str(self.sync[key])   # Best to return string over other 
 
 
@@ -63,9 +60,9 @@ class PortageDbus(PortageHandler):
         """
         Retrieve specific world attribute and return through dbus
         """
-        self.pdb_logger.name = f'{self.named_logger}get_world_attribute::'
-        self.pdb_logger.debug(f'Requesting: {key}')
-        self.pdb_logger.debug('Returning: {0} (as string).'.format(self.world[key]))
+        logger = logging.getLogger(f'{self.named_logger}get_world_attribute::')
+        logger.debug(f'Requesting: {key}')
+        logger.debug('Returning: {0} (as string).'.format(self.world[key]))
         return str(self.world[key])
     
     
@@ -73,9 +70,9 @@ class PortageDbus(PortageHandler):
         """
         Retrieve specific pretend attribute and return through dbus
         """
-        self.pdb_logger.name = f'{self.named_logger}get_pretend_attribute::'
-        self.pdb_logger.debug(f'Requesting: {key}')
-        self.pdb_logger.debug('Returning: {0} (as string).'.format(self.pretend[key]))
+        logger = logging.getLogger(f'{self.named_logger}get_pretend_attribute::')
+        logger.debug(f'Requesting: {key}')
+        logger.debug('Returning: {0} (as string).'.format(self.pretend[key]))
         return str(self.pretend[key])
 
 
@@ -83,9 +80,9 @@ class PortageDbus(PortageHandler):
         """
         Retrieve specific portage attribute and return through dbus.
         """
-        self.pdb_logger.name = f'{self.named_logger}get_portage_attribute::'
-        self.pdb_logger.debug(f'Requesting: {key}.')
-        self.pdb_logger.debug('Returning: {0} (as string).'.format(self.portage[key]))
+        logger = logging.getLogger(f'{self.named_logger}get_portage_attribute::')
+        logger.debug(f'Requesting: {key}.')
+        logger.debug('Returning: {0} (as string).'.format(self.portage[key]))
         return str(self.portage[key])
 
         
@@ -93,40 +90,40 @@ class PortageDbus(PortageHandler):
         """
         Forcing recompute of available update package depending on conditions.
         """
-        self.pdb_logger.name = f'{self.named_logger}forced_pretend::'
-        self.pdb_logger.debug('Got request.')
+        logger = logging.getLogger(f'{self.named_logger}forced_pretend::')
+        logger.debug('Got request.')
         
         # Don't run if sync is in progress (as we will run pretend after)
         if self.sync['status']:
-            self.pdb_logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
+            logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
                                       + ' is in progress (internal).')
             return 'sync'
         
         # same here but external sync
         #if not self.sync_state == 'disabled':
         if self.sync_state:
-            self.pdb_logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
+            logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
                                       + ' is in progress (external).')
         #else:
-            #self.pdb_logger.debug('External sync checker is disabled.')
+            #logger.debug('External sync checker is disabled.')
             #don't return 'sync' as we don't know state so just pass to the next check
         
         # Don't run if world update is in progress
         #if not self.world_state == 'disabled':
         if self.world_state:
-            self.pdb_logger.debug('Failed: global update is in progress.')
+            logger.debug('Failed: global update is in progress.')
             return 'world'
         #else:
-            #self.pdb_logger.debug('External global update checker is disabled.')
+            #logger.debug('External global update checker is disabled.')
             # same here we don't know the state of global update ...
             
         # Don't run if pretend is running
         if self.pretend['status'] == 'running':
-            self.pdb_logger.debug('Failed: search for available package update already in progress.')
+            logger.debug('Failed: search for available package update already in progress.')
             return 'already'
         # Don't run if pretend have just been run 
         if self.pretend['status'] == 'completed':
-            self.pdb_logger.debug('Failed: search for available package' 
+            logger.debug('Failed: search for available package' 
                                  + ' update have just been completed' 
                                  + ' (interval: {0}s'.format(self.pretend['interval'])
                                  + ' | remain: {0}s).'.format(self.pretend['remain']))
@@ -142,12 +139,12 @@ class PortageDbus(PortageHandler):
         """
         Retrieve specific attribute for debugging only
         """
-        self.pdb_logger.name = f'{self.named_logger}_get_debug_attributes::'
-        self.pdb_logger.debug(f'Requesting: {key}.')
+        logger = logging.getLogger(f'{self.named_logger}_get_debug_attributes::')
+        logger.debug(f'Requesting: {key}.')
         try:
             return str(getattr(self, key))
         except Exception as exc:
-            self.pdb_logger.debug(f'Got exception: {exc}')
+            logger.debug(f'Got exception: {exc}')
         else:
-            self.pdb_logger.debug('Returning: {0} (as string).'.format(getattr(self, key)))
+            logger.debug('Returning: {0} (as string).'.format(getattr(self, key)))
         

@@ -6,8 +6,56 @@
 # This is a SYnc UPdate POrtage Daemon
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
+__version__ = "dev"
+prog_name = 'syuppod'  
+pathdir = {
+    'prog_name'     :   prog_name,
+    'prog_version'  :   __version__,
+    'basedir'       :   '/var/lib/' + prog_name,
+    'logdir'        :   '/var/log/' + prog_name,
+    'emergelog'     :   '/var/log/emerge.log',
+    'debuglog'      :   '/var/log/' + prog_name + '/debug.log',
+    'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
+    'statelog'      :   '/var/lib/' + prog_name + '/state.info',
+    'synclog'       :   '/var/log/' + prog_name + '/sync.log',
+    'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
+}
 
+# Default basic logging, this will handle earlier error when
+# daemon is run using /etc/init.d/
+# It will be re-config when all module will be loaded
 import sys
+import logging
+logging.addLevelName(logging.CRITICAL, '[Crit ]')
+logging.addLevelName(logging.ERROR,    '[Error]')
+logging.addLevelName(logging.WARNING,  '[Warn ]')
+logging.addLevelName(logging.INFO,     '[Info ]')
+logging.addLevelName(logging.DEBUG,    '[Debug]')
+
+root_logger = logging.getLogger()
+
+if not sys.stdout.isatty() or '--fakeinit' in sys.argv\
+   or '-f' in sys.argv:
+    if '--fakeinit' in sys.argv or '-f' in sys.argv:
+        print('Running fake init.', file=sys.stderr)
+    # So redirect stderr to syslog (for the moment)
+    from lib.logger import RedirectFdToLogger
+    from lib.logger import LogErrorFilter
+    from lib.logger import LogLevelFilter
+    fd_handler_syslog = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
+    fd_formatter_syslog = logging.Formatter('{0} %(levelname)s  %(message)s'.format(prog_name))
+    fd_handler_syslog.setFormatter(fd_formatter_syslog)
+    fd_handler_syslog.setLevel(40)
+    root_logger.addHandler(fd_handler_syslog)
+    fd2 = RedirectFdToLogger(root_logger)
+    sys.stderr = fd2
+    display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+else:
+    # import here what is necessary to handle logging when 
+    # running in a terminal
+    from lib.logger import LogLevelFormatter
+    display_init_tty = ''
+
 import os
 import argparse
 import pathlib
@@ -19,8 +67,8 @@ import threading
 
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
-from lib.logger import MainLoggingHandler
-from lib.logger import RedirectFdToLogger
+#from lib.logger import MainLoggingHandler
+#from lib.logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
 
 # TODO TODO TODO don't run as root ! investigate !
@@ -37,31 +85,19 @@ except Exception as exc:
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
-__version__ = "dev"
-prog_name = 'syuppod'  
 
-
-pathdir = {
-    'prog_name'     :   prog_name,
-    'prog_version'  :   __version__,
-    'basedir'       :   '/var/lib/' + prog_name,
-    'logdir'        :   '/var/log/' + prog_name,
-    'emergelog'     :   '/var/log/emerge.log',
-    'debuglog'      :   '/var/log/' + prog_name + '/debug.log',
-    'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
-    'statelog'      :   '/var/lib/' + prog_name + '/state.info',
-    'synclog'       :   '/var/log/' + prog_name + '/sync.log',
-    'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
-}
 
 class MainDaemon(threading.Thread):
     def __init__(self, myport, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.logger_name = f'::{__name__}::MainDaemonThread::'
+        logger = logging.getLogger(f'{self.logger_name}init::')
         self.myport = myport
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
     
     def run(self):
+        logger = logging.getLogger(f'{self.logger_name}run::')
         logger.info('Start up completed.')
         while True:
             ### Portage stuff
@@ -91,6 +127,7 @@ class MainDaemon(threading.Thread):
                              + ' for sync informations.')
                 # Send reply
                 self.myport['watcher'].tasks['sync']['requests']['completed'] = sync_requests[-1]
+                # Dont automatically recompute, let check_sync() make the decision
                 self.myport['manager'].check_sync()
             # pretend running and world is running as well so call cancel
             if self.myport['manager'].pretend['status'] == 'running' \
@@ -132,9 +169,7 @@ class MainDaemon(threading.Thread):
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
             if self.myport['watcher'].tasks['package']['requests']['pending'] \
-               and self.myport['manager'].portage['remain'] <= 0: # \
-               #and not self.myport['watcher'].tasks['sync']['inprogress'] \
-               #and not self.myport['watcher'].tasks['world']['inprogress']:
+               and self.myport['manager'].portage['remain'] <= 0:
                 package_requests = self.myport['watcher'].tasks['package']['requests']['pending'].copy()
                 msg = ''
                 if len(package_requests) > 1:
@@ -144,7 +179,8 @@ class MainDaemon(threading.Thread):
                              + ' for portage\'s package update informations.')
                 # Send reply
                 self.myport['watcher'].tasks['package']['requests']['completed'] = package_requests[-1] 
-                # Set timer to 30s between two (group) of request  
+                # Set timer to 30s between two (group) of request
+                # This is done in available_portage_update()
                 self.myport['manager'].available_portage_update()
                 self.myport['watcher'].refresh_package_search_done = True
             self.myport['manager'].portage['remain'] -= 1    
@@ -187,20 +223,6 @@ class MainDaemon(threading.Thread):
 def main():
     """Main init"""
     
-    # Check or create basedir and logdir directories
-    for directory in 'basedir', 'logdir':
-        if not pathlib.Path(pathdir[directory]).is_dir():
-            try:
-                pathlib.Path(pathdir[directory]).mkdir()
-            except OSError as error:
-                if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                    logger.critical(f'Got error while making directory: \'{error.strerror}: {error.filename}\'.')
-                    logger.critical('Daemon is intended to be run as sudo/root.')
-                    sys.exit(1)
-                else:
-                    logger.critical(f'Got unexcept error while making directory: \'{error}\'.')
-                    sys.exit(1)
-                    
     # Init dbus service
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
@@ -208,15 +230,10 @@ def main():
     # Init Emerge log watcher first because we need status of sync and world process 
     # this is a workaround because EmergeLogWatcher need sync['repos']['msg']
     # so init as NOT WORKING :
-    myportwatcher = EmergeLogWatcher(pathdir, runlevel, logger.level, 'repo', 
-                             name='Emerge Log Watcher Daemon', daemon=True)
+    myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init portagemanager
-    # BUG sharing object's attribute over multiple thread is NOT working ?
-    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, runlevel=runlevel, loglevel=logger.level)
-    # TEST workaround 
-    # Ok So this is NOT working (sharing object attribute over multiple thread is NOT working)
-    myportwatcher.sync_msg = myportmanager.sync['repos']['msg']
+    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir)
     
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)
@@ -248,48 +265,103 @@ def main():
     myport['watcher'].join()
            
     
-if __name__ == '__main__':
+if __name__ == '__main__':    
     
-    # Parse arguments
+    # Ok so first parse argvs
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
-        
-    # Creating log
-    mainlog = MainLoggingHandler('::main::', pathdir['prog_name'], pathdir['debuglog'], pathdir['fdlog'])
     
+    # Check or create basedir and logdir directories
+    # Print to stderr as we have a redirect for init run 
+    for directory in 'basedir', 'logdir':
+        if not pathlib.Path(pathdir[directory]).is_dir():
+            try:
+                pathlib.Path(pathdir[directory]).mkdir()
+            except OSError as error:
+                if error.errno == errno.EPERM or error.errno == errno.EACCES:
+                    print('Got error while making directory:' 
+                          + f' \'{error.strerror}: {error.filename}\'.', file=sys.stderr)
+                    print('Daemon is intended to be run as sudo/root.', file=sys.stderr)
+                else:
+                    print('Got unexcept error while making directory:' 
+                          + f' \'{error}\'.', file=sys.stderr)
+            print('Exiting with status \'1\'.', file=sys.stderr)
+            sys.exit(1)
+    
+    # Now re-configure logging
     if sys.stdout.isatty() and not args.fakeinit:
-        logger = mainlog.tty_run()      # create logger tty_run()
-        logger.setLevel(mainlog.logging.INFO)
-        runlevel = 'tty_run'
-        display_init_tty = ''
+        # reconfigure the root logger
+        logger = logging.getLogger()
+        # Rename root logger
+        logger.root.name = f'{__name__}'
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(LogLevelFormatter())
+        logger.addHandler(console_handler)
+        # Default to info
+        logger.setLevel(logging.INFO)
         # This is not working with konsole (kde)
         # TODO
-        print('\33]0; {0} - {1}  \a'.format(prog_name, __version__), end='', flush=True)
+        #print('\33]0; {0} - {1}  \a'.format(prog_name, __version__), end='', flush=True)
     else:
-        if args.fakeinit:
-            print('Running fake init.', file=sys.stderr)
-        logger = mainlog.init_run()     # create logger init_run()
-        logger.setLevel(mainlog.logging.INFO)
-        runlevel = 'init_run'
-        display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
-        # TODO rewrite / change 
-        # Redirect stderr to log 
-        # For the moment maybe stdout as well but nothing should be print to...
-        # This is NOT good if there is error before log(ger) is initialized...
+        # Reconfigure root logger only at the end 
+        # this will keep logging error to syslog
+        # Add debug handler only if debug is enable TEST
+        handlers = { }
+        if args.debug and not args.quiet:
+            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=31457280, backupCount=3)
+            debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
+            debug_handler.setFormatter(debug_formatter)
+            # For a better debugging get all level message to debug
+            debug_handler.addFilter(LogLevelFilter(50))
+            debug_handler.setLevel(10)
+            handlers['debug'] = debug_handler
+                
+        # Other level goes to Syslog
+        syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
+        syslog_formatter = logging.Formatter('{0} %(levelname)s  %(message)s'.format(prog_name))
+        syslog_handler.setFormatter(syslog_formatter)
+        # Filter stderr output
+        syslog_handler.addFilter(LogErrorFilter(stderr=False))
+        syslog_handler.setLevel(20)
+        handlers['syslog'] = syslog_handler
+        
+        # Catch file descriptor stderr
+        # Rotate the log 
+        # 2.86MB, rotate 3x times
+        fd_handler = logging.handlers.RotatingFileHandler(pathdir['fdlog'], maxBytes=3000000, backupCount=3)
+        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s') #, datefmt)
+        fd_handler.setFormatter(fd_formatter)
+        fd_handler.addFilter(LogErrorFilter(stderr=True))
+        # Level is error : See class LogErrorFilter
+        fd_handler.setLevel(40)
+        handlers['fd'] = fd_handler
+        
+        # reconfigure the root logger
+        logger = logging.getLogger()
+        # Rename root logger
+        logger.root.name = f'{__name__}'
+        # Add handlers
+        for handler in handlers.values():
+            logger.addHandler(handler)
+        # Set log level
+        logger.setLevel(logging.INFO)
+        # redirect again but now not to syslog but to file ;)
+        # First remove root_logger handler
+        root_logger.removeHandler(fd_handler_syslog)
         fd2 = RedirectFdToLogger(logger)
         sys.stderr = fd2
         
-        #print('This is a test', file=sys.stderr)
-       
+    
+    # default level is INFO
     if args.debug and args.quiet or args.quiet and args.debug:
-        logger.info('Both debug and quiet opts has been enable, falling back to log level info.')
-        logger.setLevel(mainlog.logging.INFO)
+        logger.info('Both debug and quiet opts has been enable,' 
+                    + ' falling back to log level info.')
     elif args.debug:
-        logger.setLevel(mainlog.logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
         logger.info(f'Debug has been enable. {display_init_tty}')
         logger.debug('Message are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
-        logger.setLevel(mainlog.logging.ERROR)
+        logger.setLevel(logging.ERROR)
     
     if sys.stdout.isatty() and not args.fakeinit:
         logger.info('Interactive mode detected, all logs go to terminal.')

@@ -23,8 +23,6 @@ from portage.dbapi.vartree import vardbapi
 from lib.utils import FormatTimestamp
 from lib.utils import StateInfo
 from lib.utils import on_parent_exit
-from lib.logger import MainLoggingHandler
-from lib.logger import ProcessLoggingHandler
 
 
 try:
@@ -35,25 +33,19 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
-# TODO TODO TODO TODO ok rewrite PortageHandler it's really a mess !!
 # TODO TODO TODO stablize API
-# TODO TODO get news :p
+# TODO add --dry-run debugging option 
+# TODO get news ?
 # TODO add load checking before running pretend_world()
 # TODO add choice for pretend_world(): use emerge or eix --installed --update but this will be only approximative ?
 
-# TEST
-
-#module_logger = logging.getLogger(f'::{__name__}')
-#print(module_logger.parent)
-#module_logger.setLevel(logging.DEBUG)
-#module_logger.debug('Hello how are you ?')
 
 class PortageHandler:
     """
     Portage tracking class
     """
     def __init__(self, **kwargs):
-        for key in 'interval', 'pathdir', 'runlevel', 'loglevel':
+        for key in 'interval', 'pathdir':
             if not key in kwargs:
                 # Print to stderr :
                 # when running in init mode stderr is redirect to a log file
@@ -67,15 +59,7 @@ class PortageHandler:
         self.format_timestamp = FormatTimestamp()
         # Init logger
         self.logger_name = f'::{__name__}::PortageHandler::'
-        logger_test = logging.getLogger(f'{self.logger_name}init::')
-        print(logger_test.parent)
-        portagemanager_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
-                                               self.pathdir['debuglog'], self.pathdir['fdlog'])
-        self.logger = getattr(portagemanager_logger, kwargs['runlevel'])()
-        print(self.logger.parent)
-        self.logger.setLevel(kwargs['loglevel'])
-        
-        logger_test.debug('This is a test from portagemanager::PortageHandler::init')
+        logger = logging.getLogger(f'{self.logger_name}init::')
         
         # compatibility for python < 3.7 (dict is not ordered)
         if sys.version_info[:2] < (3, 7):
@@ -127,7 +111,7 @@ class PortageHandler:
                 }
         
         # Init save/load info file 
-        self.stateinfo = StateInfo(self.pathdir, kwargs['runlevel'], self.logger.level, default_stateopts)
+        self.stateinfo = StateInfo(self.pathdir, default_stateopts)
         loaded_stateopts = False
         if self.stateinfo.newfile:
             # Don't need to load from StateInfo as it just create file and
@@ -151,40 +135,15 @@ class PortageHandler:
             'elapsed'       :   0,
             'remain'        :   0,
             'session_count' :   0,   # Counting sync count since running (current session)
-            'repos'         :   self._get_repositories()  # Repo's dict to sync with key: 'names', 'formatted' 
+            'repos'         :   get_repo_info()  # Repo's dict to sync with key: 'names', 'formatted' 
                                                           # 'count' and 'msg'. 'names' is a list
             }
         
         # Print warning if interval 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
-            self.logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
+            logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
                              self.format_timestamp.convert(self.sync['interval'], granularity=6)))
-        
-        # World attributes
-        # TODO split this to 'world' and 'pretend' could be really better for understanding
-        #self.world = {
-            #'status'    :   'ready',   # TODO move waiting to ready | running : running :p | completed: just finished
-            #'pretend'   :   False,   # True when pretend_world() should be run / False when shouldn't
-            #'update'    :   False,   # True when global update is in progress / False if not
-            #'updated'   :   False,   # True if system has been updated / False otherwise # TODO remove
-            #'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
-            #'interval'  :   600,    # Interval between two pretend_world() run TODO this could be tweaked !
-            #'remain'    :   600,    # TEST this the time between two pretend_world() lauch (avoid spamming)
-                                    # for now it's 10min
-            #'forced'    :   False, # to forced pretend for dbus client We could use 'status' key but 
-                                    # this is for async call implantation.
-            #'cancel'    :   False,  # this is for cancelling pretend_world subprocess when it detect an world update
-            #'cancelled' :   False,  # same here so we know it has been cancelled if True
-            # attributes for last world update informations extract from emerge.log file
-            #'last'      :   {
-                    #'state'     :   loaded_stateopts.get('world last state'), 
-                    #'start'     :   loaded_stateopts.get('world last start'),
-                    #'stop'      :   loaded_stateopts.get('world last stop'),
-                    #'total'     :   loaded_stateopts.get('world last total'),
-                    #'failed'    :   loaded_stateopts.get('world last failed')
-                #}
-            #}
         
         # Last global update informations
         # For more details see -> class EmergeLogParser -> last_world_update()
@@ -206,7 +165,6 @@ class PortageHandler:
             'cancel'    :   False,      # cancelling pretend_world pexpect when it detect world update in progress
             'cancelled' :   False       # same here so we know it has been cancelled if True
             }
-        
         # Portage attributes
         self.portage = {
             'current'   :   loaded_stateopts.get('portage current'),
@@ -222,26 +180,24 @@ class PortageHandler:
         Minimum is 24H. """
         
         # Change name of the logger
-        self.logger.name = f'{self.logger_name}check_sync::'
-        
+        logger = logging.getLogger(f'{self.logger_name}check_sync::')
         # Get the last emerge sync timestamp
-        myparser = EmergeLogParser(self.logger, self.pathdir['emergelog'], self.logger_name)
+        myparser = EmergeLogParser(self.pathdir['emergelog'])
         sync_timestamp = myparser.last_sync()
-        self.logger.name = f'{self.logger_name}check_sync::'
         current_timestamp = time.time()
         tosave = [ ]
         
         if sync_timestamp:
             # first run ever 
             if self.sync['timestamp'] == 0:
-                self.logger.debug('Found sync {0} timestamp set to factory: 0.'.format(self.sync['repos']['msg']))
-                self.logger.debug(f'Setting to: {sync_timestamp}.')
+                logger.debug('Found sync {0} timestamp set to factory: 0.'.format(self.sync['repos']['msg']))
+                logger.debug(f'Setting to: {sync_timestamp}.')
                 self.sync['timestamp'] = sync_timestamp
                 tosave.append(['sync timestamp', self.sync['timestamp']])
                 recompute = True
             # Detected out of program sync
             elif not self.sync['timestamp'] == sync_timestamp:
-                self.logger.debug('{0} have been sync outside the program, forcing pretend world...'.format(
+                logger.debug('{0} have been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
                 self.pretend['proceed'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
@@ -252,35 +208,35 @@ class PortageHandler:
             # This shouldn't be done every time method check_sync() is call
             # because it will erase the arbitrary time remain set by method dosync()
             if recompute:
-                self.logger.debug('Recompute is enable.')
-                self.logger.debug('Current sync elapsed timestamp:' 
+                logger.debug('Recompute is enable.')
+                logger.debug('Current sync elapsed timestamp:' 
                                   + ' {0}'.format(self.sync['elapsed']))
                 self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
-                self.logger.debug('Recalculate sync elapsed timestamp:' 
+                logger.debug('Recalculate sync elapsed timestamp:' 
                                   + ' {0}'.format(self.sync['elapsed']))
-                self.logger.debug('Current sync remain timestamp:' 
+                logger.debug('Current sync remain timestamp:' 
                                   + ' {0}.'.format(self.sync['remain']))
                 self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
-                self.logger.debug('Recalculate sync remain timestamp:' 
+                logger.debug('Recalculate sync remain timestamp:' 
                                   + ' {0}'.format(self.sync['remain']))
             
-            self.logger.debug('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
+            logger.debug('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
                               + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
-            self.logger.debug('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
+            logger.debug('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
                               + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
-            self.logger.debug('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
+            logger.debug('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
                               + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             if init_run:
-                self.logger.info('Found {0}'.format(self.sync['repos']['count']) 
-                                 + ' {0} to sync:'.format(self.sync['repos']['msg']) 
-                                 + ' {0}.'.format(self.sync['repos']['formatted']))
-            self.logger.info('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
-            self.logger.info('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
-            self.logger.info('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
+                logger.info('Found {0}'.format(self.sync['repos']['count']) 
+                             + ' {0} to sync:'.format(self.sync['repos']['msg']) 
+                             + ' {0}.'.format(self.sync['repos']['formatted']))
+                logger.info('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
+                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
+                logger.info('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
+                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
+                logger.info('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
+                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
             
             if tosave:
                 self.stateinfo.save(*tosave)
@@ -294,43 +250,29 @@ class PortageHandler:
     def dosync(self):
         """ Updating repo(s) """
         # Change name of the logger
-        self.logger.name = f'{self.logger_name}dosync::'
+        logger = logging.getLogger(f'{self.logger_name}dosync::')
         
         tosave = [ ]
         
-        # Check if already running
-        # BUT this shouldn't happend
-        if self.sync['status']:
-            self.logger.error('We are about to sync {0}, but just found status to True,'.format(self.sync['repos']['msg']))
-            self.logger.error('which mean syncing is in progress, please check and report if False')
-            # Don't touch status
-            # recheck in 10 minutes
-            self.sync['remain'] = 600
-            # Make sure to not recompute
-            #self.sync['recompute_done'] = True
-            return # Return will not be check as we implant asyncio and thread
-            # keep last know timestamp
-        
-        # Ok for now status is True
+        # This is for asyncio: don't run twice
         self.sync['status'] = True
         
         # Refresh repositories infos
-        self.sync['repos'] = self._get_repositories()
-        self.logger.name = f'{self.logger_name}dosync::'
+        self.sync['repos'] = get_repo_info()
         
         # This debug we display all the repositories
-        self.logger.debug('Will sync {0} {1}: {2}.'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
+        logger.debug('Will sync {0} {1}: {2}.'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
                                                                   ', '.join(self.sync['repos']['names'])))
-        self.logger.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
+        logger.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
             
         # Init logging
-        self.logger.debug('Initializing logging handler:')
-        self.logger.debug('Name: synclog')
+        logger.debug('Initializing logging handler:')
+        logger.debug('Name: synclog')
         processlog = ProcessLoggingHandler(name='synclog')
-        self.logger.debug('Writing to: {0}'.format(self.pathdir['synclog']))
+        logger.debug('Writing to: {0}'.format(self.pathdir['synclog']))
         mylogfile = processlog.dolog(self.pathdir['synclog'])
-        self.logger.debug('Log level: info')
+        logger.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
         # Network failure related
@@ -355,23 +297,17 @@ class PortageHandler:
         mylogfile.info('##########################################\n')
         
         for line in iter(myprocess.stdout.readline, ""):
-            #TODO : get info messages as well
-            #exemple : 
-            #* An update to portage is available. It is _highly_ recommended
-            #* that you update portage now, before any other packages are updated.
-            
-            #* To update portage, run 'emerge --oneshot portage' now.
             rstrip_line = line.rstrip()
             # write log             
             mylogfile.info(rstrip_line)
-            # TEST detected network failure for main gentoo repo 
+            # detected network failure for main gentoo repo 
             if found_manifest_failure:
                 # So make sure it's network related 
                 if gpg_network_unreachable.match(rstrip_line):
                     repo_gentoo_network_unreachable = True
             if manifest_failure.match(rstrip_line):
                 found_manifest_failure = True
-            # TEST  get return code for each repo
+            # get return code for each repo
             if failed_sync.match(rstrip_line):
                 self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
             if success_sync.match(rstrip_line):
@@ -380,9 +316,9 @@ class PortageHandler:
         return_code = myprocess.poll()
         
         if self.sync['repos']['success']:
-            self.logger.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
+            logger.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
         if self.sync['repos']['failed']:
-            self.logger.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
+            logger.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
         
         if return_code:
             list_len = len(self.sync['repos']['failed'])
@@ -394,8 +330,7 @@ class PortageHandler:
             if repo_gentoo_network_unreachable:
                 self.network_error = 1
                 self.state = 'Failed'
-                # TEST TEST Cannot be same as module gitmanager because:
-                # sync will make ALOT more time to fail.
+                # sync will make ALOT of time to fail.
                 # See : /etc/portage/repos.conf/gentoo.conf 
                 # @2020-23-01 (~30min): 
                 # sync-openpgp-key-refresh-retry-count = 40
@@ -418,32 +353,30 @@ class PortageHandler:
                 
                 if not self.sync['repos']['success']:
                     # All the repos failed
-                    self.logger.error('{0} sync failed: network is unreachable.'.format(
+                    logger.error('{0} sync failed: network is unreachable.'.format(
                                                     self.sync['repos']['msg'].capitalize()))
                 else:
-                    self.logger.error('Main gentoo repository failed to sync: network is unreachable.')
+                    logger.error('Main gentoo repository failed to sync: network is unreachable.')
                     additionnal_msg = ' also'
                     if list_len - 1 > 0:
-                        self.logger.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
+                        logger.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
                             ', '.join([name for name in self.sync['repos']['failed'] if not name == 'gentoo'])))
                 # Increment retry
                 old_sync_retry = self.retry
                 self.retry += 1
-                self.logger.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
+                logger.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
                                                                                  self.retry))
-                self.logger.error('Anyway will retry{0} sync in {1}.'.format(msg_on_retry,
+                logger.error('Anyway will retry{0} sync in {1}.'.format(msg_on_retry,
                                                                       self.format_timestamp.convert(
                                                                           self.sync['remain'])))
-                # Make sure to not recompute
-                #self.sync['recompute_done'] = True
             else:
                 # Ok so this is not an network problem for main gentoo repo
-                # TEST DONT disable sync just keep syncing every 'interval'
+                # DONT disable sync just keep syncing every 'interval'
                 if 'gentoo' in self.sync['repos']['failed']:
-                    self.logger.error('Main gentoo repository failed to sync with an unexcepted error !!.')
+                    logger.error('Main gentoo repository failed to sync with an unexcepted error !!.')
                     # There is also other failed repo
                     if list_len - 1 > 0:
-                        self.logger.error('{0} also failed to sync: {1}.'.format(msg, ', '.join(name for name \
+                        logger.error('{0} also failed to sync: {1}.'.format(msg, ', '.join(name for name \
                                                       in self.sync['repos']['failed'] if not name == 'gentoo')))
                     # State is Failed only if main gentoo repo failed
                     self.state = 'Failed'
@@ -452,84 +385,59 @@ class PortageHandler:
                     self.retry = 0
                 # Other repo
                 else:
-                    self.logger.error('{0} failed to sync: {2}.'.format(msg, ', '.join(
+                    logger.error('{0} failed to sync: {2}.'.format(msg, ', '.join(
                                                                self.sync['repos']['failed'])))
-                self.logger.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
-                self.logger.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
+                logger.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
+                logger.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
                                                                             self.sync['interval'])))
                 
-                self.logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
+                logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
                 # Any way reset remain to interval
                 self.sync['remain'] = self.sync['interval']
-                # Make sure to not recompute
-                #self.sync['recompute_done'] = True
         else:
             # Ok good :p
             self.state = 'Success'
+            
             # Reset values
             self.retry = 0
             self.network_error = 0
-            # Ok here we can recompute
-            #self.sync['recompute_done'] = False
-            self.logger.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
-            # BUG : found this in the log :
-            #2020-01-10 09:10:39  ::portagemanager::PortageHandler::get_last_world_update::  Global update not in progress.
-            #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Loading last '3000' lines from '/var/log/emerge.log'.
-            #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Extracting list of completed, incompleted and partial global update group informations.
-            #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Recording partial, start: 1578411408, stop: 1578425705, total packages: 203, failed: app-misc/piper-9999
-            #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Extracting latest global update informations.
-            #2020-01-10 09:10:39  ::portagemanager::EmergeLogParser::last_world_update::  Keeping partial, start: 1578411408, stop: 1578425705, total packages: 203, failed: app-misc/piper-9999
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Skip saving 'sync state: Success' to '/var/lib/syuppod/state.info': already in good state.
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Skip saving 'sync error: 0' to '/var/lib/syuppod/state.info': already in good state.
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Incrementing global sync count from '51' to '52'
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Incrementing current sync count from '0' to '1'
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Saving 'sync count: 52' to '/var/lib/syuppod/state.info'.
-            #2020-01-10 09:10:40  ::utils::StateInfo::save::  'sync count: 52'.
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Initializing emerge log parser:
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Parsing file: /var/log/emerge.log
-            #2020-01-10 09:10:40  ::portagemanager::PortageHandler::get_last_world_update::  Searching last sync timestamp.
-            # this shouldn't be ::get_last_world_update:: but ::dosync:: BUG
+            logger.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
             # Count only success sync
             old_count_global = self.sync['global_count']
             old_count = self.sync['session_count']
-            
-            #self.sync['global_count'] = self.sync['global_count']
             self.sync['global_count'] += 1
-            self.logger.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
+            logger.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
                                                                                            self.sync['global_count']))
             self.sync['session_count'] += 1
-            self.logger.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
+            logger.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
                                                                                     self.sync['session_count']))
-            self.logger.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
+            logger.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
                                                                                  self.pathdir['statelog']))
-            # TEST try to group save in save in one time
+            # group save to save in one shot
             tosave.append(['sync count', self.sync['global_count']])
-            #self.stateinfo.save('sync count', 'sync count: ' + str(self.sync['global_count']))
-                
+            
             # Get sync timestamp from emerge.log
-            self.logger.debug('Initializing emerge log parser:')
-            myparser = EmergeLogParser(self.logger, self.pathdir['emergelog'], self.logger_name)
-            self.logger.debug('Parsing file: {0}'.format(self.pathdir['emergelog']))
-            self.logger.debug('Searching last sync timestamp.')
+            logger.debug('Initializing emerge log parser:')
+            myparser = EmergeLogParser(self.pathdir['emergelog'])
+            logger.debug('Parsing file: {0}'.format(self.pathdir['emergelog']))
+            logger.debug('Searching last sync timestamp.')
             sync_timestamp = myparser.last_sync()
-            self.logger.name = f'{self.logger_name}dosync::'
-             
+            
             if sync_timestamp:
                 if sync_timestamp == self.sync['timestamp']:
-                    self.logger.warning(f'Bug in class \'{self.__class__.__name__}\', method: dosync(): sync timestamp are equal...')
+                    logger.warning(f'Bug in class \'{self.__class__.__name__}\', method: dosync(): sync timestamp are equal...')
                 else:
-                    self.logger.debug('Updating sync timestamp from \'{0}\' to \'{1}\'.'.format(self.sync['timestamp'], sync_timestamp))
+                    logger.debug('Updating sync timestamp from \'{0}\' to \'{1}\'.'.format(self.sync['timestamp'], sync_timestamp))
                     self.sync['timestamp'] = sync_timestamp
-                    self.logger.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
+                    logger.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
                                                                                  self.pathdir['statelog']))
-                    #self.stateinfo.save('sync timestamp', 'sync timestamp: ' + str(self.sync['timestamp']))
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
             self.pretend['proceed'] = True
-            self.logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
+            logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             # Reset remain to interval
             self.sync['remain'] = self.sync['interval']
-            self.logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
+            logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
         # At the end
         self.sync['elapsed'] = 0
@@ -538,11 +446,10 @@ class PortageHandler:
             if not self.sync[value] == getattr(self, value):
                 self.sync[value] = getattr(self, value)
                 tosave.append([f'sync {value}', self.sync[value]])
-                #self.stateinfo.save(f'sync {value}', f'sync {value}: ' + str(getattr(self, value)))
         if not self.sync['status']:
-            self.logger.error('We are about to leave syncing process, but just found status already to False,'.format(
+            logger.error('We are about to leave syncing process, but just found status already to False,'.format(
                                                                                         self.sync['repos']['msg']))
-            self.logger.error('which mean syncing is/was NOT in progress, please check and report if True')
+            logger.error('which mean syncing is/was NOT in progress, please check and report if True')
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
@@ -554,15 +461,14 @@ class PortageHandler:
         """Getting last world update timestamp"""
         
         # Change name of the logger
-        self.logger.name = f'{self.logger_name}get_last_world_update::'
-        self.logger.debug('Searching for last global update informations.')
+        logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
+        logger.debug('Searching for last global update informations.')
         
-        myparser = EmergeLogParser(self.logger, self.pathdir['emergelog'], self.logger_name)
+        myparser = EmergeLogParser(self.pathdir['emergelog'])
         # keep default setting 
         # TODO : give the choice cf EmergeLogParser() --> last_world_update()
         get_world_info = myparser.last_world_update()
-        self.logger.name = f'{self.logger_name}get_last_world_update::'
-        
+                
         tosave = [ ]
         if get_world_info:
             to_print = True
@@ -575,14 +481,14 @@ class PortageHandler:
                     self.pretend['proceed'] = True
                     updated = True
                     if to_print:
-                        self.logger.info('Global update has been run') # TODO: give more details
+                        logger.info('Global update have been run') # TODO: give more details
                         to_print = False
                             
                     self.world[key] = get_world_info[key]
                     tosave.append([f'world last {key}', self.world[key]])
             if not updated:
-                self.logger.debug('Global update hasn\'t been run, keeping last know informations.')
-        # Saving
+                logger.debug('Global update haven\'t been run, keeping last know informations.')
+        # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
         return
@@ -591,47 +497,27 @@ class PortageHandler:
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
-        # Change name of the logger
-        self.logger.name = f'{self.logger_name}pretend_world::'
+        logger = logging.getLogger(f'{self.logger_name}pretend_world::')
         
         tosave = [ ]
         
-        if not self.pretend['proceed']:
-            self.logger.error('We are about to search available package(s) update and found pretend to False,')
-            self.logger.error('which mean this was NOT authorized, please report it.')
         # Disable pretend authorization
         self.pretend['proceed'] = False
-        # Make sure it's not already running        
-        if self.pretend[status] == 'running':
-            self.logger.error('We are about to search available package(s) update and found status to True,')
-            self.logger.error('which mean it is already in progress, please check and report if False.')
-            return
         self.pretend[status] = 'running'
         
-        # Don't need to run if cancel just received
-        if self.pretend['cancel']:
-            self.logger.warning('Stop searching available package(s) update as global update has been detected.')
-            # Do we have already cancelled ?
-            if self.pretend['cancelled']:
-                self.logger.warning('The previously task was already cancelled, check and report if False.')
-            self.pretend['cancelled'] = True
-            self.pretend['cancel'] = False
-            self.pretend[status] = 'ready'
-            return
-        
-        self.logger.debug('Start searching available package(s) update.')
+        logger.debug('Start searching available package(s) update.')
                 
         update_packages = False
         retry = 0
         find_build_packages = re.compile(r'^Total:.(\d+).package.*$')        
         
         # Init logger
-        self.logger.debug('Initializing logging handler.')
-        self.logger.debug('Name: pretendlog')
+        logger.debug('Initializing logging handler.')
+        logger.debug('Name: pretendlog')
         processlog = ProcessLoggingHandler(name='pretendlog')
-        self.logger.debug('Writing to: {0}'.format(self.pathdir['pretendlog']))
+        logger.debug('Writing to: {0}'.format(self.pathdir['pretendlog']))
         mylogfile = processlog.dolog(self.pathdir['pretendlog'])
-        self.logger.debug('Log level: info')
+        logger.debug('Log level: info')
         mylogfile.setLevel(processlog.logging.INFO)
         
         mycommand = '/usr/bin/emerge'
@@ -639,7 +525,7 @@ class PortageHandler:
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
         
         while retry < 2:
-            self.logger.debug('Running {0} {1}'.format(mycommand, ' '.join(myargs)))
+            logger.debug('Running {0} {1}'.format(mycommand, ' '.join(myargs)))
             
             child = pexpect.spawn(mycommand, args=myargs, encoding='utf-8', preexec_fn=on_parent_exit(),
                                     timeout=None)
@@ -649,21 +535,20 @@ class PortageHandler:
             # Wait non blocking 
             while not child.closed and child.isalive():
                 try:
-                    # timeout is 30s because i try 10s and sometimes 
-                    # i get pexpect.TIMEOUT 
+                    # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
+                    # but this will not block every 30s
                     child.read_nonblocking(size=1, timeout=30)
-                    # We don't care about recording what ever 
+                    # We don't care about recording what ever since we recording from child.logfile 
                     # We wait until reach EOF
                 except pexpect.EOF:
                     # Don't close here
                     break
                 except pexpect.TIMEOUT:
                     # This shouldn't arrived
-                    self.logger.error('Got unexcept timeout while running {0} {1}'.format(mycommand, 
+                    # TODO This should be retried ?
+                    logger.error('Got unexcept timeout while running {0} {1}'.format(mycommand, 
                                                                                        ' '.join(myargs)))
                     break
-                    # What to do ? 
-                    
                 if self.pretend['cancel']:
                     # So we want to cancel
                     # Just break 
@@ -672,17 +557,13 @@ class PortageHandler:
             
             # Keep TEST-ing 
             if self.pretend['cancel']:                
-                self.logger.warning('Stop searching available package(s) update as global update has been detected.')
+                logger.warning('Stop searching available package(s) update as global update have been detected.')
                 child.terminate(force=True)
                 # Don't really know but to make sure :)
                 child.close(force=True)
-                # Don't write log because it's has been cancelled (log is only partial)
+                # Don't write log because it's have been cancelled (log is only partial)
                 if self.pretend['cancelled']:
-                    self.logger.warning('The previously task was already cancelled, check and report if False.')
-                if self.pretend[status] == 'ready':
-                    self.logger.error('We are about to leave pretend process, but just found status already to wait,')
-                    self.logger.error('which mean process is/was NOT in progress, please check and report if True')
-                
+                    logger.warning('The previously task was already cancelled, check and report if False.')
                 self.pretend['cancelled'] = True
                 self.pretend['cancel'] = False
                 self.pretend[status] = 'ready'
@@ -715,12 +596,12 @@ class PortageHandler:
             msg_on_return_code = 'Found'
             if return_code:
                 msg_on_return_code = 'Anyway found'
-                self.logger.error('Got error while searching for available package(s) update.')
-                self.logger.error('Command: {0} {1}, return code: {2}'.format(mycommand,
+                logger.error('Got error while searching for available package(s) update.')
+                logger.error('Command: {0} {1}, return code: {2}'.format(mycommand,
                                                                            ' '.join(myargs), return_code))
-                self.logger.error('You can retrieve log from: {0}.'.format(self.pathdir['pretendlog'])) 
+                logger.error('You can retrieve log from: {0}.'.format(self.pathdir['pretendlog'])) 
                 if retry < 2:
-                    self.logger.error('Retrying without opts \'--with-bdeps\'...')
+                    logger.error('Retrying without opts \'--with-bdeps\'...')
         
             # Ok so do we got update package ?
             if retry == 2:
@@ -734,39 +615,30 @@ class PortageHandler:
                         msg = f'Anyway system is up to date.'
                     else:
                         msg = f'System is up to date.'
-                self.logger.debug(f'Successfully search for packages update ({update_packages})')
-                self.logger.info(msg)
+                logger.debug(f'Successfully search for packages update ({update_packages})')
+                logger.info(msg)
             else:
                 # Remove --with-bdeps and retry one more time.
                 retry += 1
                 if retry < 2:
                     myargs.pop()
-                    self.logger.debug('Couldn\'t found how many package to update, retrying without opt \'--with bdeps\'.')
+                    logger.debug('Couldn\'t found how many package to update, retrying without opt \'--with bdeps\'.')
 
         # Make sure we have some update_packages
         if update_packages:
             if not self.pretend['packages'] == update_packages:
                 self.pretend['packages'] = update_packages
-                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.pretend['packages'], 
-                                                                                 #self.pathdir['statelog']))
                 tosave.append(['world packages', self.pretend['packages']])
-                #self.stateinfo.save('world packages', 'world packages: ' + str(self.pretend['packages']))
         else:
             if not self.pretend['packages'] == 0:
                 self.pretend['packages'] = 0
                 tosave.append(['world packages', self.pretend['packages']])
-                #self.logger.debug('Saving \'world packages: {0}\' to \'{1}\'.'.format(self.pretend['packages'], 
-                                                                                 #self.pathdir['statelog']))
-                #self.stateinfo.save('world packages', 'world packages: ' + str(self.pretend['packages']))
-        
+                
         # At the end
         if self.pretend['cancelled']:
-            self.logger.debug('The previously task has been cancelled,' 
+            logger.debug('The previously task have been cancelled,' 
                              + ' resetting state to False (as this one is completed).')
         self.pretend['cancelled'] = False
-        if self.pretend[status] == 'completed':
-            self.logger.error('We are about to leave pretend process, but just found status already to completed,')
-            self.logger.error('which mean process is/was NOT in progress, please check and report if True')
         # Save
         if tosave:
             self.stateinfo.save(*tosave)
@@ -776,10 +648,7 @@ class PortageHandler:
     def available_portage_update(self):
         """Check if an update to portage is available"""
         # TODO: be more verbose for debug !
-        # TODO save only version 
-        # TODO this have to be more tested 
-        # Change name of the logger
-        self.logger.name = f'{self.logger_name}available_portage_update::'
+        logger = logging.getLogger(f'{self.logger_name}available_portage_update::')
         # Reset remain here as we return depending of the situation
         self.portage['remain'] = 30
         
@@ -798,7 +667,7 @@ class PortageHandler:
         else:
             self.latest = portdbapi().xmatch('bestmatch-visible', 'portage')
             if not self.latest:
-                self.logger.error('Got not result when querying portage db for latest available portage package')
+                logger.error('Got not result when querying portage db for latest available portage package !')
                 return False
             # It's up to date 
             if self.latest == self.portage['current']:
@@ -807,7 +676,7 @@ class PortageHandler:
                     current_version = '-'.join(mysplit[-2:])
                 else:
                     current_version = mysplit[1]
-                self.logger.debug('No update to portage package is available' 
+                logger.debug('No update to portage package is available' 
                                  + f' (current version: {current_version})')
                 # Reset 'available' to False if not
                 # Don't mess with False vs 'False' / bool vs str
@@ -815,27 +684,25 @@ class PortageHandler:
                 if self.portage['available']:
                     self.portage['available'] = False
                     self.stateinfo.save(['portage available', self.portage['available']])
-                    #self.stateinfo.save('portage available', 'portage available: '
-                                            #+ str(self.portage['available']))
                 # Just make sure that self.portage['latest'] is also the same
                 if self.latest == self.portage['latest']:
                     # Don't need to update any thing 
                     return True
                 else:
                     self.stateinfo.save(['portage latest', self.portage['latest']])
-                    #self.stateinfo.save('portage latest', 'portage latest: ' + str(self.portage['latest']))
                     return True
+            # Get the list
             else:
                 portage_list = vardbapi().match('portage')
         
         # Make sure current is not None
         if not portage_list:
-            self.logger.error('Got no result when querying portage db for installed portage package...')
+            logger.error('Got no result when querying portage db for installed portage package...')
             return False
         if len(portage_list) > 1:
-            self.logger.error('Got more than one result when querying portage db for installed portage package...')
-            self.logger.error('The list contain: {0}'.format(' '.join(portage_list)))
-            self.logger.error('This souldn\'t happend, anyway picking the first in the list.')
+            logger.error('Got more than one result when querying portage db for installed portage package...')
+            logger.error('The list contain: {0}'.format(' '.join(portage_list)))
+            logger.error('This souldn\'t happend, anyway picking the first in the list.')
         
         # From https://dev.gentoo.org/~zmedico/portage/doc/api/portage.versions-pysrc.html
         # Parameters:
@@ -851,19 +718,19 @@ class PortageHandler:
         
         if self.result == None or self.result == -1:
             if not self.result:
-                self.logger.error('Got no result when comparing latest' 
+                logger.error('Got no result when comparing latest' 
                                 + ' available with installed portage package version.')
             else:
-                self.logger.error('Got unexcept result when comparing latest' 
+                logger.error('Got unexcept result when comparing latest' 
                                 + ' available with installed portage package version.')
-                self.logger.error('Result indicate that the latest available' 
+                logger.error('Result indicate that the latest available' 
                                 + ' portage package version is lower than the installed one...')
             
-            self.logger.error(f'Installed portage: \'{self.current}\', latest: \'{self.latest}\'.')
+            logger.error(f'Installed portage: \'{self.current}\', latest: \'{self.latest}\'.')
             if len(portage_list) > 1:
-                self.logger.error('As we got more than one result when querying' 
+                logger.error('As we got more than one result when querying' 
                                 + ' portage db for installed portage package.')
-                self.logger.error('This could explain strange result.')
+                logger.error('This could explain strange result.')
             self.portage['logflow'] = False
             return False
         else:
@@ -884,14 +751,14 @@ class PortageHandler:
                 # So this mean each time the program start and if update is available 
                 # it will print only one time.
                 if self.portage['logflow']:
-                    self.logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
+                    logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
                     self.portage['logflow'] = False
                 else:
-                    self.logger.debug(f'Found an update to portage (from {current_version} to {latest_version}).')
+                    logger.debug(f'Found an update to portage (from {current_version} to {latest_version}).')
                 self.available = True
                 # Don't return yet because we have to update portage['current'] and ['latest'] 
             elif self.result == 0:
-                self.logger.debug('No update to portage package is available' 
+                logger.debug('No update to portage package is available' 
                                   + f' (current version: {current_version})')
                 self.available = False
             
@@ -900,53 +767,26 @@ class PortageHandler:
             for key in 'current', 'latest', 'available':
                 if not self.portage[key] == getattr(self, key):
                     self.portage[key] = getattr(self, key)
-                    #self.logger.debug('Saving \'portage {0}: {1}\' to \'{2}\'.'.format(key, self.portage[key], 
-                                                                                 #self.pathdir['statelog']))
-                    #self.stateinfo.save('portage ' + key, 'portage ' + key + ': ' + str(self.portage[key]))
                     tosave.append([f'portage {key}', self.portage[key]])
                     # This print if there a new version of portage available
                     # even if there is already an older version available
                     # TEST
                     if key == 'latest' and self.portage['logflow'] and latest_version:
-                        self.logger.info('Found an update to portage' 
+                        logger.info('Found an update to portage' 
                                       + f' (from {current_version} to {latest_version}).')
             if tosave:
-                self.stateinfo.save(*tosave)
-                        
-      
-    def _get_repositories(self):
-        """
-        Get repos informations and return formatted
-        """
-        self.logger.name = f'{self.logger_name}_get_repositories::'
-        names = portdbapi().getRepositories()
-        if names:
-            names = sorted(names)
-            repo_count = len(names)
-            repo_msg = 'repositories'
-            # get only first 6 elements if names > 6
-            if repo_count > 6:
-                repo_name = ', '.join(names[:6]) + ' (+' + str(repo_count - 6) + ')'
-            elif repo_count == 1:
-                repo_msg = 'repository'
-                repo_name = ''.join(names)
-            else:
-                repo_name = ', '.join(names)
-            self.logger.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
-            # return dict
-            return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
-        # This is debug message as it's not fatal for the program
-        self.logger.debug('Could\'nt found sync repositories name(s) and count...')
-        # We don't know so just return generic
-        return { 'names' : '', 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }
+                self.stateinfo.save(*tosave)    
     
     
 
 class EmergeLogParser:
-    """Parse emerge.log file and extract informations"""
-    def __init__(self, log, emergelog, logger_name):
-        self.logger = log
+    """
+    Parse emerge.log file and extract informations
+    """
+    def __init__(self, emergelog):
         self.logger_name =  f'::{__name__}::EmergeLogParser::'    #logger_name
+        # Get a logger
+        logger = logging.getLogger(f'{self.logger_name}init::')
         self.aborded = 5
         self.emergelog = emergelog
         
@@ -955,8 +795,12 @@ class EmergeLogParser:
             # So we don't know how many lines have emerge.log 
             # go a head and give an arbitrary number
             self.lines = [60000, False]
+            logger.debug(f'Couldn\'t get \'{self.emergelog}\' lines number,' 
+                         + f' setting arbitrary to: {self.lines[0]} lines.')
         else:
             self.lines = [self.lines, True]
+            logger.debug(f'Setting \'{self.emergelog}\' maximum lines number to:' 
+                         + f' {self.lines[0]} lines.')
         self._range = { }
     
     
@@ -994,51 +838,52 @@ class EmergeLogParser:
             1569592937:  *** terminating. 
             adapt from https://stackoverflow.com/a/54023859/11869956"""
         
-        # Change name of the logger
-        self.logger.name = f'{self.logger_name}last_sync::'
+        logger = logging.getLogger(f'{self.logger_name}last_sync::')
+        
         completed_re = re.compile(r'^(\d+):\s{1}===.Sync.completed.for.gentoo$')
         self.lastlines = lastlines
         # construct exponantial list
         self._range['sync'] = numpy.geomspace(self.lastlines, self.lines[0], num=15, endpoint=True, dtype=int)
-        with_delimiting_lines = True
         collect = [ ]
         keep_running = True
         count = 1
         
         while keep_running:
-            self.logger.debug('Loading last {0} lines from {1}.'.format(self.lastlines, self.emergelog))
-            inside_group = False
-            self.logger.debug('Extracting list of successfully sync for main repo gentoo.')
+            logger.debug('Loading last {0} lines from {1}.'.format(self.lastlines, self.emergelog))
+            logger.debug('Extracting list of successfully sync for main repo gentoo.')
             for line in self.getlog(self.lastlines):
                 if completed_re.match(line):
                     current_timestamp = int(completed_re.match(line).group(1))
                     collect.append(current_timestamp)
-                    self.logger.debug(f'Recording: {current_timestamp}.')
+                    logger.debug(f'Recording: {current_timestamp}.')
             # Collect is finished.
-            # If we got nothing then extend  last lines to self.getlog()
+            # If we got nothing then extend last lines for self.getlog()
             if collect:
                 keep_running = False
             else:
-                if self._keep_collecting(count, ['last sync timestamp for main repo \'gentoo\'', 
+                if self.__keep_collecting(count, ['last sync timestamp for main repo \'gentoo\'', 
                                             'never sync...'], 'sync'):
-                    self.logger.name = f'{self.logger_name}last_sync::'
                     count = count + 1
                     keep_running = True
                 else:
                     return False
         
-        # Proceed to get the latest timestamp
-        self.logger.debug('Extracting latest sync from: {0}'.format(', '.join(str(timestamp) \
-                                                                          for timestamp in collect)))
         latest = collect[0]
+        # Don't need to proceed if list item == 1
+        if len(collect) == 1:
+            logger.debug(f'Selecting latest: \'{latest}\'.')
+            return latest
+        # otherwise get the latest timestamp
+        logger.debug('Extracting latest sync from:' 
+                     + ' {0}'.format(', '.join(str(timestamp) for timestamp in collect)))
         for timestamp in collect:
             if timestamp > latest:
                 latest = timestamp
         if latest:
-            self.logger.debug(f'Select: \'{latest}\'.')
+            logger.debug(f'Selecting latest: \'{latest}\'.')
             return latest
         
-        self.logger.error('Failed to found latest update timestamp for main repo gentoo.')
+        logger.error('Failed to found latest update timestamp for main repo gentoo.')
         return False
      
     
@@ -1046,7 +891,7 @@ class EmergeLogParser:
         """Get last world update timestamp
         @param lastlines  read last n lines from emerge log file (as we don't have to read all the file to get last world update)
                           you can tweak it but any way if you lower it and if the function don't get anything in the first pass
-                          it will increment it depending on function _keep_collecting()
+                          it will increment it depending on function __keep_collecting()
         @type integer
         @param incompleted enable or disable the search for start but failed update world
         @type boolean
@@ -1074,8 +919,9 @@ class EmergeLogParser:
             1569447225:  ::: completed emerge (1 of 44) sys-kernel/linux-firmware-20190923 to / """
         
         # TODO clean-up it's start to be huge !
-        # Change name of the logger
-        self.logger.name = f'{self.logger_name}last_world_update::'
+       
+        logger = logging.getLogger(f'{self.logger_name}last_world_update::')
+        
         self.collect = {
             'completed'     :   [ ],
             'incompleted'   :   [ ],
@@ -1097,7 +943,6 @@ class EmergeLogParser:
         current_package = False
         count = 1
         keepgoing = False
-        #parallel_merge = False
         linecompiling = 0
         record = [ ]
         forced = False       
@@ -1141,8 +986,6 @@ class EmergeLogParser:
         #       Also: i think we should remove incompleted update which just failed after n package 
         #       Where n could be : a pourcentage or a number (if think 30% could be a good start)
         #       Maybe give the choice to tweak this as well  - YES !
-        # TODO  Also we can update 'system' first (i'm not doing that way but)
-        #       Add this option as well :)
         # TODO  Improve performance, for now :
         #       Elapsed Time: 2.97 seconds.  Collected 217 stack frames (88 unique)
         #       For 51808 lines read (the whole file) - but it's not intend to be 
@@ -1172,36 +1015,37 @@ class EmergeLogParser:
             """Saving world update incompleted state"""
             if self.nincompleted[1] == 'percentage':
                 if self.packages_count <= round(self.group['total'] * self.nincompleted[0]):
-                    self.logger.debug('NOT recording incompleted, ' 
+                    logger.debug('NOT recording incompleted, ' 
                                     + 'start: {0}, '.format(self.group['start']) 
                                     + 'stop: {0}, '.format(self.group['stop']) 
                                     + 'total packages: {0}, '.format(self.group['total'])
                                     + 'failed: {0}'.format(self.group['failed']))
-                    self.logger.debug('Additionnal informations: not selected because:')
-                    self.logger.debug(f'Incompleted is True, packages count ({self.packages_count})'
+                    msg = f'* {self.nincompleted[1]}'
+                    if self.nincompleted[1] == 'number':
+                        msg = f'- {self.nincompleted[1]}'
+                    logger.debug(f'Rejecting because packages count ({self.packages_count})'
                                     + ' <= packages total ({0})'.format(self.group['total'])
-                                    + f' * percentage limit ({self.nincompleted[0]})')
-                    self.logger.debug('Round result is : {0} <= {1} (False)'.format(self.packages_count,
-                                                    round(self.group['total'] * self.nincompleted[0])))
+                                    + f' {msg} limit ({self.nincompleted[0]})')
+                    logger.debug('Rounded result is :' 
+                                 + ' {0}'.format(round(self.group['total'] * self.nincompleted[0])))
                     self.packages_count = 1
                     return
             elif self.nincompleted[1] == 'number':
                 if self.packages_count <= self.nincompleted[0]:
-                    self.logger.debug('NOT recording incompleted, ' 
+                    logger.debug('NOT recording incompleted, ' 
                                     + 'start: {0}, '.format(self.group['start']) 
                                     + 'stop: {0}, '.format(self.group['stop']) 
                                     + 'total packages: {0}, '.format(self.group['total'])
                                     + 'failed: {0}'.format(self.group['failed']))
-                    self.logger.debug('Additionnal informations: not selected because:')
-                    self.logger.debug(f'Incompleted is True, packages count ({self.packages_count})'
-                                    + f' <= number limit ({self.nincompleted[0]}): False.')
+                    logger.debug(f'Rejecting because packages count ({self.packages_count})'
+                                 + f' <= number limit ({self.nincompleted[0]}).')
                     self.packages_count = 1
                     return
             # Record how many package compile successfully
             # if it passed self.nincompleted
             self.group['state'] = 'incompleted'
             self.collect['incompleted'].append(self.group)
-            self.logger.debug('Recording incompleted, ' 
+            logger.debug('Recording incompleted, ' 
                             + 'start: {0}, '.format(self.group['start']) 
                             + 'stop: {0}, '.format(self.group['stop']) 
                             + 'total packages: {0}, '.format(self.group['total'])
@@ -1229,7 +1073,7 @@ class EmergeLogParser:
             self.group['failed'] = ' '.join(self.group['failed']) \
                                         + '{0}'.format(self.group['dropped'])
             self.collect['partial'].append(self.group)
-            self.logger.debug('Recording partial, ' 
+            logger.debug('Recording partial, ' 
                             + 'start: {0}, '.format(self.group['start']) 
                             + 'stop: {0}, '.format(self.group['stop']) 
                             + 'total packages: {0}, '.format(self.group['total'])
@@ -1249,7 +1093,7 @@ class EmergeLogParser:
             # 2019-12-19 12:09:49      .format(self.group['start'], self.group['stop'], self.group['total']))
             # 2019-12-19 12:09:49  KeyError: 'start'
             # This is strange and shouldn't arrived 
-            # TODO This has been called succeeded.match BUT there were no succeeded world update (it failed immediatly
+            # TODO This have been called succeeded.match BUT there were no succeeded world update (it failed immediatly
             # 5 times without any package compiled) ...
             # The most important thing it's this screew up the whole program ...
             # First workaround should be try / except : don't record this and print a warning !
@@ -1257,30 +1101,23 @@ class EmergeLogParser:
                 try:
                     self.group.get(key)
                 except KeyError:
-                    self.logger.error('While saving completed world update informations,')
-                    self.logger.error(f'got KeyError for key {key}, skip saving but please report it.')
+                    logger.error('While saving completed world update informations,')
+                    logger.error(f'got KeyError for key {key}, skip saving but please report this.')
                     # Ok so return and don't save
                     return
             self.group['state'] = 'completed'
-            # For comptability 
-            # Make str() because:
-            # If value is not '0', then  value is str() any way.
-            # stateinfo load as str()
-            # if not str() then when comparing value in class PortageHandler
-            #   method get_last_world_update(), it will keep rewriting value 
-            #   because int(0) != str(0) and - by the way - this will be treat 
-            #   as an world update run.
+            # For comptability if not 'failed' then 'failed' = 'none'
             self.group['failed'] = 'none'
             self.collect['completed'].append(self.group)
             self.packages_count = 1
-            self.logger.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
+            logger.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
                            .format(self.group['start'], self.group['stop'], self.group['total']))
         
                     
         while keep_running:
-            self.logger.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
+            logger.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
             mylog = self.getlog(self.lastlines)
-            self.logger.debug(f'Extracting list of completed{incompleted_msg} and partial global update'
+            logger.debug(f'Extracting list of completed{incompleted_msg} and partial global update'
                            + ' group informations.')
             for line in mylog:
                 linecompiling += 1
@@ -1303,18 +1140,18 @@ class EmergeLogParser:
                                 self.group['failed'] = f'at {self.packages_count} ({package_name})'
                             # set stop
                             self.group['stop'] = int(failed.match(line).group(1))
-                            # first make sure it's restart or it's just incompleted.
+                            # first test if it's been restarted (keepgoing) or it's just incompleted.
                             if keepgoing and 'total' in self.group['saved']:
                                 _saved_partial()
                             elif incompleted:
                                 _saved_incompleted()
                             else:
-                                self.logger.debug('NOT recording partial/incompleted, ' 
+                                logger.debug('NOT recording partial/incompleted, ' 
                                             + 'start: {0}, '.format(self.group['start']) 
                                             + 'stop: {0}, '.format(self.group['stop']) 
                                             + 'total packages: {0}, '.format(self.group['total'])
                                             + 'failed: {0}'.format(self.group['failed']))
-                                self.logger.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
+                                logger.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
                                                 f'incompleted ({incompleted}), '
                                                 f'nincompleted ({self.nincompleted[0]} / {self.nincompleted[1]}).')
                             # At then end reset
@@ -1325,49 +1162,49 @@ class EmergeLogParser:
                             keepgoing = False
                         elif keepgoing and start_compiling.match(line):
                             # Try to fix BUG describe upstair
-                            unexcept_start = False
+                            unexpect_start = False
                             for saved_line in record:
-                                # This is also a handled :
+                                # This is also handled :
                                 # 1581349345:  === (2 of 178) Compiling/Merging (kde-apps/pimcommon-19.12.2::/usr/portage/kde-apps/pimcommon/pimcommon-19.12.2.ebuild)
                                 # 1581349360:  *** terminating.
                                 # 1581349366: Started emerge on: févr. 10, 2020 16:42:46
                                 # 1581349366:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
                                 if start_opt.match(saved_line):
-                                    unexcept_start = saved_line
+                                    unexpect_start = saved_line
                                     break
-                            if unexcept_start:
-                                # FIXME for now avoid logging this as error because 
-                                # it's spam a LOT /var/log/messages (every self.pretend['remain'] seconds - 5s (2020-02-12))
-                                # TODO maybe we -could- log only once this error...
-                                self.logger.debug(f'While parsing {self.emergelog}, got unexcept'
-                                                f' world update start opt:')
-                                self.logger.debug(f'{unexcept_start}')
-                                # Except first element in a list is a stop match
+                            if unexpect_start:
+                                # TEST recall this to warning because program now parse emerge.log 
+                                # only if it detect inotify changed 
+                                logger.warning(f'Parsing {self.emergelog}, raise unexpect'
+                                               + ' world update start opt:'
+                                               + f' \'{unexpect_start}\'' 
+                                               ' (please report this).')
+                                # Expect first element in a list is a stop match
                                 self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', record[0]).group(1))
                                 if not 'failed' in self.group:
                                     self.group['failed'] = f'at {self.packages_count} ({package_name})'
                                 # First try if it was an keepgoing restart
                                 if keepgoing and 'total' in self.group['saved']:
-                                    self.logger.debug('Forcing save of current world update group'
+                                    logger.debug('Forcing save of current world update group'
                                                 + ' using partial (start: {0}).'.format(self.group['start']))
                                     _saved_partial()
                                 # incompleted is enable ?
                                 elif incompleted:
-                                    self.logger.debug('Forcing save of current world update group'
+                                    logger.debug('Forcing save of current world update group'
                                                 + ' using incompleted (start: {0}).'.format(self.group['start']))
                                     _saved_incompleted()
                                 else:
-                                    self.logger.debug('Skipping save of current world update group'
+                                    logger.debug('Skipping save of current world update group'
                                                    + ' (unmet conditions).')
                                 # Ok now we have to restart everything
                                 self.group = { }
                                 # Get the timestamp
-                                self.group['start'] = int(start_opt.match(unexcept_start).group(1))
+                                self.group['start'] = int(start_opt.match(unexpect_start).group(1))
                                 #--keep-going setup
-                                if keepgoing_opt.match(unexcept_start):
+                                if keepgoing_opt.match(unexpect_start):
                                     keepgoing = True
                                 self.group['total'] = int(start_compiling.match(line).group(1))
-                                #Get the package name
+                                # Get the package name
                                 package_name = start_compiling.match(line).group(2)
                                 compiling = True
                                 self.packages_count = 1
@@ -1413,7 +1250,7 @@ class EmergeLogParser:
                         current_package = True
                         # reset record as it will restart 
                         record = [ ]
-                        record.append(line) # Needed to set stop if unexcept_start is detected
+                        record.append(line) # Needed to set stop if unexpect_start is detected
                         # This is a lot of reapeat for python 3.8 we'll get this :
                         # https://www.python.org/dev/peps/pep-0572/#capturing-condition-values
                         # TODO : implant this ?
@@ -1437,9 +1274,13 @@ class EmergeLogParser:
                             keepgoing = False
                             _saved_completed()
                         else:
-                            self.logger.debug('NOT recording completed, start: {0}, stop: {1}, packages: {2}'
-                                          .format(self.group['start'], self.group['stop'], self.group['total']))
-                            self.logger.debug(f'Additionnal informations: packages count is {packages_count}')
+                            logger.debug('NOT recording completed,' 
+                                         + ' start: {0},'.format(self.group['start'])
+                                         + ' stop: {0},'.format(self.group['stop']) 
+                                         + ' packages: {0}'.format(self.group['total']))
+                            logger.debug(f'Rejecting because packages count ({self.packages_count})' 
+                                         + ' != recorded total packages' 
+                                         + ' ({0}).'.format(self.group['total']))
                 elif start_opt.match(line):
                     self.group = { }
                     # Get the timestamp
@@ -1452,10 +1293,10 @@ class EmergeLogParser:
                 elif linecompiling == 1:
                     # Make sure it's start to compile
                     if start_compiling.match(line):
-                        #Ok we start already to compile the first package
-                        #Get how many package to update 
+                        # Ok we start already to compile the first package
+                        # Get how many package to update 
                         self.group['total'] = int(start_compiling.match(line).group(1))
-                        #Get the package name
+                        # Get the package name
                         package_name = start_compiling.match(line).group(2)
                         compiling = True
                         self.packages_count = 1
@@ -1480,9 +1321,8 @@ class EmergeLogParser:
                     keep_running = False
                 else:
                     # That mean we have nothing ;)
-                    if self._keep_collecting(count, ['last global update timestamp', 
+                    if self.__keep_collecting(count, ['last global update timestamp', 
                                 'have never been update using \'world\' update schema...'], 'world'):
-                        self.logger.name = f'{self.logger_name}last_world_update::'
                         keep_running = True
                         count = count + 1
                     else:
@@ -1491,19 +1331,18 @@ class EmergeLogParser:
                 if self.collect['completed'] or self.collect['partial']:
                     keep_running = False
                 else:
-                    if self._keep_collecting(count, ['last global update timestamp', 
+                    if self.__keep_collecting(count, ['last global update timestamp', 
                                  'have never been update using \'world\' update schema...'], 'world'):
-                        self.logger.name = f'{self.logger_name}last_world_update::'
                         keep_running = True
                         count = count + 1
                     else:
                         return False
                    
-        # So now compare and get the highest timestamp from each list
+        # So now compare and get the highest 'start' timestamp from each list
         tocompare = [ ]
         for target in 'completed', 'incompleted', 'partial':
             if self.collect[target]:
-                # This this the start timestamp
+                # This is the 'start' timestamp
                 latest_timestamp = self.collect[target][0]['start']
                 latest_sublist = self.collect[target][0]
                 for sublist in self.collect[target]:
@@ -1514,7 +1353,7 @@ class EmergeLogParser:
                 tocompare.append(latest_sublist)
         # Then compare latest from each list 
         # To find latest of latest
-        self.logger.debug('Extracting latest global update informations.')
+        logger.debug('Extracting latest global update informations.')
         if tocompare:
             latest_timestamp = tocompare[0]['start']
             latest_sublist = tocompare[0]
@@ -1524,28 +1363,38 @@ class EmergeLogParser:
                     # Ok we got latest of all latest
                     latest_sublist = sublist
         else:
-            self.logger.error('Failed to found latest global update informations.')
+            logger.error('Failed to found latest global update informations.')
             # We got error
             return False
         
         if latest_sublist:
             if latest_sublist['state'] == 'completed':
-                self.logger.debug('Keeping completed, start: {0}, stop: {1}, total packages: {2}'
-                        .format(latest_sublist['start'], latest_sublist['stop'], latest_sublist['total']))
+                logger.debug('Selecting completed,' 
+                             + ' start: {0},'.format(latest_sublist['start']) 
+                             + ' stop: {0},'.format(latest_sublist['stop'])
+                             + ' total packages: {0}'.format(latest_sublist['total']))
             elif latest_sublist['state'] == 'incompleted':
-                self.logger.debug('Keeping incompleted, start: {0}, stop: {1}, total packages: {2}, failed: {3}'
-                        .format(latest_sublist['start'], latest_sublist['stop'], latest_sublist['total'], latest_sublist['failed']))
+                logger.debug('Selecting incompleted,' 
+                             + ' start: {0},'.format(latest_sublist['start']) 
+                             + ' stop: {0},'.format(latest_sublist['stop'])
+                             + ' total packages: {0}'.format(latest_sublist['total'])
+                             + ' failed: {0}'.format(latest_sublist['failed']))
             elif latest_sublist['state'] == 'partial':
-                self.logger.debug('Keeping partial, start: {0}, stop: {1}, total packages: {2}, failed: {3}'
-                        .format(latest_sublist['start'], latest_sublist['stop'], latest_sublist['saved']['total'], latest_sublist['failed']))
+                logger.debug('Selecting partial,' 
+                             + ' start: {0},'.format(latest_sublist['start']) 
+                             + ' stop: {0},'.format(latest_sublist['stop'])
+                             + ' total packages: {0}'.format(latest_sublist['saved']['total'])
+                             + ' failed: {0}'.format(latest_sublist['failed']))
             return latest_sublist
         else:
-            self.logger.error('Failed to found latest world update informations.')
+            logger.error('Failed to found latest global update informations.')
             return False           
    
    
     def getlines(self):
         """Get the total number of lines from emerge.log file"""
+        logger = logging.getLogger(f'{self.logger_name}getlines::')
+        
         myargs = ['/bin/wc', '--lines', self.emergelog]
         mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -1559,12 +1408,12 @@ class EmergeLogParser:
         
         return_code = mywc.poll()
         if return_code:
-            self.logger.error(f'Got error while getting lines number for \'{self.emergelog}\' file.')
-            self.logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
+            logger.error(f'Got error while getting lines number for \'{self.emergelog}\' file.')
+            logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
             for line in mywc.stderr:
                 line = line.rstrip()
                 if line:
-                    self.logger.error(f'Stderr: {line}')
+                    logger.error(f'Stderr: {line}')
             mywc.stderr.close()
         # Got nothing
         return False
@@ -1573,6 +1422,8 @@ class EmergeLogParser:
     def getlog(self, lastlines=100, offset=0):
         """Get last n lines from emerge.log file
         https://stackoverflow.com/a/136280/11869956"""
+        
+        logger = logging.getLogger(f'{self.logger_name}getlog::')
                 
         myargs = ['/bin/tail', '-n', str(lastlines + offset), self.emergelog]
         mytail = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
@@ -1585,20 +1436,19 @@ class EmergeLogParser:
         
         return_code = mytail.poll()
         if return_code:
-            self.logger.error(f'Got error while reading {self.emergelog} file.')
-            self.logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
+            logger.error(f'Got error while reading {self.emergelog} file.')
+            logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
             for line in mytail.stderr:
                 line = line.rstrip()
                 if line:
-                    self.logger.error(f'Stderr: {line}')
+                    logger.error(f'Stderr: {line}')
             mytail.stderr.close()
             
              
-    def _keep_collecting(self, count, message, function):
+    def __keep_collecting(self, count, message, function):
         """Restart collecting if nothing has been found."""
                
-        # Change name of the logger
-        self.logger.name = f'{self.logger_name}_keep_collecting::'
+        logger = logging.getLogger(f'{self.logger_name}keep_collecting::')
         
         if not self.lines[1]:
             to_print='(unknow maximum lines)'
@@ -1607,41 +1457,41 @@ class EmergeLogParser:
         
         # Count start at 1 because it follow self._range list
         if  count < 5:
-            self.logger.debug(f'After {count} run: couldn\'t found {message[0]}.')
+            logger.debug(f'After {count} run: couldn\'t found {message[0]}.')
             self.lastlines = self._range[function][count]
-            self.logger.debug('Restarting with an bigger increment...')
+            logger.debug('Restarting with an bigger increment...')
         elif count >= 5 and count < 10:
-            self.logger.debug(f'After {count} run, {message[0]} still not found...')
-            self.logger.debug('Restarting with an bigger increment...')
+            logger.debug(f'After {count} run, {message[0]} still not found...')
+            logger.debug('Restarting with an bigger increment...')
             self.lastlines = self._range[function][count]
         elif count >= 10 and count < 15:
-            self.logger.debug(f'After {count} run, {message[0]} not found !')
-            self.logger.debug('Restarting with an bigger increment...')
-            self.logger.debug(f'{self.aborded} pass left before abording...')
+            logger.debug(f'After {count} run, {message[0]} not found !')
+            logger.debug('Restarting with an bigger increment...')
+            logger.debug(f'{self.aborded} pass left before abording...')
             self.aborded = self.aborded - 1
             self.lastlines = self._range[function][count]
         elif count == 15:
-            self.logger.error(f'After 15 pass and {self.lastlines} lines read {to_print}, couldn\'t find {message[0]}.')
-            self.logger.error(f'Look like the system {message[1]}')
+            logger.error(f'After 15 pass and {self.lastlines} lines read {to_print}, couldn\'t find {message[0]}.')
+            logger.error(f'Look like the system {message[1]}')
             return False
         return True
 
 
 
 class EmergeLogWatcher(threading.Thread):
-    """Watch emerge.log file using inotify and thread"""
-    def __init__(self, pathdir, runlevel, loglevel, sync_msg, *args, **kwargs):
+    """
+    Watch emerge.log file using inotify and thread
+    """
+    def __init__(self, pathdir, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.pathdir = pathdir
-        self.sync_msg = sync_msg
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
-        emergelogwatcher_logger = MainLoggingHandler(self.logger_name, self.pathdir['prog_name'],
-                                                     self.pathdir['debuglog'], self.pathdir['fdlog'])
-        self.logger = getattr(emergelogwatcher_logger, runlevel)()
-        self.logger.setLevel(loglevel)
+        logger = logging.getLogger(f'{self.logger_name}::init::')
+        
+        self.pathdir = pathdir
+        self.repo_infos = get_repo_info()
         # Init Class UpdateInProgress
-        self.update_inprogress = UpdateInProgress(self.logger)
+        self.update_inprogress = UpdateInProgress()
         self.tasks = {
             'sync'  : {
                     'inprogress'    :   False,
@@ -1672,30 +1522,33 @@ class EmergeLogWatcher(threading.Thread):
         try:
             self.log_wd = self.inotify.add_watch(self.pathdir['emergelog'], self.watch_flag)
         except OSError as error:
-            self.logger.error('Emerge log watcher daemon crash:')
-            self.logger.error('Using {0}'.format(pathdir['emergelog']))
-            self.logger.error(f'{error}')
-            self.logger.error('Exiting with status 1.')
+            logger.error('Emerge log watcher daemon crash:')
+            logger.error('Using {0}'.format(pathdir['emergelog']))
+            logger.error(f'{error}')
+            logger.error('Exiting with status 1.')
             sys.exit(1)
         
     def run(self):
-        self.logger.debug('Emerge log watcher daemon started (monitoring {0}).'.format(self.pathdir['emergelog']))
+        logger = logging.getLogger(f'{self.logger_name}::run::')
+        logger.debug('Emerge log watcher daemon started (monitoring {0}).'.format(self.pathdir['emergelog']))
         remain = 0
         sync_inprogress = False
         world_inprogress = False
         while True:
             self.reader = self.inotify.read(timeout=0)
             if self.reader:
-                self.logger.debug('State changed for: {0}'.format(self.pathdir['emergelog'])
+                logger.debug('State changed for: {0}'.format(self.pathdir['emergelog'])
                                     + f' ({self.reader}).')
                 # For portage package search
                 id_port = uuid.uuid4().hex[:8]
                 self.tasks['package']['requests']['pending'].append(id_port)
-                self.logger.debug(f'Sending request (id={id_port})' 
+                logger.debug(f'Sending request (id={id_port})' 
                                   + ' for portage\'s package informations refresh.')
                 # For sync: run only if not already detected
                 if not self.tasks['sync']['inprogress']:
-                    if self.update_inprogress.check('sync', additionnal_msg=self.sync_msg):
+                    if self.update_inprogress.check('sync', additionnal_msg=self.repo_infos['msg']):
+                        # Then update repo_infos TEST
+                        self.repo_infos = get_repo_info()
                         self.tasks['sync']['inprogress'] = True
                 # For world: same here
                 if not self.tasks['world']['inprogress']:
@@ -1706,17 +1559,17 @@ class EmergeLogWatcher(threading.Thread):
                 remain = 10
                 # Sync have been detected so check if still in progress
                 if self.tasks['sync']['inprogress']:
-                    if self.update_inprogress.check('sync', additionnal_msg=self.sync_msg):
+                    if self.update_inprogress.check('sync', additionnal_msg=self.repo_infos['msg']):
                         # Let's delegate class UpdateInProgress print 
                         # sync / world in progress 
                         self.tasks['sync']['inprogress'] = True
                     else:
                         if self.tasks['sync']['inprogress']:
                             # So sync have been run
-                            self.logger.debug('Sync have been run.')
+                            logger.debug('Sync have been run.')
                             id_sync = uuid.uuid4().hex[:8]
                             self.tasks['sync']['requests']['pending'].append(id_sync)
-                            self.logger.debug(f'Sending request (id={id_sync})' 
+                            logger.debug(f'Sending request (id={id_sync})' 
                                             + ' for sync informations refresh.')
                             self.tasks['sync']['inprogress'] = False
                 # World update have been detected so check if still in progress
@@ -1726,10 +1579,10 @@ class EmergeLogWatcher(threading.Thread):
                         self.tasks['world']['inprogress'] = True
                     else:
                         if self.tasks['world']['inprogress']:
-                            self.logger.debug('Global update have been run.')
+                            logger.debug('Global update have been run.')
                             id_world = uuid.uuid4().hex[:8]
                             self.tasks['world']['requests']['pending'].append(id_world)
-                            self.logger.debug(f'Sending request (id={id_world})' 
+                            logger.debug(f'Sending request (id={id_world})' 
                                             + ' for global update informations refresh.')
                             self.tasks['world']['inprogress'] = False
             remain -= 1        
@@ -1742,9 +1595,9 @@ class EmergeLogWatcher(threading.Thread):
                         msg = 'global update'
                     elif switch == 'package':
                         msg = 'portage\'s package'
-                    self.logger.debug(f'Got reply id for {msg} requests: '
+                    logger.debug(f'Got reply id for {msg} requests: '
                                       + '{0}'.format(self.tasks[switch]['requests']['completed']))
-                    self.logger.debug('{0}'.format(msg.capitalize()) 
+                    logger.debug('{0}'.format(msg.capitalize()) 
                                       + ' pending id list:' 
                                       + ' {0}'.format(', '.join(self.tasks[switch]['requests']['pending'])))                        
                     # 'completed' is the id of the last request proceed by main
@@ -1757,13 +1610,13 @@ class EmergeLogWatcher(threading.Thread):
                     # Make sure to remove also pointed index (so index+1)
                     to_remove = self.tasks[switch]['requests']['pending'][0:id_index+1]
                     del self.tasks[switch]['requests']['pending'][0:id_index+1]
-                    self.logger.debug('{0} request{1}'.format(msg.capitalize(), plurial_msg)
+                    logger.debug('{0} request{1}'.format(msg.capitalize(), plurial_msg)
                                 + ' (id{0}={1})'.format(plurial_msg, '|'.join(to_remove))
                                 + ' have been refreshed.')
                     self.tasks[switch]['requests']['completed'] = False
                     # Nothing left to read, nothing pending, go to bed :p
                     if not self.reader and not self.tasks[switch]['requests']['pending']:
-                        self.logger.debug(f'All {msg} requests have been refreshed, sleeping...')
+                        logger.debug(f'All {msg} requests have been refreshed, sleeping...')
             
             time.sleep(1)
     
@@ -1774,9 +1627,9 @@ class UpdateInProgress:
     Check if process is running using /proc dir 
     """
 
-    def __init__(self, logger):
-        """Arguments:
-            (callable) @log : an logger from logging module"""
+    def __init__(self):
+        self.logger_name = f'::{__name__}::UpdateInProgress::'
+        logger = logging.getLogger(f'{self.logger_name}::init::')
         self.logger = logger
         # Avoid spamming with log.info
         self.logflow =  {
@@ -1802,6 +1655,8 @@ class UpdateInProgress:
         @return: True or False
         Adapt from https://stackoverflow.com/a/31997847/11869956
         """
+        
+        logger = logging.getLogger(f'{self.logger_name}::check::')
         
         pids_only = re.compile(r'^\d+$')
         world_proc = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
@@ -1880,3 +1735,30 @@ class UpdateInProgress:
             self.timestamp[tocheck] = 0
             self.logflow[tocheck] = 0
             return False
+
+
+def get_repo_info():
+    """
+    Get portage repos informations and return formatted
+    """
+    logger = logging.getLogger(f'::{__name__}::get_repo_info::')
+    names = portdbapi().getRepositories()
+    if names:
+        names = sorted(names)
+        repo_count = len(names)
+        repo_msg = 'repositories'
+        # get only first 6 elements if names > 6
+        if repo_count > 6:
+            repo_name = ', '.join(names[:6]) + ' (+' + str(repo_count - 6) + ')'
+        elif repo_count == 1:
+            repo_msg = 'repository'
+            repo_name = ''.join(names)
+        else:
+            repo_name = ', '.join(names)
+        logger.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
+        # return dict
+        return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
+    # This is debug message as it's not fatal for the program
+    logger.debug('Could\'nt found sync repositories name(s) and count...')
+    # We don't know so just return generic
+    return { 'names' : '', 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }

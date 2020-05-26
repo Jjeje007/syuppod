@@ -45,7 +45,7 @@ lang_translations.install()
 translate = True
 _ = lang_translations.gettext
 
-## TODO wait until daemon API is stabilized then updat all this :p
+## TODO wait until daemon API is stabilized then update all this :p
 ## TODO better english (try it :p )
 
 def state(myobject, opt, machine):
