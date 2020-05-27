@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
+
+# Dbus client for syuppod
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-# TODO extend git part
-# Good Translation 
+
 import time 
 import sys
 import locale

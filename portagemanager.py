@@ -1525,7 +1525,7 @@ class EmergeLogWatcher(threading.Thread):
             logger.error('Emerge log watcher daemon crash:')
             logger.error('Using {0}'.format(pathdir['emergelog']))
             logger.error(f'{error}')
-            logger.error('Exiting with status 1.')
+            logger.error('Exiting with status \'1\'.')
             sys.exit(1)
         
     def run(self):

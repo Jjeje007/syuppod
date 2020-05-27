@@ -3,9 +3,16 @@
 # -*- python -*- 
 # Starting : 2019-08-08
 
-# This is a SYnc UPdate POrtage Daemon
+# SYnc UPdate POrtage Daemon main
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
+
+# TODO TODO TODO don't run as root ! investigate !
+# TODO : exit gracefully 
+# TODO : debug log level !
+# TODO threading we cannot share object attribute 
+#       or it will no be update ?!?
+
 __version__ = "dev"
 prog_name = 'syuppod'  
 pathdir = {
@@ -26,6 +33,7 @@ pathdir = {
 # It will be re-config when all module will be loaded
 import sys
 import logging
+# Custom level name share across all logger
 logging.addLevelName(logging.CRITICAL, '[Crit ]')
 logging.addLevelName(logging.ERROR,    '[Error]')
 logging.addLevelName(logging.WARNING,  '[Warn ]')
@@ -56,27 +64,15 @@ else:
     from lib.logger import LogLevelFormatter
     display_init_tty = ''
 
-import os
 import argparse
 import pathlib
 import time
-import re
 import errno
 import asyncio
 import threading
-
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
-#from lib.logger import MainLoggingHandler
-#from lib.logger import RedirectFdToLogger
 from argsparser import DaemonParserHandler
-
-# TODO TODO TODO don't run as root ! investigate !
-# TODO : exit gracefully 
-# TODO : debug log level !
-# TODO threading we cannot share object attribute 
-#       or it will no be update ?!?
-
 try:
     from gi.repository import GLib
     from pydbus import SystemBus
@@ -88,6 +84,9 @@ except Exception as exc:
 
 
 class MainDaemon(threading.Thread):
+    """
+    Main Daemon
+    """
     def __init__(self, myport, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger_name = f'::{__name__}::MainDaemonThread::'
@@ -221,15 +220,16 @@ class MainDaemon(threading.Thread):
 
 
 def main():
-    """Main init"""
+    """
+    Init main daemon
+    """
     
     # Init dbus service
     dbusloop = GLib.MainLoop()
     dbus_session = SystemBus()
     
-    # Init Emerge log watcher first because we need status of sync and world process 
-    # this is a workaround because EmergeLogWatcher need sync['repos']['msg']
-    # so init as NOT WORKING :
+    # Init Emerge log watcher
+    # For now status of emerge --sync and @world is get directly from portagemanager module
     myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init portagemanager
@@ -243,17 +243,15 @@ def main():
     # Same here: Check if global update has been run 
     myportmanager.get_last_world_update()
     
-    # Adding objet to manager
+    # Adding objet to myport
     myport = { }
     myport['manager'] = myportmanager
-    
-    # Adding object to watcher
     myport['watcher'] = myportwatcher
     
-    # Adding dbus publishers
+    # Adding dbus publisher
     dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
         
-    # Init thread
+    # Init daemon thread
     daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
     
     # Start all threads and dbus thread
@@ -299,16 +297,16 @@ if __name__ == '__main__':
         logger.addHandler(console_handler)
         # Default to info
         logger.setLevel(logging.INFO)
-        # This is not working with konsole (kde)
-        # TODO
-        #print('\33]0; {0} - {1}  \a'.format(prog_name, __version__), end='', flush=True)
+        # Working with xfce4-terminal and konsole if set to '%w'
+        print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
     else:
         # Reconfigure root logger only at the end 
         # this will keep logging error to syslog
-        # Add debug handler only if debug is enable TEST
+        # Add debug handler only if debug is enable
         handlers = { }
         if args.debug and not args.quiet:
-            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=31457280, backupCount=3)
+            # Ok so it's 5MB each, rotate 3 times = 15MB TEST
+            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=5242880, backupCount=3)
             debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
             debug_handler.setFormatter(debug_formatter)
             # For a better debugging get all level message to debug
@@ -326,9 +324,8 @@ if __name__ == '__main__':
         handlers['syslog'] = syslog_handler
         
         # Catch file descriptor stderr
-        # Rotate the log 
-        # 2.86MB, rotate 3x times
-        fd_handler = logging.handlers.RotatingFileHandler(pathdir['fdlog'], maxBytes=3000000, backupCount=3)
+        # Same here 5MB, rotate 3x = 15MB
+        fd_handler = logging.handlers.RotatingFileHandler(pathdir['fdlog'], maxBytes=5242880, backupCount=3)
         fd_formatter   = logging.Formatter('%(asctime)s  %(message)s') #, datefmt)
         fd_handler.setFormatter(fd_formatter)
         fd_handler.addFilter(LogErrorFilter(stderr=True))
@@ -346,14 +343,14 @@ if __name__ == '__main__':
         # Set log level
         logger.setLevel(logging.INFO)
         # redirect again but now not to syslog but to file ;)
-        # First remove root_logger handler
+        # First remove root_logger handler otherwise it will still send message to syslog
         root_logger.removeHandler(fd_handler_syslog)
         fd2 = RedirectFdToLogger(logger)
         sys.stderr = fd2
         
     
     # default level is INFO
-    if args.debug and args.quiet or args.quiet and args.debug:
+    if args.debug and args.quiet:
         logger.info('Both debug and quiet opts has been enable,' 
                     + ' falling back to log level info.')
     elif args.debug:
