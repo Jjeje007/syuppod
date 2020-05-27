@@ -110,6 +110,8 @@ class ProcessLoggingHandler:
         self.file_handler.setLevel(self.logging.INFO)
         if not self.logger.handlers:
             self.logger.addHandler(self.file_handler)
+        # Don't propagate Otherwise it will be log to terminal (when running from terminal)
+        self.logger.propagate = False
         return self.logger
     
     def set_formatter(self, formatter):

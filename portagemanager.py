@@ -23,6 +23,7 @@ from portage.dbapi.vartree import vardbapi
 from lib.utils import FormatTimestamp
 from lib.utils import StateInfo
 from lib.utils import on_parent_exit
+from lib.logger import ProcessLoggingHandler
 
 
 try:
@@ -503,7 +504,7 @@ class PortageHandler:
         
         # Disable pretend authorization
         self.pretend['proceed'] = False
-        self.pretend[status] = 'running'
+        self.pretend['status'] = 'running'
         
         logger.debug('Start searching available package(s) update.')
                 
@@ -536,8 +537,8 @@ class PortageHandler:
             while not child.closed and child.isalive():
                 try:
                     # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
-                    # but this will not block every 30s
-                    child.read_nonblocking(size=1, timeout=30)
+                    # but this will not block every TEST push to 60s ... 30s got two TIMEOUT back-to-back
+                    child.read_nonblocking(size=1, timeout=60)
                     # We don't care about recording what ever since we recording from child.logfile 
                     # We wait until reach EOF
                 except pexpect.EOF:
