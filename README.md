@@ -27,9 +27,9 @@ whatever program (as long as it use dbus or syuppo-cli output).
 
 ## Installation / Usage
 
-1. Clone the repo (--recursive because it have shared libs):
+1. Clone the repo:
 ```bash
-git clone --recursive https://github.com/Jjeje007/syuppod.git
+git clone https://github.com/Jjeje007/syuppod.git
 ```
 2. Copy the dbus configuration file to authorize dbus request:
 ```bash
@@ -83,19 +83,6 @@ Daemon and terminal mode write sync and pretend process logs to, respectively:\
 /var/log/syuppod/pretend.log
 
 All logs are autorotate.
-
-### About shared libs
-
-This project use shared libs from git submodule. If you want to automatically pull submodule
-when you run 'git pull' in git's folder project then you should run:
-```bash
-git config --global submodule.recurse true
-```
-to enable it globally. Or use:
-```bash
-git pull --recurse-submodules
-```
-each time.
 
 ## Developpement Status
 
