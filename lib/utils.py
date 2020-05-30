@@ -493,16 +493,26 @@ class FormatTimestamp:
     def __init__(self):
         #self.logger_name = f'::{__name__}::FormatTimestamp::'
         #logger = logging.getLogger(f'{self.logger_name}init::')  
-        # For now i haven't found a way to do it better
-        self.intervals = {
-            # Stop to week, month is to ambigue to calculate 
-            # Try pleny of website almost no one give same value ...
-            'weeks'     :   604800,     # 60 * 60 * 24 * 7
-            'days'      :   86400,      # 60 * 60 * 24
-            'hours'     :   3600,       # 60 * 60
-            'minutes'   :   60,
-            'seconds'   :   1
-            }
+        # Dict ordered only with python >= 3.7
+        if sys.version_info[:2] < (3, 7):
+            from collections import OrderedDict 
+            self.intervals = OrderedDict(
+                ('weeks',  604800),     # 60 * 60 * 24 * 7
+                ('days',  86400),      # 60 * 60 * 24
+                ('hours',  3600),       # 60 * 60
+                ('minutes', 60),
+                ('seconds', 1)
+                )
+        else:
+            self.intervals = {
+                # Stop to week, month is too ambiguous to calculate 
+                # Try plenty of website almost no one give same value ...
+                'weeks'     :   604800,     # 60 * 60 * 24 * 7
+                'days'      :   86400,      # 60 * 60 * 24
+                'hours'     :   3600,       # 60 * 60
+                'minutes'   :   60,
+                'seconds'   :   1
+                }
         self.nextkey = {
             'seconds'   :   'minutes',
             'minutes'   :   'hours',
@@ -546,6 +556,7 @@ class FormatTimestamp:
             1   :   'minutes',
             0   :   'seconds' 
             }
+        
         
     def convert(self, seconds, granularity=2, rounded=True, translate=False):
         """
@@ -788,6 +799,7 @@ class FormatTimestamp:
         else:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in __format(result))
+
 
 
 # TODO Should we need logger ???
