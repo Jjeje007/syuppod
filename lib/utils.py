@@ -182,9 +182,11 @@ class StateInfo:
         msg = 'writing' if request_mode == 'r+' else 'reading'
         try:
             if pathlib.Path(self.pathdir['statelog']).is_file():
+                logger.debug("Opening \'{self.pathdir['statelog']}\' for {msg}.")
                 return pathlib.Path(self.pathdir['statelog']).open(mode=request_mode)
             else:
                 msg = 'creating'
+                logger.debug("Creating state file: {self.pathdir['statelog']}")
                 return pathlib.Path(self.pathdir['statelog']).open(mode='w')
         except (OSError, IOError) as error:
             logger.critical(f'While {msg}'
@@ -281,7 +283,6 @@ class StateInfo:
         with self.__open('r+') as mystatefile:
             if mystatefile.mode == 'w':
                 self.newfile = True
-                logger.debug('Creating state file: {0}.'.format(self.pathdir['statelog']))
                 for option, value in self.stateopts.items():
                         value = f': {value}' if not value == '' else ''
                         logger.debug(f'Adding default option: \'{option}{value}\'')
@@ -483,34 +484,24 @@ class StateInfo:
 
 
 class FormatTimestamp:
-    """Convert seconds to time, optional rounded, depending of granularity's degrees.
-        inspired by https://stackoverflow.com/a/24542445/11869956"""
-        # TODO : (g)ranularity = auto this mean if minutes g = 1, if hours g=2 , if days g=2, if week g=3
-        #        humm, i don't know, but when week and granularity = 2 than it display '1 week' until 1 week
-        #   and 24 hour -> 1 week and 1 day ... we could display as well hours ?
-        # Yes we could display in the list: current display - 2 
-        # TODO logger !!
+    """
+    Convert seconds to time, optional rounded, depending of granularity's degrees.
+    inspired by https://stackoverflow.com/a/24542445/11869956
+    """
+    # TODO logger !!
+    
     def __init__(self):
         #self.logger_name = f'::{__name__}::FormatTimestamp::'
         #logger = logging.getLogger(f'{self.logger_name}init::')  
         # For now i haven't found a way to do it better
-        # TODO: optimize ?!? ;)
         self.intervals = {
-            # 'years'     :   31556952,  # https://www.calculateme.com/time/years/to-seconds/
-            # https://www.calculateme.com/time/months/to-seconds/ -> 2629746 seconds
-            # But it's outputing some strange result :
-            # So 3 seconds less (2629743) : 4 weeks, 2 days, 10 hours, 29 minutes and 3 seconds
-            # than after 3 more seconds : 1 month ?!?
-            # Google give me 2628000 seconds
-            # So 3 seconds less (2627997): 4 weeks, 2 days, 9 hours, 59 minutes and 57 seconds
-            # Strange as well 
-            # So for the moment latest is week ...
-            #'months'    :   2419200, # 60 * 60 * 24 * 7 * 4 
-            'weeks'     :   604800,  # 60 * 60 * 24 * 7
-            'days'      :   86400,    # 60 * 60 * 24
-            'hours'     :   3600,    # 60 * 60
+            # Stop to week, month is to ambigue to calculate 
+            # Try pleny of website almost no one give same value ...
+            'weeks'     :   604800,     # 60 * 60 * 24 * 7
+            'days'      :   86400,      # 60 * 60 * 24
+            'hours'     :   3600,       # 60 * 60
             'minutes'   :   60,
-            'seconds'  :   1
+            'seconds'   :   1
             }
         self.nextkey = {
             'seconds'   :   'minutes',
@@ -518,8 +509,6 @@ class FormatTimestamp:
             'hours'     :   'days',
             'days'      :   'weeks',
             'weeks'     :   'weeks',
-            #'months'    :   'months',
-            #'years'     :   'years' # stop here
             }
         self.translate = {
             'weeks'     :   _('weeks'),
@@ -541,13 +530,32 @@ class FormatTimestamp:
                                         # meta information, not the empty string.
                                         # Thx to --> https://stackoverflow.com/a/30852705/11869956 - saved my day
             }
+        # Acces intervals by names 
+        self.byname = {
+            'weeks'     :   4,     
+            'days'      :   3,    
+            'hours'     :   2,
+            'minutes'   :   1,
+            'seconds'   :   0
+            }
+        # By id
+        self.byid =  {
+            4   :   'weeks',     
+            3   :   'days',    
+            2   :   'hours',
+            1   :   'minutes',
+            0   :   'seconds' 
+            }
         
     def convert(self, seconds, granularity=2, rounded=True, translate=False):
-        """Proceed the conversion"""
+        """
+        Proceed the conversion
+        """
         #logger = logging.getLogger(f'{self.logger_name}convert::') 
-        def _format(result):
-            """Return the formatted result
-            TODO : numpy / google docstrings"""
+        def __format(result):
+            """
+            Return the formatted result
+            """
             start = 1 
             length = len(result)
             none = 0
@@ -577,12 +585,13 @@ class FormatTimestamp:
                 else:
                     none += 1
             return [ { 'value'        :   mydict['value'], 
-                       'name'         :   mydict['name_strip'],
-                       'punctuation'  :   mydict['punctuation'] } for mydict in result \
-                                                                  if mydict['value'] is not None ]
+                       'name'         :   mydict['name_rstrip'],
+                       'punctuation'  :   mydict['punctuation'] } for mydict in result ]
+            # TEST value == None is removed: in last 'result' list iteration
+            # And clean up if not rounded or granularity > len(result)
                     
         
-        def _rstrip(value, name):
+        def __rstrip(value, name):
             """Rstrip 's' name depending of value"""
             if value == 1:
                 name = name.rstrip('s')
@@ -592,6 +601,8 @@ class FormatTimestamp:
         # Make sure granularity is an integer
         if not isinstance(granularity, int):
             raise ValueError(f'Granularity should be an integer: {granularity}')
+        # Make sure granularity is between 1-5
+        assert 0 < granularity < 6, f'Granularity argument out of range [1-5]: {granularity}'
         
         # For seconds only don't need to compute
         if seconds < 0:
@@ -602,18 +613,21 @@ class FormatTimestamp:
             if translate:
                 return _('less than a minute')
             return 'less than a minute'
-                
+         
+        # TEST save seconds for latter 
+        seconds_arg = seconds 
+        
         result = []
         for name, count in self.intervals.items():
             value = seconds // count
             if value:
                 seconds -= value * count
-                name_strip = _rstrip(value, name)
-                # save as dict: value, name_strip (eventually strip), name (for reference), value in seconds
+                name_rstrip = __rstrip(value, name)
+                # save as dict: value, name_rstrip (eventually strip), name (for reference), value in seconds
                 # and count (for reference)
                 result.append({ 
                         'value'        :   value,
-                        'name_strip'   :   name_strip,
+                        'name_rstrip'   :   name_rstrip,
                         'name'         :   name, 
                         'seconds'      :   value * count,
                         'count'        :   count
@@ -621,13 +635,13 @@ class FormatTimestamp:
             else:
                 if len(result) > 0:
                     # We strip the name as second == 0
-                    name_strip = name.rstrip('s')
+                    name_rstrip = name.rstrip('s')
                     # adding None to key 'value' but keep other value
                     # in case when need to add seconds when we will 
                     # recompute every thing
                     result.append({ 
                         'value'        :   None,
-                        'name_strip'   :   name_strip,
+                        'name_rstrip'   :   name_rstrip,
                         'name'         :   name, 
                         'seconds'      :   0,
                         'count'        :   count
@@ -638,13 +652,18 @@ class FormatTimestamp:
         # Don't need to compute everything / everytime
         # added result[:granularity] for rounded
         if length < granularity or not rounded:
+             # Clean-up / remove all value == None
+            for item in result[:]:
+                if item['value'] == None:
+                    result.remove(item)
+            # Translation 
             if translate:
                 return ' '.join('{0} {1}{2}'.format(item['value'], _(self.translate[item['name']]), 
                                                 _(self.translate[item['punctuation']])) \
-                                                for item in _format(result[:granularity]))
+                                                for item in __format(result[:granularity]))
             else:
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
-                                                for item in _format(result[:granularity]))
+                                                for item in __format(result[:granularity]))
             
         start = length - 1
         # Reverse list so the firsts elements 
@@ -676,8 +695,10 @@ class FormatTimestamp:
                 # This mean we are at weeks
                 if item['name'] == next_item_name:
                     # Just recalcul
+                    #print(f"Item value: {item['value']}, seconds: {item['seconds']},"
+                          #f" count: {item['count']}, name: {item['name']}")
                     item['value'] = item['seconds'] // item['count']
-                    item['name_strip'] = _rstrip(item['value'], item['name'])
+                    item['name_rstrip'] = __rstrip(item['value'], item['name'])
                 # Stop to weeks to stay 'right' 
                 elif item['seconds'] >= self.intervals[next_item_name]:
                     # First make sure we have the 'next item'
@@ -691,7 +712,7 @@ class FormatTimestamp:
                         result[next_item_index]['value'] = result[next_item_index]['seconds'] // \
                                                            result[next_item_index]['count']
                         # strip or not
-                        result[next_item_index]['name_strip'] = _rstrip(result[next_item_index]['value'],
+                        result[next_item_index]['name_rstrip'] = __rstrip(result[next_item_index]['value'],
                                                                        result[next_item_index]['name'])
                     else:
                         # Creating 
@@ -701,11 +722,11 @@ class FormatTimestamp:
                         # convert seconds
                         next_item_value = item['seconds'] // next_item_count
                         # strip 's' or not
-                        next_item_name_strip = _rstrip(next_item_value, next_item_name)
+                        next_item_name_strip = __rstrip(next_item_value, next_item_name)
                         # added to dict
                         next_item = {
                                        'value'      :   next_item_value,
-                                       'name_strip' :   next_item_name_strip,
+                                       'name_rstrip' :   next_item_name_strip,
                                        'name'       :   next_item_name,
                                        'seconds'    :   item['seconds'],
                                        'count'      :   next_item_count
@@ -716,17 +737,57 @@ class FormatTimestamp:
                     del result[result.index(item)]
                 else:
                     # for current item recalculate
-                    # keys 'value' and 'name_strip'
+                    # keys 'value' and 'name_rstrip'
                     item['value'] = item['seconds'] // item['count']
-                    item['name_strip'] = _rstrip(item['value'], item['name'])
+                    item['name_rstrip'] = __rstrip(item['value'], item['name'])
+            # If value == None then delete
+            else:
+                result.remove(item)
+        
+        # TEST if list result < granularity then
+        # try to add result from  interval's latest result list (mean '[-1]') + 2
+        if len(result) < granularity:
+            seconds_sum = 0
+            for item in result:
+                if not item['value'] == None:
+                    seconds_sum += item['seconds']
+            # If seconds left (if any) > latest item from 'result' list - 2:
+            # This mean, for exemple if granularity = 2, len = 1, latest item = 'weeks'
+            # then, since we rounded, it could have seconds left but these seconds are < 'days'
+            # but could be calculate using 'hours', and we still output two item (like requested
+            # by granularity = 2). This is for fine tunning rounded process otherwise, to use the exmple,
+            # We output 'weeks' until 'days' is reached: during 23h59m59s... It's a long long time (even if rounded).
+            
+            # So first make sure we are not out of range and will not get us to 'seconds'
+            last_result_id = self.byname[result[-1]['name']]
+            if last_result_id - 2 > 0:
+                # First get name using id 
+                name_by_id = self.byid[last_result_id - 2]
+                # Then make sure we have seconds left and its >= to intervals[last_result_id - 2]
+                if seconds_arg - seconds_sum >= self.intervals[name_by_id]:
+                    # So reconstruct and add a new dict to list 'result'
+                    seconds = seconds_arg - seconds_sum
+                    count = self.intervals[name_by_id]
+                    value = seconds // count
+                    name_rstrip = __rstrip(value, name_by_id)
+                    # name = name_by_id
+                    result.append({ 
+                        'value'         :   value,
+                        'name_rstrip'   :   name_rstrip,
+                        'name'          :   name_by_id,
+                        'seconds'       :   seconds,
+                        'count'         :   count
+                        })
+        
+        # Return result using translation or not 
         if translate:
             return ' '.join('{0} {1}{2}'.format(item['value'], 
                                                 _(self.translate[item['name']]), 
                                                 _(self.translate[item['punctuation']])) \
-                                                for item in _format(result))
+                                                for item in __format(result))
         else:
             return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
-                                                for item in _format(result))
+                                                for item in __format(result))
 
 
 # TODO Should we need logger ???
@@ -786,8 +847,9 @@ def _format_date(timestamp, opt):
             display = trans[display]
     
     mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display, locale=mylocale[0])
-    if display == 'long':
-        # HACK This is a tweak, user should be aware
-        # This removed :  +0100 at the end of 'long' output
-        mydate = mydate[:-6]
+    #if display == 'long':
+        # We don't need this, using 'medium' and it will automatically remove '+0100' ;)
+        #HACK This is a tweak, user should be aware
+        #This removed :  +0100 at the end of 'long' output
+        #mydate = mydate[:-6]
     return mydate
