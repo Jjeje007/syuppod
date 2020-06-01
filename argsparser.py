@@ -147,7 +147,7 @@ class DaemonParserHandler(CustomArgsCheck):
                                             + ' /etc/init.d/syuppod/ start. So this is only usefull if started from terminal.',
                                     action = 'store_true')
         advanced_debug.add_argument('--dryrun',
-                                    help = 'Run daemon without writing anything to statefile or logs.',
+                                    help = 'Run daemon without writing/creating anything to statefile or logs.',
                                     action = 'store_true')
     def parsing(self):
         self.args = self.parser.parse_args()
