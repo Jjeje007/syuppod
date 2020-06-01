@@ -262,7 +262,11 @@ def main():
     myport['watcher'] = myportwatcher
     
     # Adding dbus publisher
-    dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+    try:
+        dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+    except Exception as error:
+        logger.error(f'Got unexcept error: {error}')
+        sys.exit(1)
         
     # Init daemon thread
     daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)

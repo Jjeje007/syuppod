@@ -44,14 +44,14 @@ class StateInfo:
     Write, edit or get info to and from state file
     """
     
-    def __init__(self, pathdir, stateopts, dryrun):
+    def __init__(self, **kwargs):
         self.logger_name = f'::{__name__}::StateInfo::'
         logger = logging.getLogger(f'{self.logger_name}init::')        
-        self.pathdir = pathdir
+        self.pathdir = kwargs['pathdir']
         # Load factory opts
-        self.stateopts = stateopts
+        self.stateopts = kwargs['stateopts']
         # For dry run
-        self.dryrun = dryrun
+        self.dryrun = kwargs.get('dryrun', False)
         # Re(s) for search over option
         # so normal_opt match everything except line starting with '#'
         self.normal_opt = re.compile(r'^(?!#)(.*):\s(.*)$')

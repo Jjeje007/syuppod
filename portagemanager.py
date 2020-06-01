@@ -111,7 +111,7 @@ class PortageHandler:
                 }
         
         # Init save/load info file 
-        self.stateinfo = StateInfo(self.pathdir, default_stateopts, self.dryrun)
+        self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
         loaded_stateopts = False
         if self.stateinfo.newfile or self.dryrun:
             # Don't need to load from StateInfo as it just create file 
