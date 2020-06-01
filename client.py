@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
+# PYTHON_ARGCOMPLETE_OK
 
 # Dbus client for syuppod
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
@@ -12,6 +13,7 @@ import locale
 import gettext
 import pathlib
 import re
+import argcomplete
 
 from argsparser import ClientParserHandler
 from lib.utils import _format_date
@@ -108,12 +110,12 @@ def timestamp(myobject, formatting, machine, translate):
     # unix timestamp, easy man ! :)
     if opt == 'unix':
         msg = reply
-        additionnal_msg.append('')
+        additionnal_msg.append('\0') # workaround for gettext ("") is reserved
         additionnal_msg.append(_('seconds since epoch (unix / posix time)'))
     elif 'date' in opt:
         msg = _format_date(reply, opt)
         additionnal_msg.append(_('The '))
-        additionnal_msg.append('\0')    # woraround for gettext
+        additionnal_msg.append('\0')    # workaround for gettext ("") is reserved
     elif 'elapsed' in opt:
         current_timestamp = time.time()
         elapsed = round(current_timestamp - int(reply))
@@ -350,6 +352,7 @@ def parser(args):
 ### MAIN ###
 if __name__ == '__main__':
     myargsparser = ClientParserHandler(version='dev')
+    argcomplete.autocomplete(myargsparser.parser)
     args = myargsparser.parsing()
 
     # Call parser

@@ -1,29 +1,36 @@
 # -*- coding: utf-8 -*-
-# -*- python -*- 
+# -*- python -*-
+# PYTHON_ARGCOMPLETE_OK
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
 import re
 import argparse
 import sys
+import argcomplete
 
 ## TODO TODO TODO for client part, what about not just checking if option are ok
 #                 we should parse it, and return for exemple dict? 
 # TODO: add --dry-run opt to not write to statefile 
-# TODO  argcomplete --> https://github.com/kislyuk/argcomplete
+# TODO  argcomplete: make advance opts available
 # TODO  make opt word not all required : like argparse default if --available you can write --a 
 #       and it's match if there nothing eles which start by --a . Same here with for exemple:
 #       --count : this can be both|session|overall -> for both you could write 'b' or 'bo' or 'bot' or ...
 
 class CustomArgsCheck:
-    """Advanced arguments checker which implant specific parsing"""
+    """
+    Advanced arguments checker which implant specific parsing
+    """
     def __init__(self):
         # this is shared across method
         self.shared_timestamp = '(?:\:r|\:u)?(?:\:[1-5])?'
         self.shared_date = '(?:\:s|\:m|\:l|\:f)?'
     
     def _check_args_interval(self, interval):
-        """Checking interval typo and converting to seconds"""
+        """
+        Checking interval typo and converting to seconds
+        """
+        
         # By pass to implant ClientParserHandler args parse 
         if 'display' in interval:
             pattern = re.compile(r'^display(?:\:r|\:u|\:seconds)?(?:\:[1-5])?$')
@@ -99,7 +106,8 @@ class DaemonParserHandler(CustomArgsCheck):
     def __init__(self, pathdir, version):
         prog = 'syuppod'
         self.pathdir = pathdir
-        self.parser = argparse.ArgumentParser(description='Daemon which auto update portage tree' 
+        self.parser = argparse.ArgumentParser(prog=prog,
+                                              description='Daemon which auto update portage tree' 
                                               ' and pretend world update for gentoo portage package manager.', 
                                               epilog='By default, %(prog)s will start in log level \'info\'.' 
                                               ' Interactive mode: log to terminal. Init mode: log to system' 
@@ -134,13 +142,13 @@ class DaemonParserHandler(CustomArgsCheck):
                             type=self._check_args_interval,
                             default = 86400)
         advanced_debug = self.parser.add_argument_group('<advanced debug options>')
-        advanced_debug.add_argument('-f',
-                                    '--fakeinit',
-                                    help = 'Debugging init crash. Start daemon like it\'s started by running'
-                                            + ' /etc/init.d/syuppod/ start. So this is only usefull if start from terminal.',
+        advanced_debug.add_argument('--fakeinit',
+                                    help = 'Start daemon like it\'s started by running'
+                                            + ' /etc/init.d/syuppod/ start. So this is only usefull if started from terminal.',
                                     action = 'store_true')
-        # TODO add --dry-run (nothing will be write to logs/statefile)
-        
+        advanced_debug.add_argument('--dryrun',
+                                    help = 'Run daemon without writing anything to statefile or logs.',
+                                    action = 'store_true')
     def parsing(self):
         self.args = self.parser.parse_args()
         return self.args
@@ -153,7 +161,8 @@ class ClientParserHandler(CustomArgsCheck):
         # Init super class
         super().__init__()
         prog = 'syuppo-cli'
-        self.parser = argparse.ArgumentParser(description='Dbus client for syuppod daemon. Control and '
+        self.parser = argparse.ArgumentParser(prog=prog,
+                                              description='Dbus client for syuppod daemon. Control and '
                                               ' retrieve informations from an already running daemon.')
         ## Global options
         self.parser.add_argument('-v', 
@@ -181,7 +190,8 @@ class ClientParserHandler(CustomArgsCheck):
                                   metavar = 'cnt',
                                   nargs = '?',
                                   const = 'both',
-                                  type = self._check_args_portage_count,
+                                  choices = [ 'session', 'overall', 'both' ],
+                                  #type = self._check_args_portage_count,
                                   help = 'Display successfully update count. Where \'cnt\' should be one of: ' 
                                   '\'session\', \'overall\' or \'both\'. \'session\' is count from current '
                                   'session and \'overall\' from the first run ever. Default is \'both\' with in '
@@ -200,7 +210,7 @@ class ClientParserHandler(CustomArgsCheck):
         portage_args.add_argument('--timestamp',
                                   metavar = 'tsp',
                                   nargs = '?',
-                                  const = 'date',
+                                  const = 'date:m',
                                   type = self._check_args_portage_timestamp,
                                   help = 'Display last update timestamp. Where \'tsp\' should be one of: '
                                   '\'date[:date_format]\', \'elapsed[:elapsed_format]\' or \'unix\'. '
@@ -209,7 +219,7 @@ class ClientParserHandler(CustomArgsCheck):
                                   'ong). \'elapsed\' an localized elapsed time, optional rounded and tweak using '
                                   '\'[:elapsed_format]\' (with: [:r]ounded, [:u]nrounded and [:1]-5 to choose '
                                   'granularity level - this can be collapse, ex: [:r:5]). \'unix\' an unix '
-                                  'timestamp. Default: \'date\' with date_format = long. ')
+                                  'timestamp. Default: \'date\' with date_format = medium. ')
         portage_args.add_argument('--interval',
                                   metavar = 'int',
                                   nargs = '?',
@@ -265,15 +275,15 @@ class ClientParserHandler(CustomArgsCheck):
                                   '\'elapsed:r:2\'')
         portage_args.add_argument('--forced',
                                   action = 'store_true',
-                                  help = 'Force recalculation of the packages informations. This will run '
-                                  '`emerge --pretend '
-                                  '-uvaDN --with-bdeps=yes @world`. Normally, this is done automatically when syuppod '
-                                  'sync or when world update has been run.')
+                                  help = 'Force recalculation of the packages informations. This will send forced command' 
+                                  ' to daemon. Normally, this is done automatically when syuppod sync or when world update' 
+                                  ' have been run.')
         portage_args.add_argument('--all',
                                   action = 'store_true',
                                   help='Display all the informations in one time with defaults options.')
         
     def parsing(self):
+        argcomplete.autocomplete(self.parser)
         args = self.parser.parse_args()
         # Print usage if no arg has been given
         noarg = True

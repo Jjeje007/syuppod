@@ -44,12 +44,14 @@ class StateInfo:
     Write, edit or get info to and from state file
     """
     
-    def __init__(self, pathdir, stateopts):
+    def __init__(self, pathdir, stateopts, dryrun):
         self.logger_name = f'::{__name__}::StateInfo::'
         logger = logging.getLogger(f'{self.logger_name}init::')        
         self.pathdir = pathdir
         # Load factory opts
         self.stateopts = stateopts
+        # For dry run
+        self.dryrun = dryrun
         # Re(s) for search over option
         # so normal_opt match everything except line starting with '#'
         self.normal_opt = re.compile(r'^(?!#)(.*):\s(.*)$')
@@ -59,7 +61,10 @@ class StateInfo:
         # written, then don't need to load with calling self.load() just load 
         # from stateopts directly
         self.newfile = False
-        # Create / check statefile otps
+        # Create / check statefile opts
+        if self.dryrun:
+            logger.debug('Dryrun is enable, skip checking/creating statefile.')
+            return
         self.__check_config()
     
     
@@ -69,6 +74,14 @@ class StateInfo:
         """
         
         logger = logging.getLogger(f'{self.logger_name}save::') 
+        
+        if self.dryrun:
+            call = 'None'
+            if args:
+                call = args
+            logger.debug('Dryrun is enable, skipping save for:'
+                         + f' {args}')
+            return
         
         with self.__open('r+') as mystatefile:
             statefile = mystatefile.readlines()   # Pull the file contents to a list
@@ -123,7 +136,17 @@ class StateInfo:
         Args should be valid option(s) or it will be rejected.
         """
         
-        logger = logging.getLogger(f'{self.logger_name}load::') 
+        logger = logging.getLogger(f'{self.logger_name}load::')
+        
+        if self.dryrun:
+            call = '(None) = loading all'
+            if args:
+                call = args
+            logger.warning(f'Module: {__name__}, Class: StateInfo, Method: load(),' 
+                           + ' dryrun is enable but received call for: {call}' 
+                           + ' (please report this).')
+            return
+        
         logger.debug('Extracting options from statefile: {0}'.format(self.pathdir['statelog']))
         
         with self.__open('r') as mystatefile:
@@ -600,10 +623,11 @@ class FormatTimestamp:
                        'punctuation'  :   mydict['punctuation'] } for mydict in result ]
             # TEST value == None is removed: in last 'result' list iteration
             # And clean up if not rounded or granularity > len(result)
-                    
-        
+                      
         def __rstrip(value, name):
-            """Rstrip 's' name depending of value"""
+            """
+            Rstrip 's' name depending of value
+            """
             if value == 1:
                 name = name.rstrip('s')
             return name
@@ -824,7 +848,9 @@ def on_parent_exit(signame='SIGTERM'):
 
 
 def _format_timestamp(seconds, opt, translate):
-    """Client helper for formatting timestamp depending on opts"""
+    """
+    Client helper for formatting timestamp depending on opts
+    """
     # Default values
     rounded = True
     granularity = 2
@@ -842,7 +868,9 @@ def _format_timestamp(seconds, opt, translate):
 
 
 def _format_date(timestamp, opt):
-    """Client helper for formatting date"""
+    """
+    Client helper for formatting date
+    """
     # Default value
     display='long'
     trans = { 

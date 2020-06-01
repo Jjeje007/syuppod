@@ -15,8 +15,7 @@ import threading
 import uuid
 import logging
 
-# compatibility for python < 3.7
-from collections import OrderedDict 
+
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
@@ -35,10 +34,8 @@ except Exception as exc:
     sys.exit(1)
 
 # TODO TODO TODO stablize API
-# TODO add --dry-run debugging option 
 # TODO get news ?
 # TODO add load checking before running pretend_world()
-# TODO add choice for pretend_world(): use emerge or eix --installed --update but this will be only approximative ?
 
 
 class PortageHandler:
@@ -46,7 +43,7 @@ class PortageHandler:
     Portage tracking class
     """
     def __init__(self, **kwargs):
-        for key in 'interval', 'pathdir':
+        for key in 'interval', 'pathdir', 'dryrun':
             if not key in kwargs:
                 # Print to stderr :
                 # when running in init mode stderr is redirect to a log file
@@ -56,6 +53,7 @@ class PortageHandler:
                 sys.exit(1)
                 
         self.pathdir = kwargs['pathdir']
+        self.dryrun = kwargs['dryrun']
         # Init timestamp converter/formatter 
         self.format_timestamp = FormatTimestamp()
         # Init logger
@@ -64,6 +62,7 @@ class PortageHandler:
         
         # compatibility for python < 3.7 (dict is not ordered)
         if sys.version_info[:2] < (3, 7):
+            from collections import OrderedDict 
             default_stateopts = OrderedDict(
             ('# Wrote by {0}'.format(self.pathdir['prog_name']) 
              + ' version: {0}'.format(self.pathdir['prog_version']), ''),
@@ -112,10 +111,11 @@ class PortageHandler:
                 }
         
         # Init save/load info file 
-        self.stateinfo = StateInfo(self.pathdir, default_stateopts)
+        self.stateinfo = StateInfo(self.pathdir, default_stateopts, self.dryrun)
         loaded_stateopts = False
-        if self.stateinfo.newfile:
-            # Don't need to load from StateInfo as it just create file and
+        if self.stateinfo.newfile or self.dryrun:
+            # Don't need to load from StateInfo as it just create file 
+            # or we don't want to write anything:
             # add default_stateopts from here
             loaded_stateopts = default_stateopts
         else:
@@ -266,15 +266,18 @@ class PortageHandler:
                                                                   ', '.join(self.sync['repos']['names'])))
         logger.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
                                                                   self.sync['repos']['formatted']))
-            
-        # Init logging
-        logger.debug('Initializing logging handler:')
-        logger.debug('Name: synclog')
-        processlog = ProcessLoggingHandler(name='synclog')
-        logger.debug('Writing to: {0}'.format(self.pathdir['synclog']))
-        mylogfile = processlog.dolog(self.pathdir['synclog'])
-        logger.debug('Log level: info')
-        mylogfile.setLevel(processlog.logging.INFO)
+        
+        if not self.dryrun:
+            # Init logging
+            logger.debug('Initializing logging handler:')
+            logger.debug('Name: synclog')
+            processlog = ProcessLoggingHandler(name='synclog')
+            logger.debug('Writing to: {0}'.format(self.pathdir['synclog']))
+            mylogfile = processlog.dolog(self.pathdir['synclog'])
+            logger.debug('Log level: info')
+            mylogfile.setLevel(processlog.logging.INFO)
+        else:
+            mylogfile = logging.getLogger(f'{self.logger_name}write_sync_log::')
         
         # Network failure related
         # main gentoo repo
@@ -512,15 +515,18 @@ class PortageHandler:
         retry = 0
         find_build_packages = re.compile(r'^Total:.(\d+).package.*$')        
         
-        # Init logger
-        logger.debug('Initializing logging handler.')
-        logger.debug('Name: pretendlog')
-        processlog = ProcessLoggingHandler(name='pretendlog')
-        logger.debug('Writing to: {0}'.format(self.pathdir['pretendlog']))
-        mylogfile = processlog.dolog(self.pathdir['pretendlog'])
-        logger.debug('Log level: info')
-        mylogfile.setLevel(processlog.logging.INFO)
-        
+        if not self.dryrun:
+            # Init logger
+            logger.debug('Initializing logging handler.')
+            logger.debug('Name: pretendlog')
+            processlog = ProcessLoggingHandler(name='pretendlog')
+            logger.debug('Writing to: {0}'.format(self.pathdir['pretendlog']))
+            mylogfile = processlog.dolog(self.pathdir['pretendlog'])
+            logger.debug('Log level: info')
+            mylogfile.setLevel(processlog.logging.INFO)
+        else:
+            mylogfile = logging.getLogger(f'{self.logger_name}write_pretend_world_log::')
+            
         mycommand = '/usr/bin/emerge'
         myargs = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]

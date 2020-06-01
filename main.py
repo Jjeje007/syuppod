@@ -26,7 +26,7 @@ pathdir = {
     'statelog'      :   '/var/lib/' + prog_name + '/state.info',
     'synclog'       :   '/var/log/' + prog_name + '/sync.log',
     'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
-}
+    }
 
 # Default basic logging, this will handle earlier error when
 # daemon is run using /etc/init.d/
@@ -40,12 +40,16 @@ logging.addLevelName(logging.WARNING,  '[Warn ]')
 logging.addLevelName(logging.INFO,     '[Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug]')
 
-root_logger = logging.getLogger()
-
-if not sys.stdout.isatty() or '--fakeinit' in sys.argv\
-   or '-f' in sys.argv:
-    if '--fakeinit' in sys.argv or '-f' in sys.argv:
-        print('Running fake init.', file=sys.stderr)
+if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
+    display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+    if '--fakeinit' in sys.argv:
+        msg = ' with dryrun enable' if '--dryrun' in sys.argv else ''
+        print(f'Running fake init{msg}.', file=sys.stderr)
+        if '--dryrun' in sys.argv:
+            print('All logs goes to syslog', file=sys.stderr)
+            display_init_tty = ''
+    # Get RootLogger
+    root_logger = logging.getLogger()
     # So redirect stderr to syslog (for the moment)
     from lib.logger import RedirectFdToLogger
     from lib.logger import LogErrorFilter
@@ -57,7 +61,11 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv\
     root_logger.addHandler(fd_handler_syslog)
     fd2 = RedirectFdToLogger(root_logger)
     sys.stderr = fd2
-    display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+    # Check for --dryrun
+    if '--dryrun' in sys.argv and not '--fakeinit' in sys.argv:
+        print('Running --dryrun from /etc/init.d/ is NOT supported', file=sys.stderr)
+        print('Exiting with status \'1\'.', file=sys.stderr)
+        sys.exit(1)
 else:
     # import here what is necessary to handle logging when 
     # running in a terminal
@@ -88,12 +96,17 @@ class MainDaemon(threading.Thread):
     Main Daemon
     """
     def __init__(self, myport, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self.logger_name = f'::{__name__}::MainDaemonThread::'
         logger = logging.getLogger(f'{self.logger_name}init::')
+        super().__init__(*args, **kwargs)
         self.myport = myport
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
+        # TEST Change te log level of asyncio 
+        # to be the same as RootLogger
+        currentlevel = logger.getEffectiveLevel()
+        logger.debug(f'Setting log level for asyncio to: {currentlevel}')
+        logging.getLogger('asyncio').setLevel(currentlevel)
     
     def run(self):
         logger = logging.getLogger(f'{self.logger_name}run::')
@@ -233,7 +246,7 @@ def main():
     myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init portagemanager
-    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir)
+    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun)
     
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)
@@ -269,26 +282,30 @@ if __name__ == '__main__':
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
     
-    # Check or create basedir and logdir directories
-    # Print to stderr as we have a redirect for init run 
-    for directory in 'basedir', 'logdir':
-        if not pathlib.Path(pathdir[directory]).is_dir():
-            try:
-                pathlib.Path(pathdir[directory]).mkdir()
-            except OSError as error:
-                if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                    print('Got error while making directory:' 
-                          + f' \'{error.strerror}: {error.filename}\'.', file=sys.stderr)
-                    print('Daemon is intended to be run as sudo/root.', file=sys.stderr)
-                else:
-                    print('Got unexcept error while making directory:' 
-                          + f' \'{error}\'.', file=sys.stderr)
-            print('Exiting with status \'1\'.', file=sys.stderr)
-            sys.exit(1)
+    # Dry-run setup
+    if args.dryrun:
+        print('Dryrun is enable, skipping all write process.', file=sys.stderr)
+    else:
+        # Check or create basedir and logdir directories
+        # Print to stderr as we have a redirect for init run 
+        for directory in 'basedir', 'logdir':
+            if not pathlib.Path(pathdir[directory]).is_dir():
+                try:
+                    pathlib.Path(pathdir[directory]).mkdir()
+                except OSError as error:
+                    if error.errno == errno.EPERM or error.errno == errno.EACCES:
+                        print('Got error while making directory:' 
+                            + f' \'{error.strerror}: {error.filename}\'.', file=sys.stderr)
+                        print('Daemon is intended to be run as sudo/root.', file=sys.stderr)
+                    else:
+                        print('Got unexcept error while making directory:' 
+                            + f' \'{error}\'.', file=sys.stderr)
+                print('Exiting with status \'1\'.', file=sys.stderr)
+                sys.exit(1)
     
     # Now re-configure logging
     if sys.stdout.isatty() and not args.fakeinit:
-        # reconfigure the root logger
+        # configure the root logger
         logger = logging.getLogger()
         # Rename root logger
         logger.root.name = f'{__name__}'
@@ -299,7 +316,7 @@ if __name__ == '__main__':
         logger.setLevel(logging.INFO)
         # Working with xfce4-terminal and konsole if set to '%w'
         print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
-    else:
+    elif not args.dryrun:
         # Reconfigure root logger only at the end 
         # this will keep logging error to syslog
         # Add debug handler only if debug is enable
@@ -347,8 +364,12 @@ if __name__ == '__main__':
         root_logger.removeHandler(fd_handler_syslog)
         fd2 = RedirectFdToLogger(logger)
         sys.stderr = fd2
+    else:
+        # Keep default configuration
+        logger = root_logger
+        # Set loglevel to INFO
+        logger.setLevel(logging.INFO)
         
-    
     # default level is INFO
     if args.debug and args.quiet:
         logger.info('Both debug and quiet opts has been enable,' 
