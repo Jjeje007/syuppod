@@ -205,16 +205,15 @@ class StateInfo:
         msg = 'writing' if request_mode == 'r+' else 'reading'
         try:
             if pathlib.Path(self.pathdir['statelog']).is_file():
-                logger.debug("Opening \'{self.pathdir['statelog']}\' for {msg}.")
+                logger.debug(f"Opening \'{self.pathdir['statelog']}\' for {msg}.")
                 return pathlib.Path(self.pathdir['statelog']).open(mode=request_mode)
             else:
                 msg = 'creating'
-                logger.debug("Creating state file: {self.pathdir['statelog']}")
+                logger.debug(f"Creating state file: {self.pathdir['statelog']}")
                 return pathlib.Path(self.pathdir['statelog']).open(mode='w')
         except (OSError, IOError) as error:
-            logger.critical(f'While {msg}'
-                                + ' \'{0}\' state file:'.format(self.pathdir['statelog']))
-            logger.critical(f'{error}.')
+            logger.critical(f"While {msg} \'{self.pathdir['statelog']}\'" 
+                            + f' state file: {error}.')
             logger.critical('Exiting with status \'1\'.')
             sys.exit(1)
     

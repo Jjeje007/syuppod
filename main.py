@@ -10,11 +10,12 @@
 # TODO TODO TODO don't run as root ! investigate !
 # TODO : exit gracefully 
 # TODO : debug log level !
-# TODO threading we cannot share object attribute 
-#       or it will no be update ?!?
+# TODO threading cannot share object attribute 
+#       or it will not be update ?!?
 
 __version__ = "dev"
-prog_name = 'syuppod'  
+prog_name = 'syuppod'
+dbus_conf = 'syuppod-dbus.conf'
 pathdir = {
     'prog_name'     :   prog_name,
     'prog_version'  :   __version__,
@@ -44,9 +45,9 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
     display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
     if '--fakeinit' in sys.argv:
         msg = ' with dryrun enable' if '--dryrun' in sys.argv else ''
-        print(f'Running fake init{msg}.', file=sys.stderr)
+        print(f'Info: Running fake init{msg}.', file=sys.stderr)
         if '--dryrun' in sys.argv:
-            print('All logs goes to syslog', file=sys.stderr)
+            print('Info: All logs goes to syslog', file=sys.stderr)
             display_init_tty = ''
     # Get RootLogger
     root_logger = logging.getLogger()
@@ -73,6 +74,7 @@ else:
     display_init_tty = ''
 
 import argparse
+import re
 import pathlib
 import time
 import errno
@@ -261,20 +263,32 @@ def main():
     myport['manager'] = myportmanager
     myport['watcher'] = myportwatcher
     
+    failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
+                               + r'.own.the.service.*due.to.security'
+                               + r'.policies.in.the.configuration.file.*$')
+    busconfig = True
     # Adding dbus publisher
     try:
         dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
-    except Exception as error:
-        logger.error(f'Got unexcept error: {error}')
-        sys.exit(1)
-        
+    except GLib.GError as error:
+        error = str(error)
+        if failed_access.match(error):
+            logger.error(f'Got error: {error}')
+            logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
+                         + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
+        else:
+            logger.error(f'Got unexcept error: {error}')
+        logger.error('Dbus bindings have been DISABLED !!')
+        busconfig = False
+    
     # Init daemon thread
     daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
     
     # Start all threads and dbus thread
     myport['watcher'].start()
     daemon_thread.start()
-    dbusloop.run()
+    if busconfig:
+        dbusloop.run()
     
     daemon_thread.join()
     myport['watcher'].join()
@@ -286,10 +300,7 @@ if __name__ == '__main__':
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
     
-    # Dry-run setup
-    if args.dryrun:
-        print('Dryrun is enable, skipping all write process.', file=sys.stderr)
-    else:
+    if not args.dryrun:
         # Check or create basedir and logdir directories
         # Print to stderr as we have a redirect for init run 
         for directory in 'basedir', 'logdir':
@@ -373,6 +384,8 @@ if __name__ == '__main__':
         logger = root_logger
         # Set loglevel to INFO
         logger.setLevel(logging.INFO)
+        # We need to reset also fd_handler_syslog loglevel...
+        fd_handler_syslog.setLevel(logging.DEBUG)
         
     # default level is INFO
     if args.debug and args.quiet:
@@ -381,12 +394,14 @@ if __name__ == '__main__':
     elif args.debug:
         logger.setLevel(logging.DEBUG)
         logger.info(f'Debug has been enable. {display_init_tty}')
-        logger.debug('Message are from this form \'::module::class::method:: msg\'.')
+        logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
         logger.setLevel(logging.ERROR)
     
     if sys.stdout.isatty() and not args.fakeinit:
         logger.info('Interactive mode detected, all logs go to terminal.')
+    if args.dryrun:
+        logger.info('Dryrun is enable, skipping all write process.')
     
     # run MAIN
     main()
