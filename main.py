@@ -64,7 +64,7 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
     fd2 = RedirectFdToLogger(root_logger)
     sys.stderr = fd2
     # Running --fakeinit from /etc/init.d is useless and not supported
-     if '--fakeinit' in sys.argv and not sys.stdout.isatty():
+    if '--fakeinit' in sys.argv and not sys.stdout.isatty():
         print('Running --fakeinit from /etc/init.d/ is NOT supported', file=sys.stderr)
         print('Exiting with status \'1\'.', file=sys.stderr)
         sys.exit(1)
