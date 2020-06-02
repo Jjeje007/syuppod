@@ -45,6 +45,7 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
     display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
     if '--fakeinit' in sys.argv:
         msg = ' with dryrun enable' if '--dryrun' in sys.argv else ''
+        # This will only display if running from terminal
         print(f'Info: Running fake init{msg}.', file=sys.stderr)
         if '--dryrun' in sys.argv:
             print('Info: All logs goes to syslog', file=sys.stderr)
@@ -62,11 +63,17 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
     root_logger.addHandler(fd_handler_syslog)
     fd2 = RedirectFdToLogger(root_logger)
     sys.stderr = fd2
+    # Running --fakeinit from /etc/init.d is useless and not supported
+     if '--fakeinit' in sys.argv and not sys.stdout.isatty():
+        print('Running --fakeinit from /etc/init.d/ is NOT supported', file=sys.stderr)
+        print('Exiting with status \'1\'.', file=sys.stderr)
+        sys.exit(1)
     # Check for --dryrun
     if '--dryrun' in sys.argv and not '--fakeinit' in sys.argv:
         print('Running --dryrun from /etc/init.d/ is NOT supported', file=sys.stderr)
         print('Exiting with status \'1\'.', file=sys.stderr)
         sys.exit(1)
+   
 else:
     # import here what is necessary to handle logging when 
     # running in a terminal
