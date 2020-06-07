@@ -24,8 +24,7 @@ whatever program (as long as it use dbus or syuppo-cli output).
 * [pexpect](https://github.com/pexpect/pexpect)
 * [inotify_simple](https://github.com/chrisjbillington/inotify_simple)
 
-For **pydbus** and **inotify_simple** ebuilds can found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay)
-
+For **pydbus** and **inotify_simple** ebuilds can be found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
 
 ## Installation / Usage
 
