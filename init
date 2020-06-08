@@ -1,17 +1,50 @@
 #!/sbin/openrc-run
+# -*- coding: utf-8 -*-
+# -*- bash -*- 
 
 
-
-command=/data/01/src/syuppod/main.py
-command_args="-d"                   # ENABLE debug
+command="/data/01/src/syuppod/main.py"
+command_args="-d" # ENABLE debug
 pidfile="/var/run/${RC_SVCNAME}.pid"
 name="syuppod daemon"
 command_background=true
+basedir="/var/lib/syuppod/"
+logdir="/var/log/syuppod/"
+id="syuppod"
+group="syuppod"
+start_stop_daemon_args="--user ${id}:${group}"
  
-description="Syuppod is a daemon that auto sync and guess how many package to update version python"
+description="Syuppod is a daemon that auto sync and estimate packages to update for Gentoo Gnu/Linux."
 
 depend() {
 	# Need net to sync
 	need net
 	after logger
+}
+
+start_pre() {
+    # This is a workaround, at the end we will make an ebuild which will
+    # handle these processes
+    # This will handle the creation of basedir and logdir
+    for folder in "${basedir}" "${logdir}"; do
+        if [[ ! -d "${folder}" ]]; then
+            # Don't be mad == No 700 ;)
+            mkdir --mode=755 ${folder} || { echo "Failed to create dir: ${folder}"; exit 1; }
+        fi
+        # Check if user have to be create
+        if [[ ! $(getent passwd "${id}") ]]; then
+            # So create user 'id' and group 'group'
+            useradd --base-dir '/var/lib' --system --shell /sbin/nologin\
+                    --groups portage --user-group "${id}" || { echo "Failed to create user: ${id}"; exit 1; }
+        fi
+        # Make sure to have the good owner
+        if [[ ! $(stat -c "%U:%G" "${folder}") == "${id}:${group}" ]]; then
+            chown -R "${id}:${group}" "${folder}" || { echo "Failed to change owner for dir: ${folder}"; exit 1; }
+        fi
+        # And the good rights
+        if [[ ! $(stat -c "%a" "${folder}") == 755 ]]; then
+            # Same here 
+            chmod 755 "${folder}" || { echo "Failed to change rights for dir: ${folder}"; exit 1; }
+        fi
+    done
 }

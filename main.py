@@ -3,11 +3,11 @@
 # -*- python -*- 
 # Starting : 2019-08-08
 
-# SYnc UPdate POrtage Daemon main
+# SYnc UPdate POrtage Daemon - main
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
-# TODO TODO TODO don't run as root ! investigate !
+# TODO TODO TODO don't run as root, investigate: 
 # TODO : exit gracefully 
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
@@ -48,7 +48,7 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
         # This will only display if running from terminal
         print(f'Info: Running fake init{msg}.', file=sys.stderr)
         if '--dryrun' in sys.argv:
-            print('Info: All logs goes to syslog', file=sys.stderr)
+            print('Info: All logs goes to syslog.', file=sys.stderr)
             display_init_tty = ''
     # Get RootLogger
     root_logger = logging.getLogger()
@@ -65,12 +65,12 @@ if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
     sys.stderr = fd2
     # Running --fakeinit from /etc/init.d is useless and not supported
     if '--fakeinit' in sys.argv and not sys.stdout.isatty():
-        print('Running --fakeinit from /etc/init.d/ is NOT supported', file=sys.stderr)
+        print('Running --fakeinit from /etc/init.d/ is NOT supported.', file=sys.stderr)
         print('Exiting with status \'1\'.', file=sys.stderr)
         sys.exit(1)
     # Check for --dryrun
     if '--dryrun' in sys.argv and not '--fakeinit' in sys.argv:
-        print('Running --dryrun from /etc/init.d/ is NOT supported', file=sys.stderr)
+        print('Running --dryrun from /etc/init.d/ is NOT supported.', file=sys.stderr)
         print('Exiting with status \'1\'.', file=sys.stderr)
         sys.exit(1)
    
@@ -111,7 +111,7 @@ class MainDaemon(threading.Thread):
         self.myport = myport
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
-        # TEST Change te log level of asyncio 
+        # Change log level of asyncio 
         # to be the same as RootLogger
         currentlevel = logger.getEffectiveLevel()
         logger.debug(f'Setting log level for asyncio to: {currentlevel}')
@@ -179,7 +179,7 @@ class MainDaemon(threading.Thread):
                 self.myport['manager'].pretend['cancelled'] = False
             # Every thing is OK: pretend was wanted, has been called and is completed 
             if self.myport['manager'].pretend['status'] == 'completed':
-                # TEST Wait between two pretend_world() run 
+                # Wait between two pretend_world() run 
                 if self.myport['manager'].pretend['remain'] <= 0:
                     logger.debug('Changing state for pretend process from \'completed\' to \'waiting\'.')
                     logger.debug('pretend_world() can be call again.')
@@ -221,7 +221,7 @@ class MainDaemon(threading.Thread):
             # Run pretend_world() if authorized 
             # Leave other check (sync running ? pretend already running ? world update running ?)
             # to portagedbus module so it can reply to client.
-            # TEST Disable pretend_world() if sync is in progress other wise will run twice.
+            # Disable pretend_world() if sync is in progress other wise will run twice.
             # Better to go with watcher over manager because it could be an external sync which will not be detected
             # by manager
             # Don't run pretend if world / sync in progress or if not status == 'ready'
@@ -322,8 +322,8 @@ if __name__ == '__main__':
                     else:
                         print('Got unexcept error while making directory:' 
                             + f' \'{error}\'.', file=sys.stderr)
-                print('Exiting with status \'1\'.', file=sys.stderr)
-                sys.exit(1)
+                    print('Exiting with status \'1\'.', file=sys.stderr)
+                    sys.exit(1)
     
     # Now re-configure logging
     if sys.stdout.isatty() and not args.fakeinit:
@@ -355,7 +355,7 @@ if __name__ == '__main__':
                 
         # Other level goes to Syslog
         syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
-        syslog_formatter = logging.Formatter('{0} %(levelname)s  %(message)s'.format(prog_name))
+        syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s  %(message)s')
         syslog_handler.setFormatter(syslog_formatter)
         # Filter stderr output
         syslog_handler.addFilter(LogErrorFilter(stderr=False))
@@ -365,7 +365,7 @@ if __name__ == '__main__':
         # Catch file descriptor stderr
         # Same here 5MB, rotate 3x = 15MB
         fd_handler = logging.handlers.RotatingFileHandler(pathdir['fdlog'], maxBytes=5242880, backupCount=3)
-        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s') #, datefmt)
+        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s')
         fd_handler.setFormatter(fd_formatter)
         fd_handler.addFilter(LogErrorFilter(stderr=True))
         # Level is error : See class LogErrorFilter

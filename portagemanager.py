@@ -295,7 +295,7 @@ class PortageHandler:
         self.retry = self.sync['retry']
         self.state = self.sync['state']
         
-        myargs = ['/usr/bin/emerge', '--sync']
+        myargs = ['usr/bin/sudo', '/usr/bin/emerge', '--sync']
         myprocess = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         mylogfile.info('##########################################\n')
@@ -1493,7 +1493,7 @@ class EmergeLogWatcher(threading.Thread):
         super().__init__(*args, **kwargs)
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
-        logger = logging.getLogger(f'{self.logger_name}::init::')
+        logger = logging.getLogger(f'{self.logger_name}init::')
         
         self.pathdir = pathdir
         self.repo_infos = get_repo_info()
@@ -1536,7 +1536,7 @@ class EmergeLogWatcher(threading.Thread):
             sys.exit(1)
         
     def run(self):
-        logger = logging.getLogger(f'{self.logger_name}::run::')
+        logger = logging.getLogger(f'{self.logger_name}run::')
         logger.debug('Emerge log watcher daemon started (monitoring {0}).'.format(self.pathdir['emergelog']))
         remain = 0
         sync_inprogress = False
@@ -1636,7 +1636,7 @@ class UpdateInProgress:
 
     def __init__(self):
         self.logger_name = f'::{__name__}::UpdateInProgress::'
-        logger = logging.getLogger(f'{self.logger_name}::init::')
+        logger = logging.getLogger(f'{self.logger_name}init::')
         self.logger = logger
         # Avoid spamming with log.info
         self.logflow =  {
@@ -1663,7 +1663,7 @@ class UpdateInProgress:
         Adapt from https://stackoverflow.com/a/31997847/11869956
         """
         
-        logger = logging.getLogger(f'{self.logger_name}::check::')
+        logger = logging.getLogger(f'{self.logger_name}check::')
         
         pids_only = re.compile(r'^\d+$')
         world_proc = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
