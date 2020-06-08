@@ -6,7 +6,7 @@
 Syuppod is a python3 daemon which automate sync and calculate how many packages to update
 for gentoo portage manager. It intend to be run as service using /etc/init.d/ but for debugging puproses 
 it can be run in a terminal. Since git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, it run as an 
-unprivileged system user (syuppod) and use sudo to gain root access.
+unprivileged system user (syuppod) and use sudo to gain root access (only for sync).
 
 It uses dbus to expose informations to user space tools and it have an already written client (trival).
 With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats.
@@ -43,12 +43,12 @@ cp syuppod-dbus.conf /usr/share/dbus-1/system.d/
 system user which belong to portage group. So don't use pip to install packages otherwise it will complain
 about missing module and program won't start. 
 You have to use ebuilds: the only ebuilds not in the tree are **pydbus** and **inotify_simple** which can be founded, for exemple
-from [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).\
+from [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
 
 Also, the only command that needs root rights is `emerge --sync` and now the program use `sudo` to run it.
-You have to configure it using /etc/sudoers and grant access to user: **syuppod** using **NOPASSWD** and running **emerge --sync**,
+You have to configure it using `/etc/sudoers` and grant access to user: **syuppod** using **NOPASSWD** and running **emerge --sync**,
 here is an configuration exemple:
-> Cmnd_Alias      DAEMON =        /usr/bin/emerge --sync
+> Cmnd_Alias      DAEMON =        /usr/bin/emerge --sync\
 > syuppod localhost = NOPASSWD: DAEMON
 
 For more informations on how to use sudo see [gentoo wiki](https://wiki.gentoo.org/wiki/Sudo).
@@ -72,16 +72,17 @@ After developpement phase, theses processes could be dedicated to ebuild.
 cp init /etc/init.d/syuppod
 ```
 2. Edit lines:\
-    command=\ 
-   To point to: /where/is/your/git/clone/repo/main.py\
+    `command=`\ 
+   To point to: 
+   `/where/is/your/git/clone/repo/main.py`\
    And:\
-    command_args=\
+    `command_args=`\
    To suit your need, more information:
 ```
 ./main --help
 ```
 3. Run the daemon:
-```bash
+```
 /etc/init.d/syuppod start
 ```
 
@@ -96,8 +97,8 @@ any issues you should first check `/var/log/messages`. Then: `/var/log/syuppod/s
 (if debug is enable: `-d`). 
 
 Running by hand in a terminal (so not using `/etc/init.d/`) is really intend to be a one shot test or for debugging (and if you're not
-using opt `dryrun` you **should** take care of your rights on `/var/lib/` and `/var/log/`... there is no problem to run it as root but
-it's no more the recommanded way).
+using opt `dryrun` you **should** take care of your rights on `/var/lib/`, `/var/log/` and `emerge.log`... there is no problem to run 
+it as root but it's no more the recommanded way).
 You have to note that there is also a debugging option: `--fakeinit` which mimic init process (so you won't get any output
 in terminal).
 
