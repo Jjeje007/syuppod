@@ -5,8 +5,8 @@
 
 Syuppod is a python3 daemon which automate sync and calculate how many packages to update
 for gentoo portage manager. It intend to be run as service using /etc/init.d/ but for debugging puproses 
-it can be run in a terminal. Since git commit id '', it run as an unprivileged system user (syuppod) and use sudo
-to gain root access.
+it can be run in a terminal. Since git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, it run as an 
+unprivileged system user (syuppod) and use sudo to gain root access.
 
 It uses dbus to expose informations to user space tools and it have an already written client (trival).
 With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats.
@@ -39,7 +39,7 @@ cp syuppod-dbus.conf /usr/share/dbus-1/system.d/
 ```
 3. Install dependencies using emerge.
 
-4. Starting with git commit id '', syuppod now run as an dedicated
+4. Starting with git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, syuppod now run as an dedicated
 system user which belong to portage group. So don't use pip to install packages otherwise it will complain
 about missing module and program won't start. 
 You have to use ebuilds: the only ebuilds not in the tree are **pydbus** and **inotify_simple** which can be founded, for exemple
@@ -55,13 +55,12 @@ For more informations on how to use sudo see [gentoo wiki](https://wiki.gentoo.o
 
 ### If you just want to test it:
 
-Starting with git commit id '', syuppod "init mode" now will not run as root, so if you just want to test it from 
- terminal (using your personal account) you have to have rights on `/var/lib/`, `/var/log/` (to create both `syuppod` folder) 
- and emerge.log (being in the portage group should be enough).
+Starting with git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, syuppod "init mode" now will not run as root, 
+so if you just want to test it from terminal (using your personal account) you have to have rights on `/var/lib/`, 
+`/var/log/` (to create both `syuppod` folder) and emerge.log (being in the portage group should be enough).
  **Or** you can run it using `--dryrun` opt (nothing will be written, everything output to terminal, but there still needed rights
- on emerge.log file). Using syuppod like this
- is not the recommanded way: this is only for a quick test or debugging because every time it will restart it will loose all
- the needed settings (and so it's strongly recommanded to enable debug using `-d`).
+ on emerge.log file). Using syuppod like this is not the recommanded way: this is only for a quick test or debugging because every
+ time it will restart it will loose all the needed settings (and so it's strongly recommanded to enable debug using `-d`).
 
 ### To use as a daemon:
 
