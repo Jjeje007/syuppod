@@ -72,15 +72,9 @@ After developpement phase, theses processes could be dedicated to ebuild.
 cp init /etc/init.d/syuppod
 ```
 2. Edit lines:\
-    `command=`\ 
-   To point to: 
-   `/where/is/your/git/clone/repo/main.py`\
+    `command=` to point to: `/where/is/your/git/clone/repo/main.py`\
    And:\
-    `command_args=`\
-   To suit your need, more information:
-```
-./main --help
-```
+    `command_args=` to suit your need, more information: `./main --help`
 3. Run the daemon:
 ```
 /etc/init.d/syuppod start
