@@ -1023,16 +1023,16 @@ class EmergeLogParser:
             if self.nincompleted[1] == 'percentage':
                 if self.packages_count <= round(self.group['total'] * self.nincompleted[0]):
                     logger.debug('NOT recording incompleted, ' 
-                                    + 'start: {0}, '.format(self.group['start']) 
-                                    + 'stop: {0}, '.format(self.group['stop']) 
-                                    + 'total packages: {0}, '.format(self.group['total'])
-                                    + 'failed: {0}'.format(self.group['failed']))
+                                 + 'start: {0}, '.format(self.group['start']) 
+                                 + 'stop: {0}, '.format(self.group['stop']) 
+                                 + 'total packages: {0}, '.format(self.group['total'])
+                                 + 'failed: {0}'.format(self.group['failed']))
                     msg = f'* {self.nincompleted[1]}'
                     if self.nincompleted[1] == 'number':
                         msg = f'- {self.nincompleted[1]}'
                     logger.debug(f'Rejecting because packages count ({self.packages_count})'
-                                    + ' <= packages total ({0})'.format(self.group['total'])
-                                    + f' {msg} limit ({self.nincompleted[0]})')
+                                 + ' <= packages total ({0})'.format(self.group['total'])
+                                 + f' {msg} limit ({self.nincompleted[0]})')
                     logger.debug('Rounded result is :' 
                                  + ' {0}'.format(round(self.group['total'] * self.nincompleted[0])))
                     self.packages_count = 1
@@ -1040,16 +1040,28 @@ class EmergeLogParser:
             elif self.nincompleted[1] == 'number':
                 if self.packages_count <= self.nincompleted[0]:
                     logger.debug('NOT recording incompleted, ' 
-                                    + 'start: {0}, '.format(self.group['start']) 
-                                    + 'stop: {0}, '.format(self.group['stop']) 
-                                    + 'total packages: {0}, '.format(self.group['total'])
-                                    + 'failed: {0}'.format(self.group['failed']))
+                                 + 'start: {0}, '.format(self.group['start']) 
+                                 + 'stop: {0}, '.format(self.group['stop']) 
+                                 + 'total packages: {0}, '.format(self.group['total'])
+                                 + 'failed: {0}'.format(self.group['failed']))
                     logger.debug(f'Rejecting because packages count ({self.packages_count})'
                                  + f' <= number limit ({self.nincompleted[0]}).')
                     self.packages_count = 1
                     return
             # Record how many package compile successfully
             # if it passed self.nincompleted
+            # TEST try to fix bug: during world update, emerge crash:
+            # FileNotFoundError: [Errno 2] No such file or directory: 
+            #   b'/var/db/repos/gentoo/net-misc/openssh/openssh-8.3_p1-r1.ebuild'
+            # This have to be fix in main also: sync shouldn't be run if world update is in progress ??
+            if self.group['stop'] =< self.group['start']:
+                 logger.debug('NOT recording incompleted, ' 
+                              + 'start: {0}, '.format(self.group['start']) 
+                              + 'stop: {0}, '.format(self.group['stop']) 
+                              + 'total packages: {0}, '.format(self.group['total'])
+                              + 'failed: {0}'.format(self.group['failed']))
+                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
+                return
             self.group['state'] = 'incompleted'
             self.collect['incompleted'].append(self.group)
             logger.debug('Recording incompleted, ' 
@@ -1066,6 +1078,15 @@ class EmergeLogParser:
             # This is NOT true every time, so go a head and validate any way
             # TODO: keep testing :)
             # Try to detect skipped packages due to dependency
+            # TEST here like upstair
+            if self.group['stop'] =< self.group['start']:
+                 logger.debug('NOT recording partial, ' 
+                              + 'start: {0}, '.format(self.group['start']) 
+                              + 'stop: {0}, '.format(self.group['stop']) 
+                              + 'total packages: {0}, '.format(self.group['total'])
+                              + 'failed: {0}'.format(self.group['failed']))
+                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
+                return
             self.group['dropped'] = ''
             dropped =   self.group['saved']['total'] - \
                         self.group['saved']['count'] - \
@@ -1112,6 +1133,15 @@ class EmergeLogParser:
                     logger.error(f'got KeyError for key {key}, skip saving but please report this.')
                     # Ok so return and don't save
                     return
+            # Same here TEST
+            if self.group['stop'] =< self.group['start']:
+                 logger.debug('NOT recording completed, ' 
+                              + 'start: {0}, '.format(self.group['start']) 
+                              + 'stop: {0}, '.format(self.group['stop']) 
+                              + 'total packages: {0}, '.format(self.group['total'])
+                              + 'failed: {0}'.format(self.group['failed']))
+                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
+                return
             self.group['state'] = 'completed'
             # For comptability if not 'failed' then 'failed' = 'none'
             self.group['failed'] = 'none'
