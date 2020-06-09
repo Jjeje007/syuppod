@@ -57,7 +57,7 @@ For more informations on how to use sudo see [gentoo wiki](https://wiki.gentoo.o
 
 Starting with git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, syuppod "init mode" now will not run as root, 
 so if you just want to test it from terminal (using your personal account) you have to have rights on `/var/lib/`, 
-`/var/log/` (to create both `syuppod` folder) and emerge.log (being in the portage group should be enough).
+`/var/log/` (to create both `syuppod` folder) and emerge.log (being in the portage group should be enough).\
  **Or** you can run it using `--dryrun` opt (nothing will be written, everything output to terminal, but there still needed rights
  on emerge.log file). Using syuppod like this is not the recommanded way: this is only for a quick test or debugging because every
  time it will restart it will loose all the needed settings (and so it's strongly recommanded to enable debug using `-d`).
@@ -91,7 +91,7 @@ any issues you should first check `/var/log/messages`. Then: `/var/log/syuppod/s
 (if debug is enable: `-d`). 
 
 Running by hand in a terminal (so not using `/etc/init.d/`) is really intend to be a one shot test or for debugging (and if you're not
-using opt `dryrun` you **should** take care of your rights on `/var/lib/`, `/var/log/` and `emerge.log`... there is no problem to run 
+using opt `--dryrun` you **should** take care of your rights on `/var/lib/`, `/var/log/` and `emerge.log`... there is no problem to run 
 it as root but it's no more the recommanded way).
 You have to note that there is also a debugging option: `--fakeinit` which mimic init process (so you won't get any output
 in terminal).
