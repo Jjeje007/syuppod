@@ -120,6 +120,7 @@ class MainDaemon(threading.Thread):
     def run(self):
         logger = logging.getLogger(f'{self.logger_name}run::')
         logger.info('Start up completed.')
+        logflow = 10
         while True:
             ### Portage stuff
             # Check pending requests for 'sync'
@@ -206,16 +207,28 @@ class MainDaemon(threading.Thread):
                 self.myport['watcher'].refresh_package_search_done = True
             self.myport['manager'].portage['remain'] -= 1    
             # Regular sync
-            if self.myport['manager'].sync['remain'] <= 0 and not self.myport['manager'].sync['status'] \
+            if self.myport['manager'].sync['remain'] <= 0 \
+               and not self.myport['manager'].sync['status'] \
                and not self.myport['watcher'].tasks['sync']['inprogress']:
-                # recompute time remain
-                if self.myport['manager'].check_sync(recompute=True):
-                    # sync not blocking using asyncio and thread 
-                    # this is for python 3.5+ / None -> default ThreadPoolExecutor 
-                    # where max_workers = n processors * 5
-                    # TODO FIXME should we need all ?
-                    logger.debug('Running dosync()')
-                    self.scheduler.run_in_executor(None, self.myport['manager'].dosync, ) # -> ', )' = No args
+                # TEST avoid syncing when updating world or it could crash emerge:
+                #  FileNotFoundError: [Errno 2] No such file or directory: 
+                #   b'/var/db/repos/gentoo/net-misc/openssh/openssh-8.3_p1-r1.ebuild'
+                if not self.myport['watcher'].tasks['world']['inprogress']:
+                    logflow = 10
+                    # recompute time remain
+                    if self.myport['manager'].check_sync(recompute=True):
+                        # sync not blocking using asyncio and thread 
+                        # this is for python 3.5+ / None -> default ThreadPoolExecutor 
+                        # where max_workers = n processors * 5
+                        # TODO FIXME should we need all ?
+                        logger.debug('Running dosync()')
+                        self.scheduler.run_in_executor(None, self.myport['manager'].dosync, ) # -> ', )' = No args
+                else:
+                    # Avoid spamming every 1s debug log
+                    if logflow <= 0:
+                        logger.debug('Delaying call for check_sync() because world update is in progress.')
+                        logflow = 10
+                    logflow -= 1
             self.myport['manager'].sync['remain'] -= 1  # Should be 1 second or almost ;)
             self.myport['manager'].sync['elapsed'] += 1
             # Run pretend_world() if authorized 
