@@ -1054,8 +1054,8 @@ class EmergeLogParser:
             # FileNotFoundError: [Errno 2] No such file or directory: 
             #   b'/var/db/repos/gentoo/net-misc/openssh/openssh-8.3_p1-r1.ebuild'
             # This have to be fix in main also: sync shouldn't be run if world update is in progress ??
-            if self.group['stop'] =< self.group['start']:
-                 logger.debug('NOT recording incompleted, ' 
+            if self.group['stop'] <= self.group['start']:
+                logger.debug('NOT recording incompleted, ' 
                               + 'start: {0}, '.format(self.group['start']) 
                               + 'stop: {0}, '.format(self.group['stop']) 
                               + 'total packages: {0}, '.format(self.group['total'])
@@ -1079,8 +1079,8 @@ class EmergeLogParser:
             # TODO: keep testing :)
             # Try to detect skipped packages due to dependency
             # TEST here like upstair
-            if self.group['stop'] =< self.group['start']:
-                 logger.debug('NOT recording partial, ' 
+            if self.group['stop'] <= self.group['start']:
+                logger.debug('NOT recording partial, ' 
                               + 'start: {0}, '.format(self.group['start']) 
                               + 'stop: {0}, '.format(self.group['stop']) 
                               + 'total packages: {0}, '.format(self.group['total'])
@@ -1134,8 +1134,8 @@ class EmergeLogParser:
                     # Ok so return and don't save
                     return
             # Same here TEST
-            if self.group['stop'] =< self.group['start']:
-                 logger.debug('NOT recording completed, ' 
+            if self.group['stop'] <= self.group['start']:
+                logger.debug('NOT recording completed, ' 
                               + 'start: {0}, '.format(self.group['start']) 
                               + 'stop: {0}, '.format(self.group['stop']) 
                               + 'total packages: {0}, '.format(self.group['total'])
