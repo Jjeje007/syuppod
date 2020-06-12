@@ -7,7 +7,6 @@
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
-# TODO TODO TODO don't run as root, investigate: 
 # TODO : exit gracefully 
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
@@ -87,6 +86,7 @@ import time
 import errno
 import asyncio
 import threading
+import signal
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
 from argsparser import DaemonParserHandler
@@ -97,6 +97,26 @@ except Exception as exc:
     print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
+
+
+class CatchExitSignal:
+    """
+    Catch SIGINT or SIGTERM signal and advise signal receive
+    """
+    def __init__(self):
+        self.logger_name = f'::{__name__}::CatchExitSignal::'
+        logger = logging.getLogger(f'{self.logger_name}init::')
+        self.exit_now = False
+        logger.debug('Watching signal SIGINT.')
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        logger.debug('Watching signal SIGTERM.')
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        logger = logging.getLogger(f'{self.logger_name}exit_gracefully::')
+        logger.debug(f'Got signal: \'{signum}\' on stack frame: \'{frame}\'.')
+        logger.info(f'Receive signal \'{signum}\'...')
+        self.exit_now = True
 
 
 
@@ -116,12 +136,15 @@ class MainDaemon(threading.Thread):
         currentlevel = logger.getEffectiveLevel()
         logger.debug(f'Setting log level for asyncio to: {currentlevel}')
         logging.getLogger('asyncio').setLevel(currentlevel)
+        # Catch signals
+        self.mysignal = CatchExitSignal()
     
     def run(self):
         logger = logging.getLogger(f'{self.logger_name}run::')
         logger.info('Start up completed.')
+        logger.debug('Main Daemon Thread started.')
         logflow = 10
-        while True:
+        while not self.mysignal.exit_now:
             ### Portage stuff
             # Check pending requests for 'sync'
             # TEST workaround - but it have more latency 
@@ -250,8 +273,66 @@ class MainDaemon(threading.Thread):
                 self.scheduler.run_in_executor(None, self.myport['manager'].pretend_world, ) # -> ', )' = same here
             
             time.sleep(1)
-
-
+        # This is a workaround: GLib.MainLoop have to been terminate 
+        # Here or it will never return to main()
+        # But be sure it have been run()
+        logger.debug('Received exit order...')
+        if self.myport['dbus'].is_running():
+            start_time = timing_exit['processor']()
+            logger.debug('Sending quit() to dbus loop (Glib.MainLoop()).')
+            self.myport['dbus'].quit()
+            end_time = timing_exit['processor']()
+            logger.debug('Dbus loop have been shut down in'
+                         + ' {0}'.format(end_time - start_time)
+                         + f" {timing_exit['msg']}.")
+        
+        #  Wait before exiting if:
+        # dosync() is running through self.scheduler (asyncio)
+        if self.myport['manager'].sync['status']:
+            start_time = timing_exit['processor']()
+            logger.debug('Sending exit request for running dosync().')
+            self.myport['manager'].exit['sync'] = True
+            # Wait for reply
+            while not self.myport['manager'].exit['sync'] == 'Done':
+                # So if we don't have reply but if
+                # status change to False then process have been done
+                # just break
+                if not self.myport['manager'].sync['status']:
+                    logger.debug('dosync() process have been completed.')
+                    break
+            end_time = timing_exit['processor']()
+            logger.debug('dosync() have been shut down in'
+                         + ' {0}'.format(end_time - start_time)
+                         + f" {timing_exit['msg']}.")
+        # pretend_world() is running through self.scheduler (asyncio)
+        if self.myport['manager'].pretend['status'] == 'running':
+            start_time = timing_exit['processor']()
+            logger.debug('Sending exit request for running pretend_world().')
+            self.myport['manager'].exit['pretend'] = True
+            # Wait for reply
+            while not self.myport['manager'].exit['pretend'] == 'Done':
+                # same as dosync() shut down
+                if self.myport['manager'].pretend['status'] == 'completed':
+                    logger.debug('pretend_world() process have been completed.')
+                    break
+            end_time = timing_exit['processor']()
+            logger.debug('pretend_world() have been shut down in'
+                         + ' {0}'.format(end_time - start_time)
+                         + f" {timing_exit['msg']}.")
+        # we are writing something to the statefile.
+        process_wait = False
+        start_time = timing_exit['processor']()
+        while self.myport['manager'].saving_status:
+            process_wait = True
+        if process_wait:
+            end_time = timing_exit['processor']()
+            logger.debug('...exiting now, bye' 
+                        + ' (remaining processes have been shut down in'
+                        + ' {0}'.format(end_time - start_time)
+                        + f" {timing_exit['msg']}).")
+        else:
+            logger.debug('...exiting now, bye.')
+        
 
 
 def main():
@@ -282,6 +363,7 @@ def main():
     myport = { }
     myport['manager'] = myportmanager
     myport['watcher'] = myportwatcher
+    myport['dbus'] = dbusloop
     
     failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
                                + r'.own.the.service.*due.to.security'
@@ -308,10 +390,33 @@ def main():
     myport['watcher'].start()
     daemon_thread.start()
     if busconfig:
+        logger.debug('Running dbus loop using Glib.MainLoop().')
         dbusloop.run()
     
+    # Exiting gracefully - Try to :p
+    # Glib.MainLoop is shut down in MainDaemonThread
     daemon_thread.join()
+    
+    # For watcher thread
+    # This could sometime last almost 10s before exiting
+    # TODO Maybe we could investigate more about this
+    logger.debug('Sending exit order to watcher thread.')
+    start_time = timing_exit['processor']()
+    myport['watcher'].exit = True
+    # Only wait for thread to send 'Done'
+    # TODO : maybe better using wait()?
+    # see: https://docs.python.org/3/library/threading.html#threading.Condition.wait
+    while not myport['watcher'].exit == 'Done':
+        pass
+    end_time = timing_exit['processor']()
+    logger.debug('Watcher thread have been shut down in'
+                + ' {0}'.format(end_time - start_time)
+                + f" {timing_exit['msg']}.")
     myport['watcher'].join()
+    
+    # Every thing done
+    logger.info('...exiting, ...bye-bye.')
+    sys.exit(0)
            
     
 if __name__ == '__main__':    
@@ -320,9 +425,11 @@ if __name__ == '__main__':
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
     
-    if not args.dryrun:
+    # This is for debug only because it's started to be really difficult to
+    # keep both running method: init and tty...
+    if not args.dryrun and ( sys.stdout.isatty() or args.fakeinit ):
         # Check or create basedir and logdir directories
-        # Print to stderr as we have a redirect for init run 
+        # Print to stderr as we have a redirect for fakeinit
         for directory in 'basedir', 'logdir':
             if not pathlib.Path(pathdir[directory]).is_dir():
                 try:
@@ -422,6 +529,16 @@ if __name__ == '__main__':
         logger.info('Interactive mode detected, all logs go to terminal.')
     if args.dryrun:
         logger.info('Dryrun is enable, skipping all write process.')
+    
+    # Configure timing exit
+    timing_exit = { }
+    # keep compatibility for v3.5/v3.6
+    timing_exit['processor'] = time.process_time
+    timing_exit['msg'] = 'seconds'
+    # time.process_time_ns() have been added to v3.7
+    #if sys.version_info[:2] > (3, 6):
+        #timing_exit['processor'] = time.process_time_ns
+        #timing_exit['msg'] = 'nanoseconds'
     
     # run MAIN
     main()

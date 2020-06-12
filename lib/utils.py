@@ -56,6 +56,15 @@ class StateInfo:
         # so normal_opt match everything except line starting with '#'
         self.normal_opt = re.compile(r'^(?!#)(.*):\s(.*)$')
         self.hashtag_opt = re.compile(r'^(#.*)$')
+        # TEST try to wait before exiting if SIGTERM is receive 
+        # and if we are processing something to 'save' (ie write to statefile)
+        # This is not as bad as we think if program exit when we are writing something:
+        # We will only lost theses write but any way this class can rewrite / extract good
+        # opts and remove wrong ones (but we don't know if it could recover from a corrupt file ...)
+        # Any way delegate this to __open() method ... this mean each time __open() is
+        # call using mode='r+' then saving = True (even if finally we won't write anything)
+        # So all the process is 'protect'
+        self.saving = False
         # Detected newfile
         # True if newfile have been create so default opts have been 
         # written, then don't need to load with calling self.load() just load 
@@ -83,6 +92,8 @@ class StateInfo:
                          + f' {args}')
             return
         
+        self.saving = True
+        logger.debug('Setting saving flag to True.')
         with self.__open('r+') as mystatefile:
             statefile = mystatefile.readlines()   # Pull the file contents to a list
             changed = False
@@ -118,14 +129,20 @@ class StateInfo:
             # So now erase / rewrite only if something change
             # but it should !!
             if changed:
+                #So we are writing to statefile
+                #self.saving = True
                 # Erase the file
                 mystatefile.seek(0)
                 mystatefile.truncate()
                     
                 for line in statefile:
                     mystatefile.write(line)
+                # End write
+                #self.saving = False
             else:
                 logger.debug('Hum... Nothing to write... Ciao...')
+        self.saving = False
+        logger.debug('Resetting saving flag to False.') 
                 
 
     def load(self, *args):
@@ -203,12 +220,19 @@ class StateInfo:
         """
         logger = logging.getLogger(f'{self.logger_name}__open::') 
         msg = 'writing' if request_mode == 'r+' else 'reading'
+        #msg = 'reading'
+        #if request_mode == 'r+':
+            #msg = 'writing'
+            #self.saving = True
+            #logger.debug('Setting saving flag to True')
         try:
             if pathlib.Path(self.pathdir['statelog']).is_file():
                 logger.debug(f"Opening \'{self.pathdir['statelog']}\' for {msg}.")
                 return pathlib.Path(self.pathdir['statelog']).open(mode=request_mode)
             else:
                 msg = 'creating'
+                #self.saving = True
+                #logger.debug('Setting saving flag to True')
                 logger.debug(f"Creating state file: {self.pathdir['statelog']}")
                 return pathlib.Path(self.pathdir['statelog']).open(mode='w')
         except (OSError, IOError) as error:
@@ -216,6 +240,10 @@ class StateInfo:
                             + f' state file: {error}.')
             logger.critical('Exiting with status \'1\'.')
             sys.exit(1)
+        #finally:
+            #Reset saving to False
+            #self.saving = False
+            #logger.debug('Resetting saving flag to False')
     
     
     def __convert(self, opt):
@@ -302,13 +330,19 @@ class StateInfo:
         
         logger = logging.getLogger(f'{self.logger_name}__check_config::') 
         
+        self.saving = True
+        logger.debug('Setting saving flag to True.')
         with self.__open('r+') as mystatefile:
             if mystatefile.mode == 'w':
                 self.newfile = True
+                # Same here we are writig to statefile
+                #self.saving = True
                 for option, value in self.stateopts.items():
                         value = f': {value}' if not value == '' else ''
                         logger.debug(f'Adding default option: \'{option}{value}\'')
                         mystatefile.write(f'{option}{value}\n')
+                # End writing
+                #self.saving = False
             else:
                 logger.debug('Inspecting state file: {0}'.format(self.pathdir['statelog']))
                 
@@ -491,6 +525,8 @@ class StateInfo:
                                     item[1] = self.stateopts[item[0]]
                 # End piouff ;p
                 if changed:
+                    # Same here set saving to True wa are writing
+                    #self.saving = True
                     # Erase file
                     mystatefile.seek(0)
                     mystatefile.truncate()
@@ -499,9 +535,13 @@ class StateInfo:
                         value = f': {option[1]}' if not option[1] == '' else ''
                         line = f'{option[0]}{value}\n'
                         mystatefile.write(line)
+                    # End writing
+                    #self.saving = False
                     logger.debug('Write changes to statefile: Success.')
                 else:
                     logger.debug('All good, keeping previously state file untouched.')
+        self.saving = False
+        logger.debug('Resetting saving flag to False.')
 
 
 

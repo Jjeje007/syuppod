@@ -54,6 +54,12 @@ class PortageHandler:
                 
         self.pathdir = kwargs['pathdir']
         self.dryrun = kwargs['dryrun']
+        # Implent this for pretend_world() and dosync()
+        # Because they are run in a dedicated thread (asyncio) 
+        # And they won't exit until finished
+        self.exit = { }
+        self.exit['sync'] = False
+        self.exit['pretend'] = False
         # Init timestamp converter/formatter 
         self.format_timestamp = FormatTimestamp()
         # Init logger
@@ -112,6 +118,11 @@ class PortageHandler:
         
         # Init save/load info file 
         self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
+        # Retrieve status of saving from stateinfo
+        # Ok so we have to be really carefull about this:
+        # For the moment stateinfo can't be call twice in the same time.
+        # But for the future better to leave comment and WARNING
+        self.saving_status = self.stateinfo.saving
         loaded_stateopts = False
         if self.stateinfo.newfile or self.dryrun:
             # Don't need to load from StateInfo as it just create file 
@@ -295,28 +306,60 @@ class PortageHandler:
         self.retry = self.sync['retry']
         self.state = self.sync['state']
         
-        myargs = ['usr/bin/sudo', '/usr/bin/emerge', '--sync']
+        myargs = ['/usr/bin/sudo', '/usr/bin/emerge', '--sync']
+        # 
         myprocess = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         mylogfile.info('##########################################\n')
         
-        for line in iter(myprocess.stdout.readline, ""):
-            rstrip_line = line.rstrip()
-            # write log             
-            mylogfile.info(rstrip_line)
-            # detected network failure for main gentoo repo 
-            if found_manifest_failure:
-                # So make sure it's network related 
-                if gpg_network_unreachable.match(rstrip_line):
-                    repo_gentoo_network_unreachable = True
-            if manifest_failure.match(rstrip_line):
-                found_manifest_failure = True
-            # get return code for each repo
-            if failed_sync.match(rstrip_line):
-                self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
-            if success_sync.match(rstrip_line):
-                self.sync['repos']['success'].append(success_sync.match(rstrip_line).group(1))                   
+        # TEST exit on demand
+        while not self.exit['sync']:
+            for line in iter(myprocess.stdout.readline, ""):
+                # TEST exit on demand
+                #if self.exit['sync']:
+                    #logger.debug('Received exit order.')
+                    #break
+                rstrip_line = line.rstrip()
+                # write log             
+                mylogfile.info(rstrip_line)
+                # detected network failure for main gentoo repo 
+                if found_manifest_failure:
+                    # So make sure it's network related 
+                    if gpg_network_unreachable.match(rstrip_line):
+                        repo_gentoo_network_unreachable = True
+                if manifest_failure.match(rstrip_line):
+                    found_manifest_failure = True
+                # get return code for each repo
+                if failed_sync.match(rstrip_line):
+                    self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
+                if success_sync.match(rstrip_line):
+                    self.sync['repos']['success'].append(success_sync.match(rstrip_line).group(1))
+        # Close first
         myprocess.stdout.close()
+        # Exit on demand
+        if self.exit['sync']:
+            logger.debug('Received exit order.')
+            logger.debug('Shutting down subprocess.Popen running'
+                         + ' command: \'{0}\''.format(' '.join(myargs[0:2]))
+                         + ' and args: \'{0}\'.'.format(myargs[2]))
+            logger.debug('Sending SIGTERM with timeout=3...')
+            # First try to send SIGTERM...
+            myprocess.terminate()
+            # ... and wait 3s
+            try:
+                myprocess.wait(timeout=3)
+            except TimeoutExpired:
+                logger.debug('Got timeout while waiting for subprocess.Popen to terminate.')
+                # Send SIGKILL
+                logger.debug('Sending SIGKILL...')
+                myprocess.kill()
+                # wait forever... TEST
+                myprocess.wait()
+            finally:
+                logger.debug('...exiting now, bye.')
+                self.exit['sync'] = 'Done'
+                return
+        # Get return code
         return_code = myprocess.poll()
         
         if self.sync['repos']['success']:
@@ -553,14 +596,29 @@ class PortageHandler:
                 except pexpect.TIMEOUT:
                     # This shouldn't arrived
                     # TODO This should be retried ?
-                    logger.error('Got unexcept timeout while running {0} {1}'.format(mycommand, 
-                                                                                       ' '.join(myargs)))
+                    logger.error('Got unexcept timeout while running:' 
+                                 + f' command: \'{mycommand}\''
+                                 + ' and args: \'{0}\'.'.format(' '.join(myargs)))
                     break
                 if self.pretend['cancel']:
                     # So we want to cancel
                     # Just break 
                     # child still alive
                     break
+                # TEST exit on demand
+                if self.exit['pretend']:
+                    logger.debug('Receive exit order.')
+                    break
+                
+            if self.exit['pretend']:
+                logger.debug('Shutting down pexpect process running'
+                             + f' command: \'{mycommand}\''
+                             + ' and args: \'{0}\'.'.format(' '.join(myargs)))
+                child.terminate(force=True)
+                child.close(force=True)
+                logger.debug('...exiting now, ...bye.')
+                self.exit['pretend'] = 'Done'
+                return
             
             # Keep TEST-ing 
             if self.pretend['cancel']:                
@@ -1524,7 +1582,8 @@ class EmergeLogWatcher(threading.Thread):
         # Init logger
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
         logger = logging.getLogger(f'{self.logger_name}init::')
-        
+        # For exiting
+        self.exit = False
         self.pathdir = pathdir
         self.repo_infos = get_repo_info()
         # Init Class UpdateInProgress
@@ -1571,7 +1630,7 @@ class EmergeLogWatcher(threading.Thread):
         remain = 0
         sync_inprogress = False
         world_inprogress = False
-        while True:
+        while not self.exit:
             self.reader = self.inotify.read(timeout=0)
             if self.reader:
                 logger.debug('State changed for: {0}'.format(self.pathdir['emergelog'])
@@ -1656,6 +1715,10 @@ class EmergeLogWatcher(threading.Thread):
                         logger.debug(f'All {msg} requests have been refreshed, sleeping...')
             
             time.sleep(1)
+        # Exiting
+        logger.debug('Receive exit order... exiting now, bye.')
+        # Send reply to main
+        self.exit = 'Done'
     
 
 
@@ -1667,7 +1730,6 @@ class UpdateInProgress:
     def __init__(self):
         self.logger_name = f'::{__name__}::UpdateInProgress::'
         logger = logging.getLogger(f'{self.logger_name}init::')
-        self.logger = logger
         # Avoid spamming with log.info
         self.logflow =  {
             'sync'      :   0,   
@@ -1716,7 +1778,7 @@ class UpdateInProgress:
                         except IOError:
                             continue
                         except Exception as exc:
-                            self.logger.error(f'Got unexcept error: {exc}')
+                            logger.error(f'Got unexcept error: {exc}')
                             continue
                         # Check world update
                         if tocheck == 'world':
@@ -1738,7 +1800,7 @@ class UpdateInProgress:
         current_timestamp = time.time()
         
         if inprogress:
-            self.logger.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+            logger.debug('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             # We just detect 'inprogress'
             if self.timestamp[tocheck] == 0:
                 displaylog = True
@@ -1758,16 +1820,16 @@ class UpdateInProgress:
                         self.timestamp[tocheck] = current_timestamp + 7200 
                         self.logflow[tocheck] = 3
                     else:
-                        self.logger.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
+                        logger.warning(f'Bug module: \'{__name__}\', Class: \'{self.__class__.__name__}\',' +
                                           f' method: check(), logflow : \'{self.logflow[tocheck]}\'.')
-                        self.logger.warning('Resetting all attributes')
+                        logger.warning('Resetting all attributes')
                         self.timestamp[tocheck] = 0
                         self.logflow[tocheck] = 0
             if displaylog and not quiet:
-                self.logger.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
+                logger.info('{0}{1} in progress.'.format(self.msg[tocheck], additionnal_msg))
             return True
         else:
-            self.logger.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
+            logger.debug('{0}{1} not in progress.'.format(self.msg[tocheck], additionnal_msg))
             # Reset attributes
             self.timestamp[tocheck] = 0
             self.logflow[tocheck] = 0
