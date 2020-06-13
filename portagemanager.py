@@ -57,9 +57,9 @@ class PortageHandler:
         # Implent this for pretend_world() and dosync()
         # Because they are run in a dedicated thread (asyncio) 
         # And they won't exit until finished
-        self.exit = { }
-        self.exit['sync'] = False
-        self.exit['pretend'] = False
+        self.exit_now = { }
+        self.exit_now['sync'] = False
+        self.exit_now['pretend'] = False
         # Init timestamp converter/formatter 
         self.format_timestamp = FormatTimestamp()
         # Init logger
@@ -313,12 +313,9 @@ class PortageHandler:
         mylogfile.info('##########################################\n')
         
         # TEST exit on demand
-        while not self.exit['sync']:
+        # TODO move this to pexpect ??
+        while not self.exit_now['sync']:
             for line in iter(myprocess.stdout.readline, ""):
-                # TEST exit on demand
-                #if self.exit['sync']:
-                    #logger.debug('Received exit order.')
-                    #break
                 rstrip_line = line.rstrip()
                 # write log             
                 mylogfile.info(rstrip_line)
@@ -334,10 +331,12 @@ class PortageHandler:
                     self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
                 if success_sync.match(rstrip_line):
                     self.sync['repos']['success'].append(success_sync.match(rstrip_line).group(1))
+            # Ok so we have finished to read all line
+            break
         # Close first
         myprocess.stdout.close()
         # Exit on demand
-        if self.exit['sync']:
+        if self.exit_now['sync']:
             logger.debug('Received exit order.')
             logger.debug('Shutting down subprocess.Popen running'
                          + ' command: \'{0}\''.format(' '.join(myargs[0:2]))
@@ -357,7 +356,7 @@ class PortageHandler:
                 myprocess.wait()
             finally:
                 logger.debug('...exiting now, bye.')
-                self.exit['sync'] = 'Done'
+                self.exit_now['sync'] = 'Done'
                 return
         # Get return code
         return_code = myprocess.poll()
@@ -600,29 +599,32 @@ class PortageHandler:
                                  + f' command: \'{mycommand}\''
                                  + ' and args: \'{0}\'.'.format(' '.join(myargs)))
                     break
-                if self.pretend['cancel']:
-                    # So we want to cancel
-                    # Just break 
-                    # child still alive
-                    break
-                # TEST exit on demand
-                if self.exit['pretend']:
-                    logger.debug('Receive exit order.')
-                    break
+                else:
+                    if self.pretend['cancel']:
+                        # So we want to cancel
+                        # Just break 
+                        # child still alive
+                        break
+                    # TEST exit on demand
+                    if self.exit_now['pretend']:
+                        logger.debug('Received exit order.')
+                        break
                 
-            if self.exit['pretend']:
+            if self.exit_now['pretend']:
                 logger.debug('Shutting down pexpect process running'
                              + f' command: \'{mycommand}\''
                              + ' and args: \'{0}\'.'.format(' '.join(myargs)))
+                mycapture.close()
                 child.terminate(force=True)
                 child.close(force=True)
                 logger.debug('...exiting now, ...bye.')
-                self.exit['pretend'] = 'Done'
+                self.exit_now['pretend'] = 'Done'
                 return
             
             # Keep TEST-ing 
             if self.pretend['cancel']:                
                 logger.warning('Stop searching available package(s) update as global update have been detected.')
+                mycapture.close()
                 child.terminate(force=True)
                 # Don't really know but to make sure :)
                 child.close(force=True)
@@ -1583,7 +1585,7 @@ class EmergeLogWatcher(threading.Thread):
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
         logger = logging.getLogger(f'{self.logger_name}init::')
         # For exiting
-        self.exit = False
+        self.exit_now = False
         self.pathdir = pathdir
         self.repo_infos = get_repo_info()
         # Init Class UpdateInProgress
@@ -1630,7 +1632,7 @@ class EmergeLogWatcher(threading.Thread):
         remain = 0
         sync_inprogress = False
         world_inprogress = False
-        while not self.exit:
+        while not self.exit_now:
             self.reader = self.inotify.read(timeout=0)
             if self.reader:
                 logger.debug('State changed for: {0}'.format(self.pathdir['emergelog'])
@@ -1716,9 +1718,9 @@ class EmergeLogWatcher(threading.Thread):
             
             time.sleep(1)
         # Exiting
-        logger.debug('Receive exit order... exiting now, bye.')
+        logger.debug('Received exit order... exiting now, bye.')
         # Send reply to main
-        self.exit = 'Done'
+        self.exit_now = 'Done'
     
 
 
