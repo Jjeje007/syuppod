@@ -218,7 +218,7 @@ def packages(myobject, machine):
     """Display world packages to update"""
     reply = myobject.get_pretend_attribute('packages')
     msg = _('None')
-    if reply:
+    if reply and not reply == '0':
         msg = reply
     if not machine:
         print('[*]', _('Available packages to update:'))
