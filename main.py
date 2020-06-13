@@ -115,7 +115,7 @@ class CatchExitSignal:
     def exit_gracefully(self, signum, frame):
         logger = logging.getLogger(f'{self.logger_name}exit_gracefully::')
         logger.debug(f'Got signal: \'{signum}\' on stack frame: \'{frame}\'.')
-        logger.info(f'Receive signal \'{signum}\'...')
+        logger.info(f'Received signal \'{signum}\'...')
         self.exit_now = True
 
 
@@ -291,9 +291,9 @@ class MainDaemon(threading.Thread):
         if self.myport['manager'].sync['status']:
             start_time = timing_exit['processor']()
             logger.debug('Sending exit request for running dosync().')
-            self.myport['manager'].exit['sync'] = True
+            self.myport['manager'].exit_now['sync'] = True
             # Wait for reply
-            while not self.myport['manager'].exit['sync'] == 'Done':
+            while not self.myport['manager'].exit_now['sync'] == 'Done':
                 # So if we don't have reply but if
                 # status change to False then process have been done
                 # just break
@@ -308,9 +308,9 @@ class MainDaemon(threading.Thread):
         if self.myport['manager'].pretend['status'] == 'running':
             start_time = timing_exit['processor']()
             logger.debug('Sending exit request for running pretend_world().')
-            self.myport['manager'].exit['pretend'] = True
+            self.myport['manager'].exit_now['pretend'] = True
             # Wait for reply
-            while not self.myport['manager'].exit['pretend'] == 'Done':
+            while not self.myport['manager'].exit_now['pretend'] == 'Done':
                 # same as dosync() shut down
                 if self.myport['manager'].pretend['status'] == 'completed':
                     logger.debug('pretend_world() process have been completed.')
@@ -400,13 +400,13 @@ def main():
     # For watcher thread
     # This could sometime last almost 10s before exiting
     # TODO Maybe we could investigate more about this
-    logger.debug('Sending exit order to watcher thread.')
+    logger.debug('Sending exit request to watcher thread.')
     start_time = timing_exit['processor']()
-    myport['watcher'].exit = True
+    myport['watcher'].exit_now = True
     # Only wait for thread to send 'Done'
     # TODO : maybe better using wait()?
     # see: https://docs.python.org/3/library/threading.html#threading.Condition.wait
-    while not myport['watcher'].exit == 'Done':
+    while not myport['watcher'].exit_now == 'Done':
         pass
     end_time = timing_exit['processor']()
     logger.debug('Watcher thread have been shut down in'
