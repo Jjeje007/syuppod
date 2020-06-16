@@ -142,12 +142,13 @@ class DaemonParserHandler(CustomArgsCheck):
                             type=self._check_args_interval,
                             default = 86400)
         advanced_debug = self.parser.add_argument_group('<advanced debug options>')
-        advanced_debug.add_argument('--fakeinit',
-                                    help = 'Start daemon like it\'s started by running'
-                                            + ' /etc/init.d/syuppod/ start. So this is only usefull if started from terminal.',
-                                    action = 'store_true')
+        #advanced_debug.add_argument('--fakeinit',
+                                    #help = 'Start daemon like it\'s started by running'
+                                            #+ ' /etc/init.d/syuppod/ start. So this is only usefull if started from terminal.',
+                                    #action = 'store_true')
         advanced_debug.add_argument('--dryrun',
-                                    help = 'Run daemon without writing/creating anything to statefile or logs.',
+                                    help = """Run daemon without writing/creating anything to statefile or logs.
+                                            This intend to be run from terminal.""",
                                     action = 'store_true')
     def parsing(self):
         self.args = self.parser.parse_args()
