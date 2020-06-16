@@ -61,9 +61,6 @@ class StateInfo:
         # This is not as bad as we think if program exit when we are writing something:
         # We will only lost theses write but any way this class can rewrite / extract good
         # opts and remove wrong ones (but we don't know if it could recover from a corrupt file ...)
-        # Any way delegate this to __open() method ... this mean each time __open() is
-        # call using mode='r+' then saving = True (even if finally we won't write anything)
-        # So all the process is 'protect'
         self.saving = False
         # Detected newfile
         # True if newfile have been create so default opts have been 
@@ -85,13 +82,14 @@ class StateInfo:
         logger = logging.getLogger(f'{self.logger_name}save::') 
         
         if self.dryrun:
-            call = 'None'
+            call = 'None ?!'
             if args:
                 call = args
             logger.debug('Dryrun is enable, skipping save for:'
-                         + f' {args}')
+                         + f' {call}')
             return
         
+        # This will protect all the process even we could write nothing
         self.saving = True
         logger.debug('Setting saving flag to True.')
         with self.__open('r+') as mystatefile:
@@ -338,9 +336,9 @@ class StateInfo:
                 # Same here we are writig to statefile
                 #self.saving = True
                 for option, value in self.stateopts.items():
-                        value = f': {value}' if not value == '' else ''
-                        logger.debug(f'Adding default option: \'{option}{value}\'')
-                        mystatefile.write(f'{option}{value}\n')
+                    value = f': {value}' if not value == '' else ''
+                    logger.debug(f'Adding default option: \'{option}{value}\'')
+                    mystatefile.write(f'{option}{value}\n')
                 # End writing
                 #self.saving = False
             else:
