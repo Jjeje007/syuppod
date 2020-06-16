@@ -7,7 +7,8 @@
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
-# TODO : exit gracefully 
+# TEST in progress: exit gracefully 
+# TODO write GOOD english :p
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
 #       or it will not be update ?!?
@@ -28,9 +29,6 @@ pathdir = {
     'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
     }
 
-# Default basic logging, this will handle earlier error when
-# daemon is run using /etc/init.d/
-# It will be re-config when all module will be loaded
 import sys
 import logging
 # Custom level name share across all logger
@@ -40,45 +38,6 @@ logging.addLevelName(logging.WARNING,  '[Warn ]')
 logging.addLevelName(logging.INFO,     '[Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug]')
 
-if not sys.stdout.isatty() or '--fakeinit' in sys.argv:
-    display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
-    if '--fakeinit' in sys.argv:
-        msg = ' with dryrun enable' if '--dryrun' in sys.argv else ''
-        # This will only display if running from terminal
-        print(f'Info: Running fake init{msg}.', file=sys.stderr)
-        if '--dryrun' in sys.argv:
-            print('Info: All logs goes to syslog.', file=sys.stderr)
-            display_init_tty = ''
-    # Get RootLogger
-    root_logger = logging.getLogger()
-    # So redirect stderr to syslog (for the moment)
-    from lib.logger import RedirectFdToLogger
-    from lib.logger import LogErrorFilter
-    from lib.logger import LogLevelFilter
-    fd_handler_syslog = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
-    fd_formatter_syslog = logging.Formatter('{0} %(levelname)s  %(message)s'.format(prog_name))
-    fd_handler_syslog.setFormatter(fd_formatter_syslog)
-    fd_handler_syslog.setLevel(40)
-    root_logger.addHandler(fd_handler_syslog)
-    fd2 = RedirectFdToLogger(root_logger)
-    sys.stderr = fd2
-    # Running --fakeinit from /etc/init.d is useless and not supported
-    if '--fakeinit' in sys.argv and not sys.stdout.isatty():
-        print('Running --fakeinit from /etc/init.d/ is NOT supported.', file=sys.stderr)
-        print('Exiting with status \'1\'.', file=sys.stderr)
-        sys.exit(1)
-    # Check for --dryrun
-    if '--dryrun' in sys.argv and not '--fakeinit' in sys.argv:
-        print('Running --dryrun from /etc/init.d/ is NOT supported.', file=sys.stderr)
-        print('Exiting with status \'1\'.', file=sys.stderr)
-        sys.exit(1)
-   
-else:
-    # import here what is necessary to handle logging when 
-    # running in a terminal
-    from lib.logger import LogLevelFormatter
-    display_init_tty = ''
-
 import argparse
 import re
 import pathlib
@@ -87,9 +46,13 @@ import errno
 import asyncio
 import threading
 import signal
+from getpass import getuser
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
 from argsparser import DaemonParserHandler
+from lib.logger import LogErrorFilter
+from lib.logger import LogLevelFilter
+from lib.logger import LogLevelFormatter
 try:
     from gi.repository import GLib
     from pydbus import SystemBus
@@ -97,6 +60,7 @@ except Exception as exc:
     print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
+
 
 
 class CatchExitSignal:
@@ -144,8 +108,9 @@ class MainDaemon(threading.Thread):
         logger.info('Start up completed.')
         logger.debug('Main Daemon Thread started.')
         logflow = 10
+        # LOOP start
         while not self.mysignal.exit_now:
-            ### Portage stuff
+            
             # Check pending requests for 'sync'
             # TEST workaround - but it have more latency 
             if self.myport['watcher'].tasks['world']['inprogress']:
@@ -157,6 +122,7 @@ class MainDaemon(threading.Thread):
             else:
                 self.myport['manager'].sync_state = False
             ### End workaround
+            
             # get sync timestamp or world pretend only if emergelog have been close_write 
             # AND if there was an sync / update / both in progress.
             if self.myport['watcher'].tasks['sync']['requests']['pending'] \
@@ -174,10 +140,12 @@ class MainDaemon(threading.Thread):
                 self.myport['watcher'].tasks['sync']['requests']['completed'] = sync_requests[-1]
                 # Dont automatically recompute, let check_sync() make the decision
                 self.myport['manager'].check_sync()
+            
             # pretend running and world is running as well so call cancel
             if self.myport['manager'].pretend['status'] == 'running' \
                and self.myport['watcher'].tasks['world']['inprogress']:
                 self.myport['manager'].pretend['cancel'] = True
+            
             # Check pending requests for 'world' <=> global update
             if self.myport['watcher'].tasks['world']['requests']['pending'] \
                and not self.myport['watcher'].tasks['world']['inprogress']:
@@ -192,6 +160,7 @@ class MainDaemon(threading.Thread):
                 self.myport['watcher'].tasks['world']['requests']['completed'] = world_requests[-1]
                 # Call get_last_world so we can know if world has been update and it will call pretend
                 self.myport['manager'].get_last_world_update()
+            
             # This is the case where we want to call pretend, there is not sync and world in progress
             # and pretend is waiting and it was cancelled so recall pretend :p
             if not self.myport['watcher'].tasks['sync']['inprogress'] \
@@ -201,6 +170,7 @@ class MainDaemon(threading.Thread):
                 logger.warning('Recalling available packages updates search as it was cancelled.')
                 self.myport['manager'].pretend['proceed'] = True
                 self.myport['manager'].pretend['cancelled'] = False
+            
             # Every thing is OK: pretend was wanted, has been called and is completed 
             if self.myport['manager'].pretend['status'] == 'completed':
                 # Wait between two pretend_world() run 
@@ -211,8 +181,10 @@ class MainDaemon(threading.Thread):
                     self.myport['manager'].pretend['status'] = 'ready'
                 else:
                     self.myport['manager'].pretend['remain'] -= 1
+            
             # Check pending requests for portage package update
             # don't call if sync/world/both is in progress
+            # remain is set in portagemanager, this will avoid call to often
             if self.myport['watcher'].tasks['package']['requests']['pending'] \
                and self.myport['manager'].portage['remain'] <= 0:
                 package_requests = self.myport['watcher'].tasks['package']['requests']['pending'].copy()
@@ -227,8 +199,8 @@ class MainDaemon(threading.Thread):
                 # Set timer to 30s between two (group) of request
                 # This is done in available_portage_update()
                 self.myport['manager'].available_portage_update()
-                self.myport['watcher'].refresh_package_search_done = True
             self.myport['manager'].portage['remain'] -= 1    
+            
             # Regular sync
             if self.myport['manager'].sync['remain'] <= 0 \
                and not self.myport['manager'].sync['status'] \
@@ -254,6 +226,7 @@ class MainDaemon(threading.Thread):
                     logflow -= 1
             self.myport['manager'].sync['remain'] -= 1  # Should be 1 second or almost ;)
             self.myport['manager'].sync['elapsed'] += 1
+            
             # Run pretend_world() if authorized 
             # Leave other check (sync running ? pretend already running ? world update running ?)
             # to portagedbus module so it can reply to client.
@@ -273,6 +246,8 @@ class MainDaemon(threading.Thread):
                 self.scheduler.run_in_executor(None, self.myport['manager'].pretend_world, ) # -> ', )' = same here
             
             time.sleep(1)
+        
+        # LOOP Terminate
         # This is a workaround: GLib.MainLoop have to been terminate 
         # Here or it will never return to main()
         # But be sure it have been run()
@@ -304,6 +279,7 @@ class MainDaemon(threading.Thread):
             logger.debug('dosync() have been shut down in'
                          + ' {0}'.format(end_time - start_time)
                          + f" {timing_exit['msg']}.")
+        
         # pretend_world() is running through self.scheduler (asyncio)
         if self.myport['manager'].pretend['status'] == 'running':
             start_time = timing_exit['processor']()
@@ -319,7 +295,8 @@ class MainDaemon(threading.Thread):
             logger.debug('pretend_world() have been shut down in'
                          + ' {0}'.format(end_time - start_time)
                          + f" {timing_exit['msg']}.")
-        # we are writing something to the statefile.
+        
+        # IF we are writing something to the statefile.
         process_wait = False
         start_time = timing_exit['processor']()
         while self.myport['manager'].saving_status:
@@ -398,7 +375,7 @@ def main():
     daemon_thread.join()
     
     # For watcher thread
-    # This could sometime last almost 10s before exiting
+    # This could, sometime, last almost 10s before exiting
     # TODO Maybe we could investigate more about this
     logger.debug('Sending exit request to watcher thread.')
     start_time = timing_exit['processor']()
@@ -425,28 +402,8 @@ if __name__ == '__main__':
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
     
-    # This is for debug only because it's started to be really difficult to
-    # keep both running method: init and tty...
-    if not args.dryrun and ( sys.stdout.isatty() or args.fakeinit ):
-        # Check or create basedir and logdir directories
-        # Print to stderr as we have a redirect for fakeinit
-        for directory in 'basedir', 'logdir':
-            if not pathlib.Path(pathdir[directory]).is_dir():
-                try:
-                    pathlib.Path(pathdir[directory]).mkdir()
-                except OSError as error:
-                    if error.errno == errno.EPERM or error.errno == errno.EACCES:
-                        print('Got error while making directory:' 
-                            + f' \'{error.strerror}: {error.filename}\'.', file=sys.stderr)
-                        print('Daemon is intended to be run as sudo/root.', file=sys.stderr)
-                    else:
-                        print('Got unexcept error while making directory:' 
-                            + f' \'{error}\'.', file=sys.stderr)
-                    print('Exiting with status \'1\'.', file=sys.stderr)
-                    sys.exit(1)
-    
-    # Now re-configure logging
-    if sys.stdout.isatty() and not args.fakeinit:
+    # Then configure logging
+    if sys.stdout.isatty():
         # configure the root logger
         logger = logging.getLogger()
         # Rename root logger
@@ -458,9 +415,11 @@ if __name__ == '__main__':
         logger.setLevel(logging.INFO)
         # Working with xfce4-terminal and konsole if set to '%w'
         print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
-    elif not args.dryrun:
-        # Reconfigure root logger only at the end 
-        # this will keep logging error to syslog
+    else:
+        # configure the root logger
+        logger = logging.getLogger()
+        # Rename root logger
+        logger.root.name = f'{__name__}'
         # Add debug handler only if debug is enable
         handlers = { }
         if args.debug and not args.quiet:
@@ -472,63 +431,61 @@ if __name__ == '__main__':
             debug_handler.addFilter(LogLevelFilter(50))
             debug_handler.setLevel(10)
             handlers['debug'] = debug_handler
-                
         # Other level goes to Syslog
         syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
         syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s  %(message)s')
         syslog_handler.setFormatter(syslog_formatter)
-        # Filter stderr output
-        syslog_handler.addFilter(LogErrorFilter(stderr=False))
         syslog_handler.setLevel(20)
         handlers['syslog'] = syslog_handler
-        
-        # Catch file descriptor stderr
-        # Same here 5MB, rotate 3x = 15MB
-        fd_handler = logging.handlers.RotatingFileHandler(pathdir['fdlog'], maxBytes=5242880, backupCount=3)
-        fd_formatter   = logging.Formatter('%(asctime)s  %(message)s')
-        fd_handler.setFormatter(fd_formatter)
-        fd_handler.addFilter(LogErrorFilter(stderr=True))
-        # Level is error : See class LogErrorFilter
-        fd_handler.setLevel(40)
-        handlers['fd'] = fd_handler
-        
-        # reconfigure the root logger
-        logger = logging.getLogger()
-        # Rename root logger
-        logger.root.name = f'{__name__}'
         # Add handlers
         for handler in handlers.values():
             logger.addHandler(handler)
         # Set log level
         logger.setLevel(logging.INFO)
-        # redirect again but now not to syslog but to file ;)
-        # First remove root_logger handler otherwise it will still send message to syslog
-        root_logger.removeHandler(fd_handler_syslog)
-        fd2 = RedirectFdToLogger(logger)
-        sys.stderr = fd2
-    else:
-        # Keep default configuration
-        logger = root_logger
-        # Set loglevel to INFO
-        logger.setLevel(logging.INFO)
-        # We need to reset also fd_handler_syslog loglevel...
-        fd_handler_syslog.setLevel(logging.DEBUG)
-        
-    # default level is INFO
+    
+    # Then, pre-check
+    if not sys.stdout.isatty():
+        display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+        # Check for --dryrun
+        if args.dryrun:
+            logger.error('Running --dryrun from /etc/init.d/ is NOT supported.')
+            logger.error('Exiting with status \'1\'.')
+            sys.exit(1)
+    elif sys.stdout.isatty():
+        display_init_tty = ''
+        logger.info('Interactive mode detected, all logs go to terminal.')
+        # TODO FIXME this have to be removed when we will change how syuppod is setup
+        logger.info('Make sure to run init file as root to setup syuppod.')
+        # Just check if user == 'syuppod'
+        if not getuser() == 'syuppod':
+            logger.error(getuser())
+            logger.error('Running program from terminal require to run as \'syuppod\' user.')
+            logger.error('Exiting with status \'1\'.')
+            sys.exit(1)
+        # Check if directories exists
+        if not args.dryrun:
+            # Check basedir and logdir directories
+            for directory in 'basedir', 'logdir':
+                if not pathlib.Path(pathdir[directory]).is_dir():
+                    # Ok so exit because we cannot manage this:
+                    # Program has to been run as syuppod
+                    # BUT creating directories has to be run as root...
+                    logger.error(f"Missing directory: '{pathdir[directory]}'.")
+                    logger.error('Exiting with status \'1\'.')
+                    sys.exit(1)
+        else:
+            logger.info('Dryrun is enabled, skipping all write process.')
+          
+    # Setup level logging (default = INFO)
     if args.debug and args.quiet:
-        logger.info('Both debug and quiet opts has been enable,' 
+        logger.info('Both debug and quiet opts have been enabled,' 
                     + ' falling back to log level info.')
     elif args.debug:
         logger.setLevel(logging.DEBUG)
-        logger.info(f'Debug has been enable. {display_init_tty}')
+        logger.info(f'Debug has been enabled. {display_init_tty}')
         logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
         logger.setLevel(logging.ERROR)
-    
-    if sys.stdout.isatty() and not args.fakeinit:
-        logger.info('Interactive mode detected, all logs go to terminal.')
-    if args.dryrun:
-        logger.info('Dryrun is enable, skipping all write process.')
     
     # Configure timing exit
     timing_exit = { }
