@@ -583,6 +583,15 @@ class PortageHandler:
             child.logfile = mycapture
             # Wait non blocking 
             while not child.closed and child.isalive():
+                if self.pretend['cancel']:
+                    # So we want to cancel
+                    # Just break 
+                    # child still alive
+                    break
+                # TEST exit on demand
+                if self.exit_now['pretend']:
+                    logger.debug('Received exit order.')
+                    break
                 try:
                     # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
                     # but this will not block every TEST push to 60s ... 30s got two TIMEOUT back-to-back
@@ -599,16 +608,7 @@ class PortageHandler:
                                  + f' command: \'{mycommand}\''
                                  + ' and args: \'{0}\'.'.format(' '.join(myargs)))
                     break
-                else:
-                    if self.pretend['cancel']:
-                        # So we want to cancel
-                        # Just break 
-                        # child still alive
-                        break
-                    # TEST exit on demand
-                    if self.exit_now['pretend']:
-                        logger.debug('Received exit order.')
-                        break
+                
                 
             if self.exit_now['pretend']:
                 logger.debug('Shutting down pexpect process running'
@@ -709,7 +709,7 @@ class PortageHandler:
         # Save
         if tosave:
             self.stateinfo.save(*tosave)
-        self.pretend[status] = 'completed'
+        self.pretend['status'] = 'completed'
 
 
     def available_portage_update(self):
