@@ -2,17 +2,23 @@
 # -*- coding: utf-8 -*-
 # -*- bash -*- 
 
-
+# Vars to modify
 command="/data/01/src/syuppod/main.py"
 command_args="-d" # ENABLE debug
+
+# Please modify only if you know what you are doing :p
 pidfile="/var/run/${RC_SVCNAME}.pid"
 name="syuppod daemon"
 command_background=true
 basedir="/var/lib/syuppod/"
 logdir="/var/log/syuppod/"
+stderr='error.log'
+stdout='stdout.log'
 id="syuppod"
 group="syuppod"
-start_stop_daemon_args="--user ${id}:${group}"
+add_group="portage"
+rights=755
+start_stop_daemon_args="--user ${id}:${group} -1 ${logdir}${stdout} -2 ${logdir}${stderr}"
  
 description="Syuppod is a daemon that auto sync and estimate packages to update for Gentoo Gnu/Linux."
 
@@ -23,28 +29,44 @@ depend() {
 }
 
 start_pre() {
-    # This is a workaround, at the end we will make an ebuild which will
+    # This is a workaround, at the end we will make an ebuild which could
     # handle these processes
-    # This will handle the creation of basedir and logdir
-    for folder in "${basedir}" "${logdir}"; do
-        if [[ ! -d "${folder}" ]]; then
+    # Handle the creation of basedir and logdir
+    for _dir in "${basedir}" "${logdir}"; do
+        if [[ ! -d "${_dir}" ]]; then
             # Don't be mad == No 700 ;)
-            mkdir --mode=755 ${folder} || { echo "Failed to create dir: ${folder}"; exit 1; }
+            einfo "Creating directory: ${_dir} (mode=${rights})"
+            mkdir --mode="${rights}" ${_dir} || { eerror "Failed to create directory \'${_dir}\': $?"; return 1; }
         fi
         # Check if user have to be create
         if [[ ! $(getent passwd "${id}") ]]; then
             # So create user 'id' and group 'group'
+            einfo "Creating user: ${id} (groups: ${group},${add_group})"
             useradd --base-dir '/var/lib' --system --shell /sbin/nologin\
-                    --groups portage --user-group "${id}" || { echo "Failed to create user: ${id}"; exit 1; }
+                    --groups "${add_group}" --user-group "${id}" || { 
+                    eerror "Failed to create user \'${id}\', groups \'${group}, ${add_group}\': $?"; return 1; }
         fi
         # Make sure to have the good owner
-        if [[ ! $(stat -c "%U:%G" "${folder}") == "${id}:${group}" ]]; then
-            chown -R "${id}:${group}" "${folder}" || { echo "Failed to change owner for dir: ${folder}"; exit 1; }
+        if [[ ! $(stat -c "%U:%G" "${_dir}") == "${id}:${group}" ]]; then
+            einfo "Changing owner for directory: ${_dir} (${id}:${group})"
+            chown -R "${id}:${group}" "${_dir}" || { eerror "Failed to change owner for directory \'${_dir}\': $?"; return 1; }
         fi
         # And the good rights
-        if [[ ! $(stat -c "%a" "${folder}") == 755 ]]; then
+        if [[ ! $(stat -c "%a" "${_dir}") == "${rights}" ]]; then
             # Same here 
-            chmod 755 "${folder}" || { echo "Failed to change rights for dir: ${folder}"; exit 1; }
+            einfo "Changing rights for directory: ${_dir} (${rights})"
+            chmod "${rights}" "${_dir}" || { eerror "Failed to change rights for directory \'${_dir}\': $?"; return 1; }
         fi
     done
+    # TEST Erase log stderr and stdout each time prog is restart
+    # for a better understanding of error(s) because logs have no timestamp...
+#     if [[ -f "${logdir}${stderr}" ]]; then
+#         einfo "Removing stderr log: ${logdir}${stderr}"
+#         rm "${logdir}${stderr}" || { eerror "Failed to remove stderr log \'${logdir}${stderr}\': $?"; return 1 }
+#     fi
+#     if [[ -f "${logdir}${stdout}" ]]; then
+#         einfo "Removing stdout log: ${logdir}${stdout}"
+#         rm "${logdir}${stdout}" || { eerror "Failed to remove stdout log \'${logdir}${stdout}\': $?"; return 1 }
+#     fi
+    
 }
