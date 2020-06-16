@@ -7,7 +7,7 @@ import logging
 import logging.handlers
 
 # TODO : maybe give the choice to custom logrotate ?
-# TEST
+# TEST 
 # Keep this class for temporary compatibility with gikeud. 
 class MainLoggingHandler:
     """Main logging handler"""

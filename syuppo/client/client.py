@@ -4,6 +4,7 @@
 # PYTHON_ARGCOMPLETE_OK
 
 # Dbus client for syuppod
+# Part of syuppo package
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
@@ -15,10 +16,10 @@ import pathlib
 import re
 import argcomplete
 
-from argsparser import ClientParserHandler
-from lib.utils import _format_date
-from lib.utils import _format_timestamp
-from lib.utils import FormatTimestamp
+from syuppo.common.argsparser import ClientParserHandler
+from syuppo.common.utils import _format_date
+from syuppo.common.utils import _format_timestamp
+from syuppo.common.utils import FormatTimestamp
 
 
 try:

@@ -19,10 +19,10 @@ import logging
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
-from lib.utils import FormatTimestamp
-from lib.utils import StateInfo
-from lib.utils import on_parent_exit
-from lib.logger import ProcessLoggingHandler
+from syuppo.common.utils import FormatTimestamp
+from syuppo.common.utils import StateInfo
+from syuppo.common.utils import on_parent_exit
+from syuppo.common.logger import ProcessLoggingHandler
 
 
 try:
@@ -35,7 +35,7 @@ except Exception as exc:
 
 # TODO TODO TODO stablize API
 # TODO get news ?
-# TODO add load checking before running pretend_world()
+# TODO add load checking before running pretend_world() ?? 
 
 
 class PortageHandler:

@@ -13,6 +13,7 @@
 # TODO threading cannot share object attribute 
 #       or it will not be update ?!?
 
+
 __version__ = "dev"
 prog_name = 'syuppod'
 dbus_conf = 'syuppod-dbus.conf'
@@ -49,10 +50,10 @@ import signal
 from getpass import getuser
 from portagedbus import PortageDbus
 from portagemanager import EmergeLogWatcher
-from argsparser import DaemonParserHandler
-from lib.logger import LogErrorFilter
-from lib.logger import LogLevelFilter
-from lib.logger import LogLevelFormatter
+from syuppo.common.argsparser import DaemonParserHandler
+from syuppo.common.logger import LogErrorFilter
+from syuppo.common.logger import LogLevelFilter
+from syuppo.common.logger import LogLevelFormatter
 try:
     from gi.repository import GLib
     from pydbus import SystemBus
@@ -427,7 +428,7 @@ if __name__ == '__main__':
             debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=5242880, backupCount=3)
             debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
             debug_handler.setFormatter(debug_formatter)
-            # For a better debugging get all level message to debug
+            # For a better understanding get all level message for debug log 
             debug_handler.addFilter(LogLevelFilter(50))
             debug_handler.setLevel(10)
             handlers['debug'] = debug_handler
@@ -457,9 +458,10 @@ if __name__ == '__main__':
         # TODO FIXME this have to be removed when we will change how syuppod is setup
         logger.info('Make sure to run init file as root to setup syuppod.')
         # Just check if user == 'syuppod'
-        if not getuser() == 'syuppod':
-            logger.error(getuser())
-            logger.error('Running program from terminal require to run as \'syuppod\' user.')
+        running_user = getuser()
+        if not running_user == 'syuppod':
+            logger.error('Running program from terminal require to' 
+                         + f' run as \'syuppod\' user (current: {running_user}).')
             logger.error('Exiting with status \'1\'.')
             sys.exit(1)
         # Check if directories exists
