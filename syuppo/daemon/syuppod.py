@@ -6,13 +6,33 @@
 # SYnc UPdate POrtage Daemon - main
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-
 # TEST in progress: exit gracefully 
 # TODO write GOOD english :p
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
 #       or it will not be update ?!?
 
+import sys
+import logging
+import argparse
+import re
+import pathlib
+import time
+import errno
+import asyncio
+import threading
+import signal
+from syuppo.daemon.dbus import PortageDbus
+from syuppo.daemon.manager import EmergeLogWatcher
+from syuppo.common.argsparser import DaemonParserHandler
+from syuppo.common.logger import LogLevelFilter
+try:
+    from gi.repository import GLib
+    from pydbus import SystemBus
+except Exception as exc:
+    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
+    sys.exit(1)
 
 __version__ = "dev"
 prog_name = 'syuppod'
@@ -30,37 +50,12 @@ pathdir = {
     'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
     }
 
-import sys
-import logging
 # Custom level name share across all logger
 logging.addLevelName(logging.CRITICAL, '[Crit ]')
 logging.addLevelName(logging.ERROR,    '[Error]')
 logging.addLevelName(logging.WARNING,  '[Warn ]')
 logging.addLevelName(logging.INFO,     '[Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug]')
-
-import argparse
-import re
-import pathlib
-import time
-import errno
-import asyncio
-import threading
-import signal
-from getpass import getuser
-from portagedbus import PortageDbus
-from portagemanager import EmergeLogWatcher
-from syuppo.common.argsparser import DaemonParserHandler
-from syuppo.common.logger import LogErrorFilter
-from syuppo.common.logger import LogLevelFilter
-from syuppo.common.logger import LogLevelFormatter
-try:
-    from gi.repository import GLib
-    from pydbus import SystemBus
-except Exception as exc:
-    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
-    print('Error: exiting with status \'1\'.', file=sys.stderr)
-    sys.exit(1)
 
 
 
@@ -405,6 +400,7 @@ if __name__ == '__main__':
     
     # Then configure logging
     if sys.stdout.isatty():
+        from syuppo.common.logger import LogLevelFormatter
         # configure the root logger
         logger = logging.getLogger()
         # Rename root logger
@@ -453,6 +449,7 @@ if __name__ == '__main__':
             logger.error('Exiting with status \'1\'.')
             sys.exit(1)
     elif sys.stdout.isatty():
+        from getpass import getuser
         display_init_tty = ''
         logger.info('Interactive mode detected, all logs go to terminal.')
         # TODO FIXME this have to be removed when we will change how syuppod is setup

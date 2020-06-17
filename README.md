@@ -1,19 +1,19 @@
 [![Gentoo Badge](https://www.gentoo.org/assets/img/badges/gentoo-badge.png)](https://www.gentoo.org)
 
-# Syuppod
-> SYnc UPdate POrtage Daemon
+# Syuppo
+> SYnc UPdate POrtage
 
-Syuppod is a python3 daemon which automate sync and calculate how many packages to update
-for gentoo portage manager. It intend to be run as service using /etc/init.d/. Since git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, it run as an unprivileged system user (syuppod)
+Syuppo is a python3 daemon (syuppod) / client (syuppoc) which automate sync and calculate how many packages to update
+for gentoo portage manager. Syuppod is intend to be run as service using /etc/init.d/. Since git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, it run as an unprivileged system user (syuppod)
 and use sudo to gain root access (only for sync).
 
-It uses dbus to expose informations to user space tools and it have an already written client (trival).
-With this client (syuppo-cli), you can retrieve informations about new update package available, syncing stats.
+Syuppod uses dbus to expose informations to user space tools and syuppoc can retrieve informations 
+about new update package available, syncing stats.
 And many more (also more to come).
 
-You can use it, for exemple, with [conky](https://github.com/brndnmtthws/conky) to display some informations. But it's up 
+You can use syuppoc, for exemple, with [conky](https://github.com/brndnmtthws/conky) to display some informations. But it's up 
 to you to do whatever you want to do with these informations and from whatever program 
-(as long as it use dbus or syuppo-cli output).
+(as long as it use dbus or syuppoc output).
 
 
 ## Dependencies
@@ -27,6 +27,8 @@ to you to do whatever you want to do with these informations and from whatever p
 For **pydbus** and **inotify_simple** ebuilds can be found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
 
 ## Installation
+
+# 'TODO'
 
 1. Clone the repo:
 ```
@@ -73,14 +75,14 @@ cp init /etc/init.d/syuppod
 
 ## About logs and debug
 
-Daemon have several logs all located in `/var/log/syuppod/`\
+Syuppod have several logs all located in `/var/log/syuppod/`\
 
 Starting with git commit id: e1079ebd0f4a4b8b65fdf9ebfd448e02c7fc9e66, new logging process have been added
 to catch almost all error. Unfortunately, it introduce a more complex log flow. 
 The earliest errors are redirect to syslog first. So if you encounter any issues you should first check `/var/log/messages`.
 Then: `/var/log/syuppod/stderr.log` and `/var/log/syuppod/debug.log` (if debug is enable: `-d`).
 
-Daemon and terminal mode write sync and pretend process logs to, respectively:\
+Syuppod write sync and pretend process logs to, respectively:\
 `/var/log/syuppod/sync.log`\
 `/var/log/syuppod/pretend.log`
 
@@ -89,8 +91,7 @@ All logs are autorotate.
 ## Developpement Status
 
 This is a work in progress so i haven't yet planned to make a release.\
-The API is still in developpement and it's not yet stabilized.\
-My priority is to stabilize daemon API.
+Syuppod API is still in developpement and it's not yet stabilized.\
 
 ## Meta
 
