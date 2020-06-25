@@ -22,10 +22,10 @@ import errno
 import asyncio
 import threading
 import signal
-from syuppo.daemon.dbus import PortageDbus
-from syuppo.daemon.manager import EmergeLogWatcher
-from syuppo.common.argsparser import DaemonParserHandler
-from syuppo.common.logger import LogLevelFilter
+from syuppo.dbus import PortageDbus
+from syuppo.manager import EmergeLogWatcher
+from syuppo.argsparser import DaemonParserHandler
+from syuppo.logger import LogLevelFilter
 try:
     from gi.repository import GLib
     from pydbus import SystemBus
@@ -400,7 +400,7 @@ if __name__ == '__main__':
     
     # Then configure logging
     if sys.stdout.isatty():
-        from syuppo.common.logger import LogLevelFormatter
+        from syuppo.logger import LogLevelFormatter
         # configure the root logger
         logger = logging.getLogger()
         # Rename root logger
@@ -481,7 +481,7 @@ if __name__ == '__main__':
                     + ' falling back to log level info.')
     elif args.debug:
         logger.setLevel(logging.DEBUG)
-        logger.info(f'Debug has been enabled. {display_init_tty}')
+        logger.info(f'Debug is enabled. {display_init_tty}')
         logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
         logger.setLevel(logging.ERROR)

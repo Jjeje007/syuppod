@@ -4,7 +4,7 @@
 # Distributed under the terms of the GNU General Public License v3
 
 import logging 
-from syuppo.daemon.manager import PortageHandler
+from syuppo.manager import PortageHandler
 
 
 

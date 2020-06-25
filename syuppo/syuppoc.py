@@ -16,10 +16,10 @@ import pathlib
 import re
 import argcomplete
 
-from syuppo.common.argsparser import ClientParserHandler
-from syuppo.common.utils import _format_date
-from syuppo.common.utils import _format_timestamp
-from syuppo.common.utils import FormatTimestamp
+from syuppo.argsparser import ClientParserHandler
+from syuppo.utils import _format_date
+from syuppo.utils import _format_timestamp
+from syuppo.utils import FormatTimestamp
 
 
 try:

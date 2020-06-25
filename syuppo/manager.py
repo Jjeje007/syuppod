@@ -17,10 +17,10 @@ import logging
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
-from syuppo.common.utils import FormatTimestamp
-from syuppo.common.utils import StateInfo
-from syuppo.common.utils import on_parent_exit
-from syuppo.common.logger import ProcessLoggingHandler
+from syuppo.utils import FormatTimestamp
+from syuppo.utils import StateInfo
+from syuppo.utils import on_parent_exit
+from syuppo.logger import ProcessLoggingHandler
 try:
     import numpy
     import pexpect
@@ -29,6 +29,8 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
+# TODO TODO TODO TODO when something has to be saved then we should make a special flags so
+#                      syuppod know it have to wait before exiting ...
 # TODO TODO TODO stablize API
 # TODO get news ?
 # TODO add load checking before running pretend_world() ?? 
@@ -453,8 +455,6 @@ class PortageHandler:
             self.sync['session_count'] += 1
             logger.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
                                                                                     self.sync['session_count']))
-            logger.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
-                                                                                 self.pathdir['statelog']))
             # group save to save in one shot
             tosave.append(['sync count', self.sync['global_count']])
             
@@ -471,8 +471,6 @@ class PortageHandler:
                 else:
                     logger.debug('Updating sync timestamp from \'{0}\' to \'{1}\'.'.format(self.sync['timestamp'], sync_timestamp))
                     self.sync['timestamp'] = sync_timestamp
-                    logger.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
-                                                                                 self.pathdir['statelog']))
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
             self.pretend['proceed'] = True
@@ -481,8 +479,6 @@ class PortageHandler:
             self.sync['remain'] = self.sync['interval']
             logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
-        # At the end
-        self.sync['elapsed'] = 0
         # Write / mod value only if change
         for value in 'state', 'retry', 'network_error':
             if not self.sync[value] == getattr(self, value):
@@ -495,6 +491,8 @@ class PortageHandler:
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
+        # At the end
+        self.sync['elapsed'] = 0
         self.sync['status'] = False
         return                 
             
