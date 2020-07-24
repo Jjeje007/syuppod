@@ -419,10 +419,10 @@ class PortageHandler:
                 # Ok so this is not an network problem for main gentoo repo
                 # DONT disable sync just keep syncing every 'interval'
                 if 'gentoo' in self.sync['repos']['failed']:
-                    logger.error('Main gentoo repository failed to sync with an unexcepted error !!.')
+                    logger.error('Main gentoo repository failed to sync with an unexcepted error !!')
                     # There is also other failed repo
                     if list_len - 1 > 0:
-                        logger.error('{0} also failed to sync: {1}.'.format(msg, ', '.join(name for name \
+                        logger.error('{0} also failed to sync: {1}.'.format(msg, ', '.join(name for repos_failed \
                                                       in self.sync['repos']['failed'] if not name == 'gentoo')))
                     # State is Failed only if main gentoo repo failed
                     self.state = 'Failed'
@@ -431,8 +431,9 @@ class PortageHandler:
                     self.retry = 0
                 # Other repo
                 else:
-                    logger.error('{0} failed to sync: {2}.'.format(msg, ', '.join(
-                                                               self.sync['repos']['failed'])))
+                    logger.error(f'{msg} failed to sync:' 
+                                 + ' {0}.'.format(', '.join(self.sync['repos']['failed'])))
+                # At the end 
                 logger.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
                 logger.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
                                                                             self.sync['interval'])))
