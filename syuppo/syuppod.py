@@ -3,7 +3,8 @@
 # -*- python -*- 
 # Starting : 2019-08-08
 
-# SYnc UPdate POrtage Daemon - main
+# SYnc UPdate POrtage Daemon 
+# Part of syuppo package
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 # TEST in progress: exit gracefully 
@@ -22,10 +23,12 @@ import errno
 import asyncio
 import threading
 import signal
+
 from syuppo.dbus import PortageDbus
 from syuppo.manager import EmergeLogWatcher
 from syuppo.argsparser import DaemonParserHandler
 from syuppo.logger import LogLevelFilter
+
 try:
     from gi.repository import GLib
     from pydbus import SystemBus
@@ -34,7 +37,7 @@ except Exception as exc:
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
-__version__ = "dev"
+__version__ = 'dev'
 prog_name = 'syuppod'
 dbus_conf = 'syuppod-dbus.conf'
 pathdir = {
@@ -123,7 +126,7 @@ class MainDaemon(threading.Thread):
             # AND if there was an sync / update / both in progress.
             if self.myport['watcher'].tasks['sync']['requests']['pending'] \
                and not self.myport['watcher'].tasks['sync']['inprogress']:
-                # Take a copy so you can immediatly send back what you take and 
+                # Take a copy so you can immediatly send back what we take and 
                 # still process it here
                 sync_requests = self.myport['watcher'].tasks['sync']['requests']['pending'].copy()
                 msg = ''
@@ -412,6 +415,8 @@ if __name__ == '__main__':
         # Default to info
         logger.setLevel(logging.INFO)
         # Working with xfce4-terminal and konsole if set to '%w'
+        # See -> https://gitweb.gentoo.org/proj/portage.git/tree/lib/portage/output.py?id=03d4c33f48eb5e98c9fdc8bf49ee239489229b8e
+        # For a better approch ?
         print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
     else:
         # configure the root logger
