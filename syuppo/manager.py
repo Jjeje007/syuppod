@@ -29,12 +29,8 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
-# TODO TODO TODO TODO when something has to be saved then we should make a special flags so
-#                      syuppod know it have to wait before exiting ...
 # TODO TODO TODO stablize API
 # TODO get news ?
-# TODO add load checking before running pretend_world() ?? 
-
 
 class PortageHandler:
     """
@@ -497,7 +493,7 @@ class PortageHandler:
         return                 
             
             
-    def get_last_world_update(self):
+    def get_last_world_update(self, detected=False):
         """Getting last world update timestamp"""
         
         # Change name of the logger
@@ -528,6 +524,9 @@ class PortageHandler:
                     tosave.append([f'world last {key}', self.world[key]])
             if not updated:
                 logger.debug('Global update haven\'t been run, keeping last know informations.')
+                # TEST so if detected then global update have been aborded
+                if detected:
+                    logger.info('Global update have been aborded.')
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)

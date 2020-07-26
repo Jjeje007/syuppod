@@ -155,7 +155,8 @@ class MainDaemon(threading.Thread):
                 # Send reply
                 self.myport['watcher'].tasks['world']['requests']['completed'] = world_requests[-1]
                 # Call get_last_world so we can know if world has been update and it will call pretend
-                self.myport['manager'].get_last_world_update()
+                # TEST just notify get_last_world_update that global update have been detected
+                self.myport['manager'].get_last_world_update(detected=True)
             
             # This is the case where we want to call pretend, there is not sync and world in progress
             # and pretend is waiting and it was cancelled so recall pretend :p
