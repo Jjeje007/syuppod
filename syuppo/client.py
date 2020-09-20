@@ -14,7 +14,7 @@ import locale
 import gettext
 import pathlib
 import re
-import argcomplete
+#import argcomplete
 
 from syuppo.argsparser import ClientParserHandler
 from syuppo.utils import _format_date
@@ -348,12 +348,11 @@ def parser(args):
         elif getattr(args, key):
             portcaller[key]['func'](*portcaller[key]['args'])
 
-
-
-### MAIN ###
-if __name__ == '__main__':
+def main():
     myargsparser = ClientParserHandler(version='dev')
-    argcomplete.autocomplete(myargsparser.parser)
+    # OK for now disable argcomplete because it will NOT work in this setup
+    # so we'll have to make an external file ...
+    #argcomplete.autocomplete(myargsparser.parser)
     args = myargsparser.parsing()
 
     # Call parser

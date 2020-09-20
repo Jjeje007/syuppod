@@ -317,87 +317,6 @@ def main():
     Init main daemon
     """
     
-    # Init dbus service
-    dbusloop = GLib.MainLoop()
-    dbus_session = SystemBus()
-    
-    # Init Emerge log watcher
-    # For now status of emerge --sync and @world is get directly from portagemanager module
-    myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
-    
-    # Init portagemanager
-    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun)
-    
-    # Check sync
-    myportmanager.check_sync(init_run=True, recompute=True)
-    # Get last portage package
-    # Better first call here because this won't be call before EmergeLogWatcher detected close_write
-    myportmanager.available_portage_update()
-    # Same here: Check if global update has been run 
-    myportmanager.get_last_world_update()
-    
-    # Adding objet to myport
-    myport = { }
-    myport['manager'] = myportmanager
-    myport['watcher'] = myportwatcher
-    myport['dbus'] = dbusloop
-    
-    failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
-                               + r'.own.the.service.*due.to.security'
-                               + r'.policies.in.the.configuration.file.*$')
-    busconfig = True
-    # Adding dbus publisher
-    try:
-        dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
-    except GLib.GError as error:
-        error = str(error)
-        if failed_access.match(error):
-            logger.error(f'Got error: {error}')
-            logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
-                         + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
-        else:
-            logger.error(f'Got unexcept error: {error}')
-        logger.error('Dbus bindings have been DISABLED !!')
-        busconfig = False
-    
-    # Init daemon thread
-    daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
-    
-    # Start all threads and dbus thread
-    myport['watcher'].start()
-    daemon_thread.start()
-    if busconfig:
-        logger.debug('Running dbus loop using Glib.MainLoop().')
-        dbusloop.run()
-    
-    # Exiting gracefully - Try to :p
-    # Glib.MainLoop is shut down in MainDaemonThread
-    daemon_thread.join()
-    
-    # For watcher thread
-    # This could, sometime, last almost 10s before exiting
-    # TODO Maybe we could investigate more about this
-    logger.debug('Sending exit request to watcher thread.')
-    start_time = timing_exit['processor']()
-    myport['watcher'].exit_now = True
-    # Only wait for thread to send 'Done'
-    # TODO : maybe better using wait()?
-    # see: https://docs.python.org/3/library/threading.html#threading.Condition.wait
-    while not myport['watcher'].exit_now == 'Done':
-        pass
-    end_time = timing_exit['processor']()
-    logger.debug('Watcher thread have been shut down in'
-                + ' {0}'.format(end_time - start_time)
-                + f" {timing_exit['msg']}.")
-    myport['watcher'].join()
-    
-    # Every thing done
-    logger.info('...exiting, ...bye-bye.')
-    sys.exit(0)
-           
-    
-if __name__ == '__main__':    
-    
     # Ok so first parse argvs
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
@@ -502,9 +421,84 @@ if __name__ == '__main__':
         #timing_exit['processor'] = time.process_time_ns
         #timing_exit['msg'] = 'nanoseconds'
     
-    # run MAIN
-    main()
     
+    # Init dbus service
+    dbusloop = GLib.MainLoop()
+    dbus_session = SystemBus()
+    
+    # Init Emerge log watcher
+    # For now status of emerge --sync and @world is get directly from portagemanager module
+    myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
+    
+    # Init portagemanager
+    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun)
+    
+    # Check sync
+    myportmanager.check_sync(init_run=True, recompute=True)
+    # Get last portage package
+    # Better first call here because this won't be call before EmergeLogWatcher detected close_write
+    myportmanager.available_portage_update()
+    # Same here: Check if global update has been run 
+    myportmanager.get_last_world_update()
+    
+    # Adding objet to myport
+    myport = { }
+    myport['manager'] = myportmanager
+    myport['watcher'] = myportwatcher
+    myport['dbus'] = dbusloop
+    
+    failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
+                               + r'.own.the.service.*due.to.security'
+                               + r'.policies.in.the.configuration.file.*$')
+    busconfig = True
+    # Adding dbus publisher
+    try:
+        dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+    except GLib.GError as error:
+        error = str(error)
+        if failed_access.match(error):
+            logger.error(f'Got error: {error}')
+            logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
+                         + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
+        else:
+            logger.error(f'Got unexcept error: {error}')
+        logger.error('Dbus bindings have been DISABLED !!')
+        busconfig = False
+    
+    # Init daemon thread
+    daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
+    
+    # Start all threads and dbus thread
+    myport['watcher'].start()
+    daemon_thread.start()
+    if busconfig:
+        logger.debug('Running dbus loop using Glib.MainLoop().')
+        dbusloop.run()
+    
+    # Exiting gracefully - Try to :p
+    # Glib.MainLoop is shut down in MainDaemonThread
+    daemon_thread.join()
+    
+    # For watcher thread
+    # This could, sometime, last almost 10s before exiting
+    # TODO Maybe we could investigate more about this
+    logger.debug('Sending exit request to watcher thread.')
+    start_time = timing_exit['processor']()
+    myport['watcher'].exit_now = True
+    # Only wait for thread to send 'Done'
+    # TODO : maybe better using wait()?
+    # see: https://docs.python.org/3/library/threading.html#threading.Condition.wait
+    while not myport['watcher'].exit_now == 'Done':
+        pass
+    end_time = timing_exit['processor']()
+    logger.debug('Watcher thread have been shut down in'
+                + ' {0}'.format(end_time - start_time)
+                + f" {timing_exit['msg']}.")
+    myport['watcher'].join()
+    
+    # Every thing done
+    logger.info('...exiting, ...bye-bye.')
+    sys.exit(0)
     
     
     

@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# -*- python -*- 
+
+# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Distributed under the terms of the GNU General Public License v3
+
+import sys
+
+try:
+    from syuppo.daemon import main
+except ImportError:
+    print('Got ImportError')
+    import os.path
+    sys.path.insert(0, os.path.dirname(__file__))
+    # Ensure a clean reload from the new location.
+    if 'syuppo' in sys.modules:
+        try: # py3 compat
+            from imp import reload
+        except ImportError:
+            pass
+        
+        reload(sys.modules['suppo'])
+        del sys.modules['syuppo']
+    from syuppo.daemon import main
+
+if __name__ == '__main__':
+    sys.exit(main())
