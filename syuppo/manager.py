@@ -113,8 +113,8 @@ class PortageHandler:
         # Init save/load info file 
         self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
         # Retrieve status of saving from stateinfo
-        # Ok so we have to be really carefull about this:
-        # For the moment stateinfo can't be call twice in the same time.
+        # WARNING We have to be really carefull about this:
+        # ATW stateinfo can't be call twice in the same time.
         # But for the future better to leave comment and WARNING
         self.saving_status = self.stateinfo.saving
         loaded_stateopts = False
