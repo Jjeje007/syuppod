@@ -10,7 +10,6 @@ import sys
 try:
     from syuppo.client import main
 except ImportError:
-    print('Got ImportError')
     import os.path
     sys.path.insert(0, os.path.dirname(__file__))
     # Ensure a clean reload from the new location.
@@ -20,7 +19,7 @@ except ImportError:
         except ImportError:
             pass
         
-        reload(sys.modules['suppo'])
+        reload(sys.modules['syuppo'])
         del sys.modules['syuppo']
     from syuppo.client import main
 

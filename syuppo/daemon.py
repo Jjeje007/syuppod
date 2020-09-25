@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
 # Starting : 2019-08-08
@@ -85,7 +84,7 @@ class CatchExitSignal:
 
 class MainDaemon(threading.Thread):
     """
-    Main Daemon
+    Main Daemon Thread
     """
     def __init__(self, myport, *args, **kwargs):
         self.logger_name = f'::{__name__}::MainDaemonThread::'
@@ -314,7 +313,7 @@ class MainDaemon(threading.Thread):
 
 def main():
     """
-    Init main daemon
+    Main
     """
     
     # Ok so first parse argvs
