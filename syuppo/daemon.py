@@ -7,6 +7,7 @@
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 # TEST in progress: exit gracefully 
+# TODO TODO TODO move dosync() from sudo to nothing (this mean: portage db SHOULD have the good rights (and also overlays) !!
 # TODO write GOOD english :p
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
