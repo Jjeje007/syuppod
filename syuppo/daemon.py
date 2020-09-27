@@ -1,19 +1,43 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
 # Starting : 2019-08-08
 
-# SYnc UPdate POrtage Daemon - main
+# SYnc UPdate POrtage Daemon 
+# Part of syuppo package
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-
 # TEST in progress: exit gracefully 
+# TODO TODO TODO move dosync() from sudo to nothing (this mean: portage db SHOULD have the good rights (and also overlays) !!
 # TODO write GOOD english :p
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
 #       or it will not be update ?!?
 
-__version__ = "dev"
+import sys
+import logging
+import argparse
+import re
+import pathlib
+import time
+import errno
+import asyncio
+import threading
+import signal
+
+from syuppo.dbus import PortageDbus
+from syuppo.manager import EmergeLogWatcher
+from syuppo.argsparser import DaemonParserHandler
+from syuppo.logger import LogLevelFilter
+
+try:
+    from gi.repository import GLib
+    from pydbus import SystemBus
+except Exception as exc:
+    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
+    sys.exit(1)
+
+__version__ = 'dev'
 prog_name = 'syuppod'
 dbus_conf = 'syuppod-dbus.conf'
 pathdir = {
@@ -29,37 +53,12 @@ pathdir = {
     'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
     }
 
-import sys
-import logging
 # Custom level name share across all logger
 logging.addLevelName(logging.CRITICAL, '[Crit ]')
 logging.addLevelName(logging.ERROR,    '[Error]')
 logging.addLevelName(logging.WARNING,  '[Warn ]')
 logging.addLevelName(logging.INFO,     '[Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug]')
-
-import argparse
-import re
-import pathlib
-import time
-import errno
-import asyncio
-import threading
-import signal
-from getpass import getuser
-from portagedbus import PortageDbus
-from portagemanager import EmergeLogWatcher
-from argsparser import DaemonParserHandler
-from lib.logger import LogErrorFilter
-from lib.logger import LogLevelFilter
-from lib.logger import LogLevelFormatter
-try:
-    from gi.repository import GLib
-    from pydbus import SystemBus
-except Exception as exc:
-    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
-    print('Error: exiting with status \'1\'.', file=sys.stderr)
-    sys.exit(1)
 
 
 
@@ -86,7 +85,7 @@ class CatchExitSignal:
 
 class MainDaemon(threading.Thread):
     """
-    Main Daemon
+    Main Daemon Thread
     """
     def __init__(self, myport, *args, **kwargs):
         self.logger_name = f'::{__name__}::MainDaemonThread::'
@@ -127,7 +126,7 @@ class MainDaemon(threading.Thread):
             # AND if there was an sync / update / both in progress.
             if self.myport['watcher'].tasks['sync']['requests']['pending'] \
                and not self.myport['watcher'].tasks['sync']['inprogress']:
-                # Take a copy so you can immediatly send back what you take and 
+                # Take a copy so you can immediatly send back what we take and 
                 # still process it here
                 sync_requests = self.myport['watcher'].tasks['sync']['requests']['pending'].copy()
                 msg = ''
@@ -159,7 +158,8 @@ class MainDaemon(threading.Thread):
                 # Send reply
                 self.myport['watcher'].tasks['world']['requests']['completed'] = world_requests[-1]
                 # Call get_last_world so we can know if world has been update and it will call pretend
-                self.myport['manager'].get_last_world_update()
+                # TEST just notify get_last_world_update that global update have been detected
+                self.myport['manager'].get_last_world_update(detected=True)
             
             # This is the case where we want to call pretend, there is not sync and world in progress
             # and pretend is waiting and it was cancelled so recall pretend :p
@@ -314,8 +314,113 @@ class MainDaemon(threading.Thread):
 
 def main():
     """
-    Init main daemon
+    Main
     """
+    
+    # Ok so first parse argvs
+    myargsparser = DaemonParserHandler(pathdir, __version__)
+    args = myargsparser.parsing()
+    
+    # Then configure logging
+    if sys.stdout.isatty():
+        from syuppo.logger import LogLevelFormatter
+        # configure the root logger
+        logger = logging.getLogger()
+        # Rename root logger
+        logger.root.name = f'{__name__}'
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(LogLevelFormatter())
+        logger.addHandler(console_handler)
+        # Default to info
+        logger.setLevel(logging.INFO)
+        # Working with xfce4-terminal and konsole if set to '%w'
+        # See -> https://gitweb.gentoo.org/proj/portage.git/tree/lib/portage/output.py?id=03d4c33f48eb5e98c9fdc8bf49ee239489229b8e
+        # For a better approch ?
+        print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
+    else:
+        # configure the root logger
+        logger = logging.getLogger()
+        # Rename root logger
+        logger.root.name = f'{__name__}'
+        # Add debug handler only if debug is enable
+        handlers = { }
+        if args.debug and not args.quiet:
+            # Ok so it's 5MB each, rotate 3 times = 15MB TEST
+            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=5242880, backupCount=3)
+            debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
+            debug_handler.setFormatter(debug_formatter)
+            # For a better understanding get all level message for debug log 
+            debug_handler.addFilter(LogLevelFilter(50))
+            debug_handler.setLevel(10)
+            handlers['debug'] = debug_handler
+        # Other level goes to Syslog
+        syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
+        syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s  %(message)s')
+        syslog_handler.setFormatter(syslog_formatter)
+        syslog_handler.setLevel(20)
+        handlers['syslog'] = syslog_handler
+        # Add handlers
+        for handler in handlers.values():
+            logger.addHandler(handler)
+        # Set log level
+        logger.setLevel(logging.INFO)
+    
+    # Then, pre-check
+    if not sys.stdout.isatty():
+        display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+        # Check for --dryrun
+        if args.dryrun:
+            logger.error('Running --dryrun from /etc/init.d/ is NOT supported.')
+            logger.error('Exiting with status \'1\'.')
+            sys.exit(1)
+    elif sys.stdout.isatty():
+        from getpass import getuser
+        display_init_tty = ''
+        logger.info('Interactive mode detected, all logs go to terminal.')
+        # TODO FIXME this have to be removed when we will change how syuppod is setup
+        logger.info('Make sure to run init file as root to setup syuppod.')
+        # Just check if user == 'syuppod'
+        running_user = getuser()
+        if not running_user == 'syuppod':
+            logger.error('Running program from terminal require to' 
+                         + f' run as \'syuppod\' user (current: {running_user}).')
+            logger.error('Exiting with status \'1\'.')
+            sys.exit(1)
+        # Check if directories exists
+        if not args.dryrun:
+            # Check basedir and logdir directories
+            for directory in 'basedir', 'logdir':
+                if not pathlib.Path(pathdir[directory]).is_dir():
+                    # Ok so exit because we cannot manage this:
+                    # Program has to been run as syuppod
+                    # BUT creating directories has to be run as root...
+                    logger.error(f"Missing directory: '{pathdir[directory]}'.")
+                    logger.error('Exiting with status \'1\'.')
+                    sys.exit(1)
+        else:
+            logger.info('Dryrun is enabled, skipping all write process.')
+          
+    # Setup level logging (default = INFO)
+    if args.debug and args.quiet:
+        logger.info('Both debug and quiet opts have been enabled,' 
+                    + ' falling back to log level info.')
+    elif args.debug:
+        logger.setLevel(logging.DEBUG)
+        logger.info(f'Debug is enabled. {display_init_tty}')
+        logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
+    elif args.quiet:
+        logger.setLevel(logging.ERROR)
+    
+    # Configure timing exit
+    timing_exit = { }
+    # keep compatibility for v3.5/v3.6
+    timing_exit['processor'] = time.process_time
+    timing_exit['msg'] = 'seconds'
+    # time.process_time_ns() have been added to v3.7
+    #if sys.version_info[:2] > (3, 6):
+        #timing_exit['processor'] = time.process_time_ns
+        #timing_exit['msg'] = 'nanoseconds'
+    
     
     # Init dbus service
     dbusloop = GLib.MainLoop()
@@ -394,112 +499,6 @@ def main():
     # Every thing done
     logger.info('...exiting, ...bye-bye.')
     sys.exit(0)
-           
-    
-if __name__ == '__main__':    
-    
-    # Ok so first parse argvs
-    myargsparser = DaemonParserHandler(pathdir, __version__)
-    args = myargsparser.parsing()
-    
-    # Then configure logging
-    if sys.stdout.isatty():
-        # configure the root logger
-        logger = logging.getLogger()
-        # Rename root logger
-        logger.root.name = f'{__name__}'
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(LogLevelFormatter())
-        logger.addHandler(console_handler)
-        # Default to info
-        logger.setLevel(logging.INFO)
-        # Working with xfce4-terminal and konsole if set to '%w'
-        print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
-    else:
-        # configure the root logger
-        logger = logging.getLogger()
-        # Rename root logger
-        logger.root.name = f'{__name__}'
-        # Add debug handler only if debug is enable
-        handlers = { }
-        if args.debug and not args.quiet:
-            # Ok so it's 5MB each, rotate 3 times = 15MB TEST
-            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=5242880, backupCount=3)
-            debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
-            debug_handler.setFormatter(debug_formatter)
-            # For a better debugging get all level message to debug
-            debug_handler.addFilter(LogLevelFilter(50))
-            debug_handler.setLevel(10)
-            handlers['debug'] = debug_handler
-        # Other level goes to Syslog
-        syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
-        syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s  %(message)s')
-        syslog_handler.setFormatter(syslog_formatter)
-        syslog_handler.setLevel(20)
-        handlers['syslog'] = syslog_handler
-        # Add handlers
-        for handler in handlers.values():
-            logger.addHandler(handler)
-        # Set log level
-        logger.setLevel(logging.INFO)
-    
-    # Then, pre-check
-    if not sys.stdout.isatty():
-        display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
-        # Check for --dryrun
-        if args.dryrun:
-            logger.error('Running --dryrun from /etc/init.d/ is NOT supported.')
-            logger.error('Exiting with status \'1\'.')
-            sys.exit(1)
-    elif sys.stdout.isatty():
-        display_init_tty = ''
-        logger.info('Interactive mode detected, all logs go to terminal.')
-        # TODO FIXME this have to be removed when we will change how syuppod is setup
-        logger.info('Make sure to run init file as root to setup syuppod.')
-        # Just check if user == 'syuppod'
-        if not getuser() == 'syuppod':
-            logger.error(getuser())
-            logger.error('Running program from terminal require to run as \'syuppod\' user.')
-            logger.error('Exiting with status \'1\'.')
-            sys.exit(1)
-        # Check if directories exists
-        if not args.dryrun:
-            # Check basedir and logdir directories
-            for directory in 'basedir', 'logdir':
-                if not pathlib.Path(pathdir[directory]).is_dir():
-                    # Ok so exit because we cannot manage this:
-                    # Program has to been run as syuppod
-                    # BUT creating directories has to be run as root...
-                    logger.error(f"Missing directory: '{pathdir[directory]}'.")
-                    logger.error('Exiting with status \'1\'.')
-                    sys.exit(1)
-        else:
-            logger.info('Dryrun is enabled, skipping all write process.')
-          
-    # Setup level logging (default = INFO)
-    if args.debug and args.quiet:
-        logger.info('Both debug and quiet opts have been enabled,' 
-                    + ' falling back to log level info.')
-    elif args.debug:
-        logger.setLevel(logging.DEBUG)
-        logger.info(f'Debug has been enabled. {display_init_tty}')
-        logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
-    elif args.quiet:
-        logger.setLevel(logging.ERROR)
-    
-    # Configure timing exit
-    timing_exit = { }
-    # keep compatibility for v3.5/v3.6
-    timing_exit['processor'] = time.process_time
-    timing_exit['msg'] = 'seconds'
-    # time.process_time_ns() have been added to v3.7
-    #if sys.version_info[:2] > (3, 6):
-        #timing_exit['processor'] = time.process_time_ns
-        #timing_exit['msg'] = 'nanoseconds'
-    
-    # run MAIN
-    main()
-    
     
     
     

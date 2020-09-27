@@ -4,6 +4,7 @@
 # PYTHON_ARGCOMPLETE_OK
 
 # Dbus client for syuppod
+# Part of syuppo package
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
@@ -13,12 +14,12 @@ import locale
 import gettext
 import pathlib
 import re
-import argcomplete
+#import argcomplete
 
-from argsparser import ClientParserHandler
-from lib.utils import _format_date
-from lib.utils import _format_timestamp
-from lib.utils import FormatTimestamp
+from syuppo.argsparser import ClientParserHandler
+from syuppo.utils import _format_date
+from syuppo.utils import _format_timestamp
+from syuppo.utils import FormatTimestamp
 
 
 try:
@@ -347,12 +348,11 @@ def parser(args):
         elif getattr(args, key):
             portcaller[key]['func'](*portcaller[key]['args'])
 
-
-
-### MAIN ###
-if __name__ == '__main__':
+def main():
     myargsparser = ClientParserHandler(version='dev')
-    argcomplete.autocomplete(myargsparser.parser)
+    # OK for now disable argcomplete because it will NOT work in this setup
+    # so we'll have to make an external file ...
+    #argcomplete.autocomplete(myargsparser.parser)
     args = myargsparser.parsing()
 
     # Call parser

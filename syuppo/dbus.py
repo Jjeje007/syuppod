@@ -3,8 +3,10 @@
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
-from portagemanager import PortageHandler
 import logging 
+from syuppo.manager import PortageHandler
+
+
 
 class PortageDbus(PortageHandler):
     """

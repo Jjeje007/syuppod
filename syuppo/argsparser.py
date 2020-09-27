@@ -161,7 +161,7 @@ class ClientParserHandler(CustomArgsCheck):
     def __init__(self, version):
         # Init super class
         super().__init__()
-        prog = 'syuppo-cli'
+        prog = 'syuppoc'
         self.parser = argparse.ArgumentParser(prog=prog,
                                               description='Dbus client for syuppod daemon. Control and '
                                               ' retrieve informations from an already running daemon.')

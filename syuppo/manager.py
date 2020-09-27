@@ -14,17 +14,13 @@ import io
 import threading
 import uuid
 import logging
-
-
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
-from lib.utils import FormatTimestamp
-from lib.utils import StateInfo
-from lib.utils import on_parent_exit
-from lib.logger import ProcessLoggingHandler
-
-
+from syuppo.utils import FormatTimestamp
+from syuppo.utils import StateInfo
+from syuppo.utils import on_parent_exit
+from syuppo.logger import ProcessLoggingHandler
 try:
     import numpy
     import pexpect
@@ -35,8 +31,6 @@ except Exception as exc:
 
 # TODO TODO TODO stablize API
 # TODO get news ?
-# TODO add load checking before running pretend_world()
-
 
 class PortageHandler:
     """
@@ -119,8 +113,8 @@ class PortageHandler:
         # Init save/load info file 
         self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
         # Retrieve status of saving from stateinfo
-        # Ok so we have to be really carefull about this:
-        # For the moment stateinfo can't be call twice in the same time.
+        # WARNING We have to be really carefull about this:
+        # ATW stateinfo can't be call twice in the same time.
         # But for the future better to leave comment and WARNING
         self.saving_status = self.stateinfo.saving
         loaded_stateopts = False
@@ -458,8 +452,6 @@ class PortageHandler:
             self.sync['session_count'] += 1
             logger.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
                                                                                     self.sync['session_count']))
-            logger.debug('Saving \'sync count: {0}\' to \'{1}\'.'.format(self.sync['global_count'], 
-                                                                                 self.pathdir['statelog']))
             # group save to save in one shot
             tosave.append(['sync count', self.sync['global_count']])
             
@@ -476,8 +468,6 @@ class PortageHandler:
                 else:
                     logger.debug('Updating sync timestamp from \'{0}\' to \'{1}\'.'.format(self.sync['timestamp'], sync_timestamp))
                     self.sync['timestamp'] = sync_timestamp
-                    logger.debug('Saving \'sync timestamp: {0}\' to \'{1}\'.'.format(self.sync['timestamp'], 
-                                                                                 self.pathdir['statelog']))
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
             self.pretend['proceed'] = True
@@ -486,8 +476,6 @@ class PortageHandler:
             self.sync['remain'] = self.sync['interval']
             logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
                     
-        # At the end
-        self.sync['elapsed'] = 0
         # Write / mod value only if change
         for value in 'state', 'retry', 'network_error':
             if not self.sync[value] == getattr(self, value):
@@ -500,11 +488,13 @@ class PortageHandler:
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
+        # At the end
+        self.sync['elapsed'] = 0
         self.sync['status'] = False
         return                 
             
             
-    def get_last_world_update(self):
+    def get_last_world_update(self, detected=False):
         """Getting last world update timestamp"""
         
         # Change name of the logger
@@ -535,6 +525,9 @@ class PortageHandler:
                     tosave.append([f'world last {key}', self.world[key]])
             if not updated:
                 logger.debug('Global update haven\'t been run, keeping last know informations.')
+                # TEST so if detected then global update have been aborded
+                if detected:
+                    logger.info('Global update have been aborded.')
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
@@ -876,9 +869,8 @@ class EmergeLogParser:
                 }
             logger.debug(f'Setting \'{self.emergelog}\' maximum lines count to:' 
                          + f" {self.log_lines['count']} lines.")
+        # Init numpy range lists
         self._range = { }
-        # Default range number
-        #self.nrange = 5
     
     
     def last_sync(self, lastlines=500, nrange=10):
@@ -1096,7 +1088,9 @@ class EmergeLogParser:
         #       of parallel merge
         
         def _saved_incompleted():
-            """Saving world update incompleted state"""
+            """
+            Saving world update 'incompleted' state
+            """
             if self.nincompleted[1] == 'percentage':
                 if self.packages_count <= round(self.group['total'] * self.nincompleted[0]):
                     logger.debug('NOT recording incompleted, ' 
@@ -1148,7 +1142,9 @@ class EmergeLogParser:
                             + 'failed: {0}'.format(self.group['failed']))
             
         def _saved_partial():
-            """Saving world update partial state""" 
+            """
+            Saving world update 'partial' state
+            """ 
             # Ok so we have to validate the collect
             # This mean that total number of package should be 
             # equal to : total of saved count - total of failed packages
@@ -1185,7 +1181,9 @@ class EmergeLogParser:
                             + 'failed: {0}'.format(self.group['failed']))
             
         def _saved_completed():
-            """Saving world update completed state"""
+            """
+            Saving world update 'completed' state.
+            """
             # workaround BUG describe just below
             # FIXME BUG : got this in stderr.log : 
             # 2019-12-19 12:09:49    File "/data/01/src/syuppod/main.py", line 131, in run
@@ -1566,7 +1564,7 @@ class EmergeLogParser:
     def __keep_collecting(self, curr_loop, msg, key):
         """
         Restart collecting if nothing has been found and
-        manage to increment lastlines loaded.
+        managing lastlines increment to load.
         """
                
         logger = logging.getLogger(f'{self.logger_name}keep_collecting::')
@@ -1593,7 +1591,7 @@ class EmergeLogParser:
 
 class EmergeLogWatcher(threading.Thread):
     """
-    Watch emerge.log file using inotify and thread
+    Watch emerge.log file using inotify and thread.
     """
     def __init__(self, pathdir, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1769,7 +1767,7 @@ class UpdateInProgress:
         Arguments:
             (str) @tocheck : call with 'world' or 'sync'
             (str) @quiet : enable or disable quiet output
-        @return: True or False
+        @return: True if running else False
         Adapt from https://stackoverflow.com/a/31997847/11869956
         """
         
