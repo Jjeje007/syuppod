@@ -60,6 +60,15 @@ logging.addLevelName(logging.WARNING,  '[Warn ]')
 logging.addLevelName(logging.INFO,     '[Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug]')
 
+# Configure timing exit
+timing_exit = { }
+# keep compatibility for v3.5/v3.6
+timing_exit['processor'] = time.process_time
+timing_exit['msg'] = 'seconds'
+# time.process_time_ns() have been added to v3.7
+#if sys.version_info[:2] > (3, 6):
+    #timing_exit['processor'] = time.process_time_ns
+    #timing_exit['msg'] = 'nanoseconds'
 
 
 class CatchExitSignal:
@@ -410,17 +419,6 @@ def main():
         logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
     elif args.quiet:
         logger.setLevel(logging.ERROR)
-    
-    # Configure timing exit
-    timing_exit = { }
-    # keep compatibility for v3.5/v3.6
-    timing_exit['processor'] = time.process_time
-    timing_exit['msg'] = 'seconds'
-    # time.process_time_ns() have been added to v3.7
-    #if sys.version_info[:2] > (3, 6):
-        #timing_exit['processor'] = time.process_time_ns
-        #timing_exit['msg'] = 'nanoseconds'
-    
     
     # Init dbus service
     dbusloop = GLib.MainLoop()

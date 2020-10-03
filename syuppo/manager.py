@@ -300,8 +300,8 @@ class PortageHandler:
         self.retry = self.sync['retry']
         self.state = self.sync['state']
         
+        # Running sync command using sudo (as root)
         myargs = ['/usr/bin/sudo', '/usr/bin/emerge', '--sync']
-        # 
         myprocess = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         mylogfile.info('##########################################\n')
