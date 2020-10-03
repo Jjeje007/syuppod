@@ -28,47 +28,12 @@ For **pydbus** and **inotify_simple** ebuilds can be found in [Jjeje007-overlay]
 
 ## Installation
 
-# 'TODO'
-
-1. Clone the repo:
-```
-git clone https://github.com/Jjeje007/syuppod.git
-```
-2. Copy the dbus configuration file to authorize dbus requests:
-```
-cp syuppod-dbus.conf /usr/share/dbus-1/system.d/
-```
-3. Install dependencies using emerge.
-
-4. Starting with git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, syuppod now run as an dedicated
-system user which belong to portage group. So don't use pip to install packages otherwise it will complain
-about missing module and program won't start. 
-You have to use ebuilds: the only ebuilds not in the tree are **pydbus** and **inotify_simple** which can be founded, for exemple
-from [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
-
-Also, the only command that needs root rights is `emerge --sync` and now the program use `sudo` to run it.
-You have to configure it using `/etc/sudoers` and grant access to user: **syuppod** using **NOPASSWD** and running **emerge --sync**,
-here is an configuration exemple:
-> Cmnd_Alias      DAEMON =        /usr/bin/emerge --sync\
-> syuppod localhost = NOPASSWD: DAEMON
-
-For more informations on how to use sudo see [gentoo wiki](https://wiki.gentoo.org/wiki/Sudo).
+Use syuppod ebuild found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay). It will install all dependencies.
 
 ## Usage
 
-For the moment, init file is responsible to take care of creating/checking folders and rights.
-After developpement phase, theses processes could be dedicated to ebuild.
+Run the daemon:
 
-1. Copy init file:
-```
-cp init /etc/init.d/syuppod
-```
-2. Edit lines:\
-    `command=` to point to: `/where/is/your/git/clone/repo/main.py`\
-   And:\
-    `command_args=` to suit your need, more information: `./main --help`
-    Enable debug for the first run is recommanded: `-d`
-3. Run the daemon:
 ```
 /etc/init.d/syuppod start
 ```
@@ -77,10 +42,7 @@ cp init /etc/init.d/syuppod
 
 Syuppod have several logs all located in `/var/log/syuppod/`\
 
-Starting with git commit id: e1079ebd0f4a4b8b65fdf9ebfd448e02c7fc9e66, new logging process have been added
-to catch almost all error. Unfortunately, it introduce a more complex log flow. 
-The earliest errors are redirect to syslog first. So if you encounter any issues you should first check `/var/log/messages`.
-Then: `/var/log/syuppod/stderr.log` and `/var/log/syuppod/debug.log` (if debug is enable: `-d`).
+The debug mode is enable by default until syuppod is stabilized.
 
 Syuppod write sync and pretend process logs to, respectively:\
 `/var/log/syuppod/sync.log`\
