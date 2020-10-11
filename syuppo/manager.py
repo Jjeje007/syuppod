@@ -1876,4 +1876,4 @@ def get_repo_info():
     # This is debug message as it's not fatal for the program
     logger.debug('Could\'nt found sync repositories name(s) and count...')
     # We don't know so just return generic
-    return { 'names' : '', 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }
+    return { 'names' : [ ], 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }
