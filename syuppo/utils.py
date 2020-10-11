@@ -618,7 +618,7 @@ class FormatTimestamp:
             }
         
         
-    def convert(self, seconds, granularity=2, rounded=True, translate=False):
+    def convert(self, seconds, granularity=2, rounded=True, translate=False, nuanced=True):
         """
         Proceed the conversion
         """
@@ -699,7 +699,7 @@ class FormatTimestamp:
                 # and count (for reference)
                 result.append({ 
                         'value'        :   value,
-                        'name_rstrip'   :   name_rstrip,
+                        'name_rstrip'  :   name_rstrip,
                         'name'         :   name, 
                         'seconds'      :   value * count,
                         'count'        :   count
@@ -713,7 +713,7 @@ class FormatTimestamp:
                     # recompute every thing
                     result.append({ 
                         'value'        :   None,
-                        'name_rstrip'   :   name_rstrip,
+                        'name_rstrip'  :   name_rstrip,
                         'name'         :   name, 
                         'seconds'      :   0,
                         'count'        :   count
@@ -740,7 +740,7 @@ class FormatTimestamp:
         start = length - 1
         # Reverse list so the firsts elements 
         # could be not selected depending on granularity.
-        # And we can delete item after we had his seconds to next
+        # And we can delete item after we had its seconds to next
         # item in the current list (result)
         for item in reversed(result[:]):
             if granularity <= start <= length - 1:
@@ -850,16 +850,47 @@ class FormatTimestamp:
                         'seconds'       :   seconds,
                         'count'         :   count
                         })
-        
-        # Return result using translation or not 
+        # TEST try to nuance rounded result
+        # Same here cannot pass empty string to gettext...
+        nuanced_msg = _('\0')
+        if nuanced:
+            # from (-)1s left to (-)59s: "a little bit less/more"
+            # from (-)60s (1min) to (-)3599s (59min/59s): "a bit less/more"
+            # from (-)3600s (1hour): "less/more"
+            # get the total seconds taken
+            seconds_sum = 0
+            for item in result:
+                if not item['value'] == None:
+                    seconds_sum += item['seconds']
+            # And calculate if seconds left
+            seconds_left = seconds_arg - seconds_sum
+            # For positive value
+            if seconds_left > 0:
+                if seconds_left > 3600:
+                    nuanced_msg = _('more than ')
+                elif 60 < seconds_left < 3599:
+                    nuanced_msg = _('a bit more than ')
+                elif seconds_left < 60:
+                    nuanced_msg = _('a little bit more than ')
+            # For negative value
+            elif seconds_left < 0:
+                if seconds_left < -3600:
+                    nuanced_msg = _('less than ')
+                elif -60 > seconds_left > -3599:
+                    nuanced_msg = _('a bit less than ')
+                elif seconds_left > -60:
+                    nuanced_msg = _('a little bit less than ')
+                
+        # Return rounded result using translation or not 
         if translate:
-            return ' '.join('{0} {1}{2}'.format(item['value'], 
-                                                _(self.translate[item['name']]), 
-                                                _(self.translate[item['punctuation']])) \
-                                                for item in __format(result))
+            return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], 
+                                                                      _(self.translate[item['name']]), 
+                                                                      _(self.translate[item['punctuation']])) \
+                                                                      for item in __format(result))
         else:
-            return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
-                                                for item in __format(result))
+            return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], item['name'], 
+                                                                      item['punctuation']) \
+                                                                      for item in __format(result))
 
 
 
