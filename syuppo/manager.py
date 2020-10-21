@@ -149,7 +149,7 @@ class PortageHandler:
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
             logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
-                             self.format_timestamp.convert(self.sync['interval'], granularity=6)))
+                             self.format_timestamp.convert(self.sync['interval'], granularity=5)))
         
         # Last global update informations
         # For more details see -> class EmergeLogParser -> last_world_update()
@@ -225,13 +225,13 @@ class PortageHandler:
                 self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
                 logger.debug('Recalculate sync remain timestamp:' 
                                   + ' {0}'.format(self.sync['remain']))
-            
+            # For debug better to output with granularity=5
             logger.debug('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed']), granularity=5))
             logger.debug('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'], granularity=5)))
             logger.debug('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
+                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
             
             if init_run:
                 logger.info('Found {0}'.format(self.sync['repos']['count']) 
@@ -406,9 +406,10 @@ class PortageHandler:
                 self.retry += 1
                 logger.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
                                                                                  self.retry))
+                # If granularity=5 then rounded=False
                 logger.error('Anyway will retry{0} sync in {1}.'.format(msg_on_retry,
                                                                       self.format_timestamp.convert(
-                                                                          self.sync['remain'])))
+                                                                          self.sync['remain'], granularity=5)))
             else:
                 # Ok so this is not an network problem for main gentoo repo
                 # DONT disable sync just keep syncing every 'interval'
@@ -430,7 +431,8 @@ class PortageHandler:
                 # At the end 
                 logger.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
                 logger.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
-                                                                            self.sync['interval'])))
+                                                                            self.sync['interval'], granularity=5
+                                                                                                  )))
                 
                 logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
                 # Any way reset remain to interval
@@ -474,7 +476,7 @@ class PortageHandler:
             logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             # Reset remain to interval
             self.sync['remain'] = self.sync['interval']
-            logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
+            logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
                     
         # Write / mod value only if change
         for value in 'state', 'retry', 'network_error':
