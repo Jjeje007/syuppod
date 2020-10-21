@@ -484,7 +484,7 @@ class StateInfo:
                         if item[0] in tomerge:
                             # Try to compare using int() then StrictVersion()
                             greatest = self.__compare(*tomerge[item[0]], item[1], option=item[0])
-                            logger.name = f'{self.logger_name}config::'
+                            #logger.name = f'{self.logger_name}config::'
                             if greatest:        
                                 logger.debug(f'Merging value for option \'{item[0]}\':'
                                                     + f' current: \'{item[1]}\', newer: \'{greatest}\'.')
@@ -523,8 +523,6 @@ class StateInfo:
                                     item[1] = self.stateopts[item[0]]
                 # End piouff ;p
                 if changed:
-                    # Same here set saving to True wa are writing
-                    #self.saving = True
                     # Erase file
                     mystatefile.seek(0)
                     mystatefile.truncate()
@@ -534,7 +532,6 @@ class StateInfo:
                         line = f'{option[0]}{value}\n'
                         mystatefile.write(line)
                     # End writing
-                    #self.saving = False
                     logger.debug('Write changes to statefile: Success.')
                 else:
                     logger.debug('All good, keeping previously state file untouched.')
@@ -545,14 +542,15 @@ class StateInfo:
 
 class FormatTimestamp:
     """
-    Convert seconds to time, optional rounded, depending of granularity's degrees.
+    Convert seconds to time, optional rounded and nuanced, depending of granularity's degrees.
     inspired by https://stackoverflow.com/a/24542445/11869956
     """
     # TODO logger !!
+    # Be carefull because this should NOT be call a lot (mean every 0.1s for ex)... 
     
     def __init__(self):
-        #self.logger_name = f'::{__name__}::FormatTimestamp::'
-        #logger = logging.getLogger(f'{self.logger_name}init::')  
+        self.logger_name = f'::{__name__}::FormatTimestamp::'
+        logger = logging.getLogger(f'{self.logger_name}init::')  
         # Dict ordered only with python >= 3.7
         if sys.version_info[:2] < (3, 7):
             from collections import OrderedDict 
@@ -622,7 +620,7 @@ class FormatTimestamp:
         """
         Proceed the conversion
         """
-        #logger = logging.getLogger(f'{self.logger_name}convert::') 
+        logger = logging.getLogger(f'{self.logger_name}convert::') 
         def __format(result):
             """
             Return the formatted result
@@ -672,9 +670,12 @@ class FormatTimestamp:
             
         # Make sure granularity is an integer
         if not isinstance(granularity, int):
-            raise ValueError(f'Granularity should be an integer: {granularity}')
-        # Make sure granularity is between 1-5
-        assert 0 < granularity < 6, f'Granularity argument out of range [1-5]: {granularity}'
+            #raise ValueError(f'Granularity should be an integer: {granularity}')
+            logger.error(f'Granularity should be an integer: {granularity} (falling back to default: 2)')
+        # and it between 1-5
+        elif not 0 < granularity < 6:
+            logger.error(f'Granularity argument out of range [1-5]: {granularity} (falling back to default: 2)')
+            granularity = 2
         
         # For seconds only don't need to compute
         if seconds < 0:
@@ -736,7 +737,7 @@ class FormatTimestamp:
             else:
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in __format(result[:granularity]))
-            
+        # Ok so now let's recompute    
         start = length - 1
         # Reverse list so the firsts elements 
         # could be not selected depending on granularity.
