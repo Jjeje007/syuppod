@@ -114,7 +114,7 @@ class PortageHandler:
         self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
         # Retrieve status of saving from stateinfo
         # WARNING We have to be really carefull about this:
-        # ATW stateinfo can't be call twice in the same time.
+        # As of 2020/11/15 stateinfo can't be call twice in the same time.
         # But for the future better to leave comment and WARNING
         self.saving_status = self.stateinfo.saving
         loaded_stateopts = False
@@ -578,6 +578,9 @@ class PortageHandler:
             mycapture = io.StringIO()
             child.logfile = mycapture
             # Wait non blocking 
+            # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
+            # but this will not block every TEST push to 60s ... 30s got two TIMEOUT back-to-back
+            pexpect_timeout = 60
             while not child.closed and child.isalive():
                 if self.pretend['cancel']:
                     # So we want to cancel
@@ -589,9 +592,7 @@ class PortageHandler:
                     logger.debug('Received exit order.')
                     break
                 try:
-                    # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
-                    # but this will not block every TEST push to 60s ... 30s got two TIMEOUT back-to-back
-                    child.read_nonblocking(size=1, timeout=60)
+                    child.read_nonblocking(size=1, timeout=pexpect_timeout)
                     # We don't care about recording what ever since we recording from child.logfile 
                     # We wait until reach EOF
                 except pexpect.EOF:
@@ -602,7 +603,8 @@ class PortageHandler:
                     # TODO This should be retried ?
                     logger.error('Got unexcept timeout while running:' 
                                  + f' command: \'{mycommand}\''
-                                 + ' and args: \'{0}\'.'.format(' '.join(myargs)))
+                                 + ' and args: \'{0}\''.format(' '.join(myargs))
+                                 + f' (timeout: {pexpect_timeout}) (please report this).')
                     break
                 
                 
@@ -1204,7 +1206,7 @@ class EmergeLogParser:
             # First workaround should be try / except : don't record this and print a warning !
             for key in 'start', 'stop', 'total':
                 try:
-                    self.group.get(key)
+                    self.group[key]
                 except KeyError:
                     logger.error('While saving completed world update informations,')
                     logger.error(f'got KeyError for key {key}, skip saving but please report this.')
@@ -1245,6 +1247,7 @@ class EmergeLogParser:
                         'total' in self.group['saved'] ):
                         # Save lines
                         if current_package:
+                            # This will just record line from current package (~10lines max)
                             record.append(line)
                         if failed.match(line):
                             # We don't care about record here so reset it
