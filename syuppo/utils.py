@@ -11,7 +11,6 @@ import sys
 import time
 import signal
 import gettext
-import locale
 import logging
 
 from distutils.version import StrictVersion
@@ -26,17 +25,7 @@ except Exception as exc:
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
-
-
-mylocale = locale.getdefaultlocale()
-# see --> https://stackoverflow.com/a/10174657/11869956 thx
-#localedir = os.path.join(os.path.dirname(__file__), 'locales')
-# or python > 3.4:
-localedir = pathlib.Path(__file__).parent/'locales'
-lang_translations = gettext.translation('utils', localedir, languages=[mylocale[0]], fallback=True)
-lang_translations.install()
-_ = lang_translations.gettext
-
+_ = gettext.gettext
 
 
 class StateInfo:
@@ -616,7 +605,7 @@ class FormatTimestamp:
             }
         
         
-    def convert(self, seconds, granularity=2, rounded=True, translate=False, nuanced=True):
+    def convert(self, seconds, granularity=2, rounded=True, translate=False, nuanced=False):
         """
         Proceed the conversion
         """
@@ -853,7 +842,7 @@ class FormatTimestamp:
                         })
         # TEST try to nuance rounded result
         # Same here cannot pass empty string to gettext...
-        nuanced_msg = _('\0')
+        nuanced_msg = '\0'
         if nuanced:
             # from (-)1s left to (-)59s: "a little bit less/more"
             # from (-)60s (1min) to (-)3599s (59min/59s): "a bit less/more"
@@ -916,13 +905,15 @@ def on_parent_exit(signame='SIGTERM'):
     return set_parent_exit_signal
 
 
-def _format_timestamp(seconds, opt, translate):
+def _format_timestamp(seconds, opt):
     """
     Client helper for formatting timestamp depending on opts
     """
     # Default values
     rounded = True
     granularity = 2
+    nuanced = True
+    
     pattern = re.compile(r'^\w+(\:r|\:u)?(\:\d)?$')
     for match in pattern.finditer(opt):
         if match.group(1) == ':u':
@@ -932,7 +923,9 @@ def _format_timestamp(seconds, opt, translate):
             # remove ':'
             granularity = int(granularity[1:])
     myformatter = FormatTimestamp()
-    msg = myformatter.convert(seconds, granularity=granularity, rounded=rounded, translate=translate)
+    # Translate is True for syuppoc part 
+    msg = myformatter.convert(seconds, granularity=granularity, rounded=rounded, 
+                              translate=True, nuanced=nuanced)
     return msg 
 
 
@@ -941,7 +934,7 @@ def _format_date(timestamp, opt):
     Client helper for formatting date
     """
     # Default value
-    display='long'
+    display='medium'
     trans = { 
             ':s' :   'short',
             ':m' :   'medium',
@@ -955,10 +948,5 @@ def _format_date(timestamp, opt):
             display = match.group(1)
             display = trans[display]
     
-    mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display, locale=mylocale[0])
-    #if display == 'long':
-        # We don't need this, using 'medium' and it will automatically remove '+0100' ;)
-        #HACK This is a tweak, user should be aware
-        #This removed :  +0100 at the end of 'long' output
-        #mydate = mydate[:-6]
+    mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display)#, locale=mylocale[0])
     return mydate

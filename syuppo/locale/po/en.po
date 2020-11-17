@@ -1,0 +1,278 @@
+# This a translation for syuppoc, client of syuppod
+# Copyright (C) 2019-2020 Venturi Jérôme <jerome.venturi@gmail.com>
+# This file is distributed under the same license as the syuppod package (GNU GPL V3 or above).
+# Venturi Jerome, 2019-2020.
+#
+#: utils.py:856
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: syuppoc git\n"
+"Report-Msgid-Bugs-To: https://github.com/Jjeje007/syuppod\n"
+"POT-Creation-Date: 2020-11-17 13:28+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: Venturi Jérôme <jerome.venturi@gmail.com>\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: utils.py:582
+msgid "weeks"
+msgstr "weeks"
+
+#: utils.py:583
+msgid "days"
+msgstr "days"
+
+#: utils.py:584
+msgid "hours"
+msgstr "hours"
+
+#: utils.py:585
+msgid "minutes"
+msgstr "minutes"
+
+#: utils.py:586 client.py:149 client.py:171
+msgid "seconds"
+msgstr "seconds"
+
+#: utils.py:588
+msgid "week"
+msgstr "week"
+
+#: utils.py:589
+msgid "day"
+msgstr "day"
+
+#: utils.py:590
+msgid "hour"
+msgstr "hour"
+
+#: utils.py:591
+msgid "minute"
+msgstr "minute"
+
+#: utils.py:592
+msgid "second"
+msgstr "second"
+
+#: utils.py:593
+msgid " and"
+msgstr " and"
+
+#: utils.py:594
+msgid ","
+msgstr ","
+
+#: utils.py:683
+msgid "any time now"
+msgstr "any time now"
+
+#: utils.py:687
+msgid "less than a minute"
+msgstr "less than a minute"
+
+#: utils.py:871
+msgid "more than "
+msgstr "more than "
+
+#: utils.py:873
+msgid "a bit more than "
+msgstr "a bit more than "
+
+#: utils.py:875
+msgid "a little bit more than "
+msgstr "a little bit more than "
+
+#: utils.py:879
+msgid "less than "
+msgstr "less than "
+
+#: utils.py:881
+msgid "a bit less than "
+msgstr "a bit less than "
+
+#: utils.py:883
+msgid "a little bit less than "
+msgstr "a little bit less than "
+
+#: client.py:60
+msgid "Success"
+msgstr "Success"
+
+#: client.py:61
+msgid "Failed"
+msgstr "Failed"
+
+#: client.py:62
+msgid "Program never sync"
+msgstr "Program never sync"
+
+#: client.py:63
+msgid "Last state of the repositories syncronizer:"
+msgstr "Last state of the repositories syncronizer:"
+
+#: client.py:85
+msgid "Session"
+msgstr "Session"
+
+#: client.py:86
+msgid "Overall"
+msgstr "Overall"
+
+#: client.py:89
+msgid "The repositories syncronizer run successfully:"
+msgstr "The repositories syncronizer run successfully:"
+
+#: client.py:96
+msgid "time"
+msgstr "time"
+
+#: client.py:98
+msgid "times"
+msgstr "times"
+
+#: client.py:115
+msgid "seconds since epoch (unix / posix time)"
+msgstr "seconds since epoch (unix / posix time)"
+
+#: client.py:118
+msgid "The "
+msgstr "The "
+
+#: client.py:124
+msgid "There is "
+msgstr "There is "
+
+#: client.py:125
+msgid "ago"
+msgstr "ago"
+
+#: client.py:128
+msgid "Last repositories synchronization:"
+msgstr "Last repositories synchronization:"
+
+#: client.py:153
+msgid "Current repositories synchronization interval:"
+msgstr "Current repositories synchronization interval:"
+
+#: client.py:165
+msgid "Current repositories synchronization elapsed time:"
+msgstr "Current repositories synchronization elapsed time:"
+
+#: client.py:166
+msgid "Current repositories synchronization remain time:"
+msgstr "Current repositories synchronization remain time:"
+
+#: client.py:190
+msgid "Portage package update status:"
+msgstr "Portage package update status:"
+
+#: client.py:194
+msgid "Available"
+msgstr "Available"
+
+#: client.py:196
+msgid "Not available"
+msgstr "Not available"
+
+#: client.py:200
+msgid "Available portage package update, version:"
+msgstr "Available portage package update, version:"
+
+#: client.py:207
+#, python-brace-format
+msgid "Available (from {0} to {1})"
+msgstr "Available (from {0} to {1})"
+
+#: client.py:209
+#, python-brace-format
+msgid "Not available ({0})"
+msgstr "Not available ({0})"
+
+#: client.py:221 client.py:246
+msgid "None"
+msgstr "None"
+
+#: client.py:225
+msgid "Available packages to update:"
+msgstr "Available packages to update:"
+
+#: client.py:239
+msgid "Last world update state:"
+msgstr "Last world update state:"
+
+#: client.py:242
+msgid "Last world update packages:"
+msgstr "Last world update packages:"
+
+#: client.py:247
+msgid "Last world update failed package:"
+msgstr "Last world update failed package:"
+
+#: client.py:250
+msgid "Last world update failed packages:"
+msgstr "Last world update failed packages:"
+
+#: client.py:253 client.py:257
+#, python-brace-format
+msgid "The {0}"
+msgstr "The {0}"
+
+#: client.py:254
+msgid "Last world update started:"
+msgstr "Last world update started:"
+
+#: client.py:258
+msgid "Last world update stoped:"
+msgstr "Last world update stoped:"
+
+#: client.py:263
+#, python-brace-format
+msgid "There is {0} ago"
+msgstr "There is {0} ago"
+
+#: client.py:264
+msgid "Last world update finished:"
+msgstr "Last world update finished:"
+
+#: client.py:270
+msgid "Last world update lasted:"
+msgstr "Last world update lasted:"
+
+#: client.py:308
+msgid "Sync is in progress, abording..."
+msgstr "Sync is in progress, abording..."
+
+#: client.py:309
+msgid "Global update is in progress, abording..."
+msgstr "Global update is in progress, abording..."
+
+#: client.py:310
+msgid "Recompute already in progress, abording..."
+msgstr "Recompute already in progress, abording..."
+
+#: client.py:311
+#, python-brace-format
+msgid "Recompute have just been completed {0} ago.\n"
+msgstr "Recompute have just been completed {0} ago.\n"
+
+#: client.py:312
+#, python-brace-format
+msgid "{0}You have to wait "
+msgstr "{0}You have to wait "
+
+#: client.py:313
+#, python-brace-format
+msgid "{0} before you can run it again."
+msgstr "{0} before you can run it again."
+
+#: client.py:314
+#, python-brace-format
+msgid "Order have been sent, see {0} for more details."
+msgstr "Order have been sent, see {0} for more details."
+
+#: client.py:318
+msgid "Force recompute available update packages:"
+msgstr "Force recompute available update packages:"

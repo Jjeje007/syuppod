@@ -10,11 +10,10 @@
 
 import time 
 import sys
-import locale
 import gettext
 import pathlib
 import re
-#import argcomplete
+
 
 from syuppo.argsparser import ClientParserHandler
 from syuppo.utils import _format_date
@@ -40,14 +39,18 @@ except Exception as exc:
 # Dbus server run as system
 bus = SystemBus()
 
-mylocale = locale.getdefaultlocale()
-error_msg = [ ]
-localedir = pathlib.Path(__file__).parent/'locales'    
-lang_translations = gettext.translation('client', localedir, languages=[mylocale[0]], fallback=True)
-lang_translations.install()
-# TODO check if we really need this :p
-translate = True
-_ = lang_translations.gettext
+# Internationalization
+# This doesn't need to be portable because it intend to be run only on gentoo
+# For now :) (but portage can be can anywhere ...)
+
+localedir = pathlib.Path(__file__).parent/'locale/'
+if not pathlib.Path(localedir).is_dir():
+    localedir = '/usr/share/locale/'
+
+domain = gettext.textdomain('syuppoc')
+gettext.install(domain)
+gettext.bindtextdomain(domain, localedir)
+_ = gettext.gettext
 
 ## TODO wait until daemon API is stabilized then update all this :p
 ## TODO better english (try it :p )
@@ -99,7 +102,7 @@ def count(myobject, count, machine):
             print('    - {0}: {1} {2}'.format(_(key_opt[item]), reply, _(msg)))
 
      
-def timestamp(myobject, formatting, machine, translate):
+def timestamp(myobject, formatting, machine):
     """Display last portage update as a formatted timestamp depending on formatting"""
     # This is for --all argument
     if not formatting:
@@ -120,7 +123,7 @@ def timestamp(myobject, formatting, machine, translate):
     elif 'elapsed' in opt:
         current_timestamp = time.time()
         elapsed = round(current_timestamp - int(reply))
-        msg = _format_timestamp(elapsed, opt, translate)
+        msg = _format_timestamp(elapsed, opt)
         additionnal_msg.append(_('There is '))
         additionnal_msg.append(_('ago'))
     # Now format 
@@ -131,7 +134,7 @@ def timestamp(myobject, formatting, machine, translate):
         print('{0}{1} {2}'.format(_(additionnal_msg[0]), _(msg), _(additionnal_msg[1])))
 
 
-def interval(myobject, interval, machine, translate):
+def interval(myobject, interval, machine):
     """Display or modify tree updater interval"""
     # This is for --all argument
     if not interval:
@@ -148,7 +151,7 @@ def interval(myobject, interval, machine, translate):
             msg = reply
             additionnal_msg = (_('seconds'))
         else:
-            msg = _format_timestamp(reply, interval, translate)
+            msg = _format_timestamp(reply, interval)
         if not machine:
             print('[*]', _('Current repositories synchronization interval:'))
             print('    - {0} {1}'.format(_(msg), _(additionnal_msg)))
@@ -156,7 +159,7 @@ def interval(myobject, interval, machine, translate):
             print(msg)
 
 
-def elapsed_remain(myobject, switch, opt, machine, translate):
+def elapsed_remain(myobject, switch, opt, machine):
     """Display tree updater remain time formatted depending on opts"""
     # Default for --all argument
     if not opt:
@@ -170,7 +173,7 @@ def elapsed_remain(myobject, switch, opt, machine, translate):
         msg = reply
         additionnal_msg = _('seconds')
     else:
-        msg = _format_timestamp(reply, opt, translate)
+        msg = _format_timestamp(reply, opt)
         additionnal_msg = '\0' # woraround gettext
     if not machine:
         print('[*] {0}'.format(_(translate[switch])))
@@ -228,7 +231,7 @@ def packages(myobject, machine):
         print(msg)
      
      
-def last(myobject, last, machine, translate):
+def last(myobject, last, machine):
     """Display informations about last world update"""
     # Default for --all argument
     if not last:
@@ -260,13 +263,13 @@ def last(myobject, last, machine, translate):
         reply = int(myobject.get_world_attribute('stop'))
         current_timestamp = time.time()
         elapsed = round(current_timestamp - reply)
-        msg = _('There is {0} ago').format(_format_timestamp(elapsed, last, translate))
+        msg = _('There is {0} ago').format(_format_timestamp(elapsed, last))
         additionnal_msg = _('Last world update finished:')
     elif 'duration' in last:
         start = int(myobject.get_world_attribute('start'))
         stop = int(myobject.get_world_attribute('stop'))
         duration = round(stop - start)
-        msg = _format_timestamp(duration, last, translate)
+        msg = _format_timestamp(duration, last)
         additionnal_msg = _('Last world update lasted:')
     # Display
     if not machine:
@@ -327,15 +330,13 @@ def parser(args):
     portcaller = {
         'state'     :   { 'func': state, 'args' : [myobject, 'state', args.machine] },
         'count'     :   { 'func': count, 'args' : [myobject, args.count, args.machine] },
-        'timestamp' :   { 'func': timestamp, 'args' : [myobject, args.timestamp, args.machine, translate] },
-        'interval'  :   { 'func': interval, 'args' : [myobject, args.interval, args.machine, translate] },
-        'elapsed'   :   { 'func': elapsed_remain, 'args' : [myobject, 'elapsed', args.elapsed, args.machine,
-                                                                     translate] },
-        'remain'    :   { 'func': elapsed_remain, 'args' : [myobject, 'remain', args.remain, args.machine, 
-                                                                     translate] },
+        'timestamp' :   { 'func': timestamp, 'args' : [myobject, args.timestamp, args.machine] },
+        'interval'  :   { 'func': interval, 'args' : [myobject, args.interval, args.machine] },
+        'elapsed'   :   { 'func': elapsed_remain, 'args' : [myobject, 'elapsed', args.elapsed, args.machine] },
+        'remain'    :   { 'func': elapsed_remain, 'args' : [myobject, 'remain', args.remain, args.machine] },
         'available' :   { 'func': available, 'args' : [myobject, args.available, args.machine] },
         'packages'  :   { 'func': packages, 'args' : [myobject, args.machine] },
-        'last'      :   { 'func': last, 'args' : [myobject, args.last, args.machine, translate] },
+        'last'      :   { 'func': last, 'args' : [myobject, args.last, args.machine] },
         'forced'    :   { 'func': forced, 'args' : [myobject, args.machine] }
         }
     
