@@ -7,7 +7,6 @@
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 # TEST in progress: exit gracefully 
-# TODO TODO TODO move dosync() from sudo to nothing (this mean: portage db SHOULD have the good rights (and also overlays) !!
 # TODO write GOOD english :p
 # TODO : debug log level !
 # TODO threading cannot share object attribute 
@@ -261,7 +260,7 @@ class MainDaemon(threading.Thread):
         # Here or it will never return to main()
         # But be sure it have been run()
         logger.debug('Received exit order...')
-        if self.myport['dbus'].is_running():
+        if self.myport['dbus'] and self.myport['dbus'].is_running():
             start_time = timing_exit['processor']()
             logger.debug('Sending quit() to dbus loop (Glib.MainLoop()).')
             self.myport['dbus'].quit()
@@ -407,7 +406,7 @@ def main():
                     logger.error('Exiting with status \'1\'.')
                     sys.exit(1)
         else:
-            logger.info('Dryrun is enabled, skipping all write process.')
+            logger.warning('Dryrun is enabled, skipping all write process.')
           
     # Setup level logging (default = INFO)
     if args.debug and args.quiet:
@@ -420,9 +419,12 @@ def main():
     elif args.quiet:
         logger.setLevel(logging.ERROR)
     
-    # Init dbus service
-    dbusloop = GLib.MainLoop()
-    dbus_session = SystemBus()
+    if args.nodbus:
+        logger.warning("Dbus binding is DISABLED.")
+    else:
+        # Init dbus service
+        dbusloop = GLib.MainLoop()
+        dbus_session = SystemBus()
     
     # Init Emerge log watcher
     # For now status of emerge --sync and @world is get directly from portagemanager module
@@ -443,24 +445,31 @@ def main():
     myport = { }
     myport['manager'] = myportmanager
     myport['watcher'] = myportwatcher
-    myport['dbus'] = dbusloop
+    if not args.nodbus:
+        myport['dbus'] = dbusloop
+    else:
+        myport['dbus'] = False
+        
     
     failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
                                + r'.own.the.service.*due.to.security'
                                + r'.policies.in.the.configuration.file.*$')
-    busconfig = True
-    # Adding dbus publisher
-    try:
-        dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
-    except GLib.GError as error:
-        error = str(error)
-        if failed_access.match(error):
-            logger.error(f'Got error: {error}')
-            logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
-                         + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
-        else:
-            logger.error(f'Got unexcept error: {error}')
-        logger.error('Dbus bindings have been DISABLED !!')
+    if not args.nodbus:
+        busconfig = True
+        # Adding dbus publisher
+        try:
+            dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+        except GLib.GError as error:
+            error = str(error)
+            if failed_access.match(error):
+                logger.error(f'Got error: {error}')
+                logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
+                            + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
+            else:
+                logger.error(f'Got unexcept error: {error}')
+            logger.error('Dbus bindings have been DISABLED !!')
+            busconfig = False
+    else:
         busconfig = False
     
     # Init daemon thread
