@@ -616,37 +616,35 @@ class FormatTimestamp:
             """
             start = 1 
             length = len(result)
-            none = 0
+            #none = 0
             next_item = False
             for item in reversed(result[:]):
-                if item['value']:
-                    # if we have more than one item
-                    if length - none > 1:
-                        # This is the first 'real' item 
-                        if start == 1:
-                            item['punctuation'] = ''
-                            next_item = True
-                        elif next_item:
-                            # This is the second 'real' item
-                            # Happend 'and' to key punctuation
-                            item['punctuation'] = ' and'
-                            next_item = False
-                        # If there is more than two 'real' item
-                        # than happend ','
-                        elif 2 < start:
-                            item['punctuation'] = ','
-                        else:
-                            item['punctuation'] = ''
+                #if item['value']:
+                # if we have more than one item
+                if length > 1:
+                    # This is the first item 
+                    if start == 1:
+                        item['punctuation'] = ''
+                        next_item = True
+                    elif next_item:
+                        # This is the second item
+                        # Happend 'and' to key punctuation
+                        item['punctuation'] = ' and'
+                        next_item = False
+                    # If there is more than two item
+                    # than happend ','
+                    elif 2 < start:
+                        item['punctuation'] = ','
                     else:
                         item['punctuation'] = ''
-                    start += 1
                 else:
-                    none += 1
+                    item['punctuation'] = ''
+                start += 1
+                #else:
+                    #none += 1
             return [ { 'value'        :   mydict['value'], 
                        'name'         :   mydict['name_rstrip'],
                        'punctuation'  :   mydict['punctuation'] } for mydict in result ]
-            # TEST value == None is removed: in last 'result' list iteration
-            # And clean up if not rounded or granularity > len(result)
                       
         def __rstrip(value, name):
             """
@@ -667,19 +665,26 @@ class FormatTimestamp:
             granularity = 2
         
         # For seconds only don't need to compute
-        if seconds < 0:
-            if translate:
-                return _('any time now')
-            return 'any time now'
-        elif seconds < 60:
-            if translate:
-                return _('less than a minute')
-            return 'less than a minute'
+        if seconds < 60:
+            if seconds < 0:
+                if translate:
+                    return _('any time now')
+                return 'any time now'
+            elif 0 < seconds < 60:
+                if translate:
+                    return _('less than a minute')
+                return 'less than a minute'
+            elif seconds == 0:
+                if translate:
+                    return _('now')
+                return 'now'
          
         # TEST save seconds for latter 
         seconds_arg = seconds 
         
         result = []
+        # Get the length of the list
+        length = 0
         for name, count in self.intervals.items():
             value = seconds // count
             if value:
@@ -694,156 +699,175 @@ class FormatTimestamp:
                         'seconds'      :   value * count,
                         'count'        :   count
                                  })
-            else:
-                if len(result) > 0:
-                    # We strip the name as second == 0
-                    name_rstrip = name.rstrip('s')
-                    # adding None to key 'value' but keep other value
-                    # in case when need to add seconds when we will 
-                    # recompute every thing
-                    result.append({ 
-                        'value'        :   None,
-                        'name_rstrip'  :   name_rstrip,
-                        'name'         :   name, 
-                        'seconds'      :   0,
-                        'count'        :   count
-                                 })
-        
-        # Get the length of the list
-        length = len(result)
+                length += 1
+                
         # Don't need to compute everything / everytime
         # added result[:granularity] for rounded
-        if length < granularity or not rounded:
-             # Clean-up / remove all value == None
-            for item in result[:]:
-                if item['value'] == None:
-                    result.remove(item)
+        # Ok so length = granularity and if rounded 
+        # then it could be rounded as well
+        if length <= granularity or not rounded:
+            logger.debug(f"Not rounded: length: {length}, granularity:"
+                         + f" {granularity}, rounded: {rounded}.")
             # Translation 
             if translate:
+                logger.debug("Translate enabled.")
                 return ' '.join('{0} {1}{2}'.format(item['value'], _(self.translate[item['name']]), 
                                                 _(self.translate[item['punctuation']])) \
                                                 for item in __format(result[:granularity]))
             else:
+                logger.debug("Translate disabled.")
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in __format(result[:granularity]))
-        # Ok so now let's recompute    
-        start = length - 1
+        # Ok so now let's recompute
+        logger.debug(f"Could be rounded: length: {length}, granularity:"
+                    + f" {granularity}, rounded: {rounded}.")
+        logger.debug("Current state of result list:")
+        for item in result:
+            logger.debug(f"Item: {item}")
+        start = length #- 1
+        
+        # FIRST PASS
         # Reverse list so the firsts elements 
         # could be not selected depending on granularity.
         # And we can delete item after we had its seconds to next
         # item in the current list (result)
+        logger.debug('Reversing result list for inspecting.')
+        rounded_applied = False
         for item in reversed(result[:]):
-            if granularity <= start <= length - 1:
-                # So we have to round
+            logger.debug(f"Granularity: {granularity}, start: {start}, length: {length}")
+            logger.debug(f"Current item: {item}")
+            if granularity <= start: # <= length - 1:
+                # Get the next item 
+                nextkey_name = self.nextkey[item['name']]
+                logger.debug(f"Next key name from intervals: {nextkey_name}")
                 current_index = result.index(item)
                 next_index = current_index - 1
-                # skip item value == None
+                logger.debug(f"List index: current: {current_index}, next:"
+                             + f" {next_index}")
                 # if the seconds of current item is superior
-                # to the half seconds of the next item: round
-                if item['value'] and item['seconds'] > result[next_index]['count'] // 2:
-                    # +1 to the next item (in seconds: depending on item count)
-                    result[next_index]['seconds'] += result[next_index]['count']
-                # Remove item which is not selected
-                del result[current_index]
+                # to the half seconds of the next key from self.intervals
+                # then we can round
+                if item['seconds'] > self.intervals[nextkey_name] // 2:
+                    rounded_applied = True
+                    logger.debug("Rounding the current item.")
+                    # Remove item which is not selected
+                    logger.debug("Removing current item.")
+                    del result[current_index]
+                    # So now, check if next item from result list exits
+                    if result[next_index]['name'] == nextkey_name:
+                        logger.debug("Next item in result list exists:"
+                                    + " current seconds:"
+                                    + f" {result[next_index]['seconds']}.")
+                        # ok it exits then
+                        # +1 to the next item (in seconds: depending on item count)
+                        result[next_index]['seconds'] += result[next_index]['count']
+                        logger.debug("Adding +1" 
+                                    + f" ({result[next_index]['count']})"
+                                    + " to next item: recalcul:"
+                                    + f" {result[next_index]['seconds']}.")
+                    else:
+                        # we have to create it
+                        create_item = {
+                                       # Ok so value is 1
+                                       'value'      :   1,
+                                       # need to rstrip
+                                       'name_rstrip':   nextkey_name.rstrip('s'),
+                                       'name'       :   nextkey_name,
+                                       # Seconds and count are equal because value is 1
+                                       'seconds'    :   self.intervals[nextkey_name],
+                                       'count'      :   self.intervals[nextkey_name]
+                                       }
+                        logger.debug(f"Item created and appended: {create_item}.")
+                        # insert in the list
+                        result.append(create_item)
+                
+                # Then reduce length
+                length -= 1
             start -= 1
-        # Ok now recalcul every thing
-        # Reverse as well 
-        for item in reversed(result[:]):
-            # Check if seconds is superior or equal to the next item 
-            # but not from 'result' list but from 'self.intervals' dict
-            # Make sure it's not None
-            if item['value']:
-                next_item_name = self.nextkey[item['name']]
-                # This mean we are at weeks
-                if item['name'] == next_item_name:
-                    # Just recalcul
-                    #print(f"Item value: {item['value']}, seconds: {item['seconds']},"
-                          #f" count: {item['count']}, name: {item['name']}")
-                    item['value'] = item['seconds'] // item['count']
-                    item['name_rstrip'] = __rstrip(item['value'], item['name'])
-                # Stop to weeks to stay 'right' 
-                elif item['seconds'] >= self.intervals[next_item_name]:
+        
+        logger.debug("Current state of result list after first pass:")
+        for item in result:
+            logger.debug(f"Item: {item}")
+        
+        # SECOND PASS
+        if not rounded_applied:
+            logger.debug("The rounded haven't been applied, skipping"
+                         + " recompute.")
+        else:
+            logger.debug("The rounded have been applied, recompute is"
+                         + " necessary, reversing result list.")
+            # Ok now recalcul every thing
+            # Reverse as well
+            for item in reversed(result[:]):
+                # Check if seconds is superior or equal to the next item 
+                # but not from 'result' list but from 'self.intervals' dict
+                nextkey_name = self.nextkey[item['name']]
+                logger.debug(f"Next key name from intervals: {nextkey_name}")
+                current_index = result.index(item)
+                next_index = current_index - 1
+                logger.debug(f"List index: current: {current_index}, next:"
+                             + f" {next_index}")
+                # Stop to weeks
+                if item['seconds'] >= self.intervals[nextkey_name] and not \
+                    item['name'] == 'weeks':
+                    logger.debug("This item have to be removed and its values"
+                                 + " should be added to the next item")
+                    logger.debug(f"Current item values: {item}")
+                    # Remove current item
+                    logger.debug("Removing current item")
+                    del result[result.index(item)]
                     # First make sure we have the 'next item'
-                    # found via --> https://stackoverflow.com/q/26447309/11869956
-                    # maybe there is a faster way to do it ? - TODO
-                    if any(search_item['name'] == next_item_name for search_item in result):
-                        next_item_index = result.index(item) - 1
+                    if result[next_index]['name'] == nextkey_name:
+                        logger.debug("Next item in result list exists:"
+                                    + " current values:"
+                                    + f" {result[next_index]}.")
                         # Append to
-                        result[next_item_index]['seconds'] += item['seconds']
+                        result[next_index]['seconds'] += item['seconds']
                         # recalcul value
-                        result[next_item_index]['value'] = result[next_item_index]['seconds'] // \
-                                                           result[next_item_index]['count']
+                        result[next_index]['value'] = result[next_index]['seconds'] // \
+                                                        result[next_index]['count']
                         # strip or not
-                        result[next_item_index]['name_rstrip'] = __rstrip(result[next_item_index]['value'],
-                                                                       result[next_item_index]['name'])
+                        result[next_index]['name_rstrip'] = __rstrip(result[next_index]['value'],
+                                                                    result[next_index]['name'])
+                        logger.debug(f"Recalculate item values: {result[next_index]}")
                     else:
                         # Creating 
-                        next_item_index = result.index(item) - 1
                         # get count
-                        next_item_count = self.intervals[next_item_name]
+                        next_item_count = self.intervals[nextkey_name]
                         # convert seconds
                         next_item_value = item['seconds'] // next_item_count
                         # strip 's' or not
-                        next_item_name_strip = __rstrip(next_item_value, next_item_name)
+                        next_item_name_strip = __rstrip(next_item_value, nextkey_name)
                         # added to dict
                         next_item = {
-                                       'value'      :   next_item_value,
-                                       'name_rstrip' :   next_item_name_strip,
-                                       'name'       :   next_item_name,
-                                       'seconds'    :   item['seconds'],
-                                       'count'      :   next_item_count
-                                       }
+                                    'value'      :   next_item_value,
+                                    'name_rstrip' :   next_item_name_strip,
+                                    'name'       :   nextkey_name,
+                                    'seconds'    :   item['seconds'],
+                                    'count'      :   next_item_count
+                                    }
                         # insert to the list
-                        result.insert(next_item_index, next_item)
-                    # Remove current item
-                    del result[result.index(item)]
+                        result.append(next_item)
+                        logger.debug(f"Item created and appended: {next_item}.")
+                    
                 else:
                     # for current item recalculate
                     # keys 'value' and 'name_rstrip'
+                    logger.debug("Keeping current item, current values:"
+                                + f" {item}")
                     item['value'] = item['seconds'] // item['count']
                     item['name_rstrip'] = __rstrip(item['value'], item['name'])
-            # If value == None then delete
-            else:
-                result.remove(item)
-        
-        # TEST if list result < granularity then
-        # try to add result from  interval's latest result list (mean '[-1]') + 2
-        if len(result) < granularity:
-            seconds_sum = 0
-            for item in result:
-                if not item['value'] == None:
-                    seconds_sum += item['seconds']
-            # If seconds left (if any) > latest item from 'result' list - 2:
-            # This mean, for exemple if granularity = 2, len = 1, latest item = 'weeks'
-            # then, since we rounded, it could have seconds left but these seconds are < 'days'
-            # but could be calculate using 'hours', and we still output two item (like requested
-            # by granularity = 2). This is for fine tunning rounded process otherwise, to use the exmple,
-            # We output 'weeks' until 'days' is reached: during 23h59m59s... It's a long long time (even if rounded).
+                    logger.debug(f"Recalculate item values: {item}")
+                    
+        logger.debug("Current state of result list after second pass:")
+        for item in result:
+            logger.debug(f"Item: {item}") 
             
-            # So first make sure we are not out of range and will not get us to 'seconds'
-            last_result_id = self.byname[result[-1]['name']]
-            if last_result_id - 2 > 0:
-                # First get name using id 
-                name_by_id = self.byid[last_result_id - 2]
-                # Then make sure we have seconds left and its >= to intervals[last_result_id - 2]
-                if seconds_arg - seconds_sum >= self.intervals[name_by_id]:
-                    # So reconstruct and add a new dict to list 'result'
-                    seconds = seconds_arg - seconds_sum
-                    count = self.intervals[name_by_id]
-                    value = seconds // count
-                    name_rstrip = __rstrip(value, name_by_id)
-                    # name = name_by_id
-                    result.append({ 
-                        'value'         :   value,
-                        'name_rstrip'   :   name_rstrip,
-                        'name'          :   name_by_id,
-                        'seconds'       :   seconds,
-                        'count'         :   count
-                        })
         # TEST try to nuance rounded result
         # Same here cannot pass empty string to gettext...
         nuanced_msg = '\0'
         if nuanced:
+            logger.debug("Nuanced is enabled.")
             # from (-)1s left to (-)59s: "a little bit less/more"
             # from (-)60s (1min) to (-)3599s (59min/59s): "a bit less/more"
             # from (-)3600s (1hour): "less/more"
@@ -854,8 +878,11 @@ class FormatTimestamp:
                     seconds_sum += item['seconds']
             # And calculate if seconds left
             seconds_left = seconds_arg - seconds_sum
+            logger.debug(f"Seconds stats: Arg: {seconds_arg} Sum:" 
+                         f" {seconds_sum}, Left: {seconds_left}")
             # For positive value
             if seconds_left > 0:
+                logger.debug("Nuanced applied: in more")
                 if seconds_left > 3600:
                     nuanced_msg = _('more than ')
                 elif 60 < seconds_left < 3599:
@@ -864,6 +891,7 @@ class FormatTimestamp:
                     nuanced_msg = _('a little bit more than ')
             # For negative value
             elif seconds_left < 0:
+                logger.debug("Nuanced applied: in less")
                 if seconds_left < -3600:
                     nuanced_msg = _('less than ')
                 elif -60 > seconds_left > -3599:
@@ -873,11 +901,13 @@ class FormatTimestamp:
                 
         # Return rounded result using translation or not 
         if translate:
+            logger.debug("Translate enabled.")
             return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], 
                                                                       _(self.translate[item['name']]), 
                                                                       _(self.translate[item['punctuation']])) \
                                                                       for item in __format(result))
         else:
+            logger.debug("Translate disabled.")
             return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], item['name'], 
                                                                       item['punctuation']) \
                                                                       for item in __format(result))
