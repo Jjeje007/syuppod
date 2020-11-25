@@ -534,12 +534,13 @@ class FormatTimestamp:
     Convert seconds to time, optional rounded and nuanced, depending of granularity's degrees.
     inspired by https://stackoverflow.com/a/24542445/11869956
     """
-    # TODO logger !!
-    # Be carefull because this should NOT be call a lot (mean every 0.1s for ex)... 
+    # WARNING Be carefull because this should NOT be call a lot 
+    # (mean every 0.1s for ex) IF rounded=True
+    
     
     def __init__(self):
         self.logger_name = f'::{__name__}::FormatTimestamp::'
-        logger = logging.getLogger(f'{self.logger_name}init::')  
+        #logger = logging.getLogger(f'{self.logger_name}init::')  
         # Dict ordered only with python >= 3.7
         if sys.version_info[:2] < (3, 7):
             from collections import OrderedDict 
@@ -560,6 +561,7 @@ class FormatTimestamp:
                 'minutes'   :   60,
                 'seconds'   :   1
                 }
+        # Get next key using current key 
         self.nextkey = {
             'seconds'   :   'minutes',
             'minutes'   :   'hours',
@@ -567,6 +569,7 @@ class FormatTimestamp:
             'days'      :   'weeks',
             'weeks'     :   'weeks',
             }
+        # For translation
         self.translate = {
             'weeks'     :   _('weeks'),
             'days'      :   _('days'),
@@ -581,13 +584,14 @@ class FormatTimestamp:
             'second'    :   _('second'),
             ' and'      :   _(' and'),
             ','         :   _(','),     # This is for compatibility
-            ''          :   '\0'        # same here BUT we CANNOT pass empty string to gettext 
+            ''          :   '\0'        # same here BUT we CANNOT pass EMPTY string to gettext 
                                         # or we get : warning: Empty msgid.  It is reserved by GNU gettext:
                                         # gettext("") returns the header entry with
                                         # meta information, not the empty string.
                                         # Thx to --> https://stackoverflow.com/a/30852705/11869956 - saved my day
             }
-        # Acces intervals by names 
+        # Access 'intervals':
+        # by names 
         self.byname = {
             'weeks'     :   4,     
             'days'      :   3,    
@@ -605,21 +609,24 @@ class FormatTimestamp:
             }
         
         
-    def convert(self, seconds, granularity=2, rounded=True, translate=False, nuanced=False):
+    def convert(self, seconds, granularity=2, rounded=True, translate=False,
+                nuanced=False, disable_debug=False):
         """
         Proceed the conversion
         """
-        logger = logging.getLogger(f'{self.logger_name}convert::') 
+        logger = logging.getLogger(f'{self.logger_name}convert::')
+        # disable debug only for this part
+        if disable_debug:
+            logger.setLevel(logging.INFO)
+        
         def __format(result):
             """
             Return the formatted result
             """
             start = 1 
             length = len(result)
-            #none = 0
             next_item = False
             for item in reversed(result[:]):
-                #if item['value']:
                 # if we have more than one item
                 if length > 1:
                     # This is the first item 
@@ -640,8 +647,6 @@ class FormatTimestamp:
                 else:
                     item['punctuation'] = ''
                 start += 1
-                #else:
-                    #none += 1
             return [ { 'value'        :   mydict['value'], 
                        'name'         :   mydict['name_rstrip'],
                        'punctuation'  :   mydict['punctuation'] } for mydict in result ]
@@ -657,15 +662,20 @@ class FormatTimestamp:
             
         # Make sure granularity is an integer
         if not isinstance(granularity, int):
-            #raise ValueError(f'Granularity should be an integer: {granularity}')
-            logger.error(f'Granularity should be an integer: {granularity} (falling back to default: 2)')
+            logger.error(f"Granularity should be an integer: '{granularity}' (falling back to default: 2).")
+            granularity = 2
         # and it between 1-5
         elif not 0 < granularity < 6:
-            logger.error(f'Granularity argument out of range [1-5]: {granularity} (falling back to default: 2)')
+            logger.error(f"Granularity argument out of range [1-5]: '{granularity}' (falling back to default: 2).")
             granularity = 2
+        
+        logger.debug(f"Running with: seconds: {seconds}, granularity="
+                     + f"{granularity}, rounded={rounded}, translate="
+                     + f"{translate}, nuanced={nuanced}.")
         
         # For seconds only don't need to compute
         if seconds < 60:
+            logger.debug("No need to compute: seconds < 60.")
             if seconds < 0:
                 if translate:
                     return _('any time now')
@@ -699,64 +709,57 @@ class FormatTimestamp:
                         'seconds'      :   value * count,
                         'count'        :   count
                                  })
+                logger.debug(f"Adding at index {length}: {result[length]}.")
                 length += 1
                 
         # Don't need to compute everything / everytime
         # added result[:granularity] for rounded
         # Ok so length = granularity and if rounded 
         # then it could be rounded as well
-        if length <= granularity or not rounded:
-            logger.debug(f"Not rounded: length: {length}, granularity:"
+        if length < granularity or not rounded:
+            logger.debug(f"Not rounded: list length: {length}, granularity:"
                          + f" {granularity}, rounded: {rounded}.")
             # Translation 
             if translate:
-                logger.debug("Translate enabled.")
                 return ' '.join('{0} {1}{2}'.format(item['value'], _(self.translate[item['name']]), 
                                                 _(self.translate[item['punctuation']])) \
                                                 for item in __format(result[:granularity]))
             else:
-                logger.debug("Translate disabled.")
                 return ' '.join('{0} {1}{2}'.format(item['value'], item['name'], item['punctuation']) \
                                                 for item in __format(result[:granularity]))
         # Ok so now let's recompute
-        logger.debug(f"Could be rounded: length: {length}, granularity:"
-                    + f" {granularity}, rounded: {rounded}.")
-        logger.debug("Current state of result list:")
-        for item in result:
-            logger.debug(f"Item: {item}")
-        start = length #- 1
+        logger.debug(f"Could be rounded: list length: {length}, granularity:"
+                    + f" {granularity}.")
         
-        # FIRST PASS
+        start = length
+        
+        # FIRST PASS - rounded part 
         # Reverse list so the firsts elements 
         # could be not selected depending on granularity.
-        # And we can delete item after we had its seconds to next
-        # item in the current list (result)
-        logger.debug('Reversing result list for inspecting.')
-        rounded_applied = False
+        # And we can delete item after we possibly rounded
+        # the next item depending of the selected item's seconds
+        logger.debug('Analizing reversed list.')
         for item in reversed(result[:]):
-            logger.debug(f"Granularity: {granularity}, start: {start}, length: {length}")
-            logger.debug(f"Current item: {item}")
-            if granularity <= start: # <= length - 1:
+            logger.debug(f"Granularity: {granularity}, start: {start}"
+                         + f", length: {length}.")
+            logger.debug(f"Inspecting item: {item}.")
+            if granularity < start:
+                logger.debug("Granularity < start.")
                 # Get the next item 
                 nextkey_name = self.nextkey[item['name']]
-                logger.debug(f"Next key name from intervals: {nextkey_name}")
+                logger.debug(f"Next key name from intervals: {nextkey_name}.")
                 current_index = result.index(item)
                 next_index = current_index - 1
-                logger.debug(f"List index: current: {current_index}, next:"
-                             + f" {next_index}")
                 # if the seconds of current item is superior
                 # to the half seconds of the next key from self.intervals
-                # then we can round
+                # then we 'could' round
                 if item['seconds'] > self.intervals[nextkey_name] // 2:
                     rounded_applied = True
-                    logger.debug("Rounding the current item.")
-                    # Remove item which is not selected
-                    logger.debug("Removing current item.")
+                    logger.debug("Current item removed and will be rounded.")
                     del result[current_index]
                     # So now, check if next item from result list exits
                     if result[next_index]['name'] == nextkey_name:
-                        logger.debug("Next item in result list exists:"
-                                    + " current seconds:"
+                        logger.debug("Next item exists: current seconds:"
                                     + f" {result[next_index]['seconds']}.")
                         # ok it exits then
                         # +1 to the next item (in seconds: depending on item count)
@@ -765,103 +768,97 @@ class FormatTimestamp:
                                     + f" ({result[next_index]['count']})"
                                     + " to next item: recalcul:"
                                     + f" {result[next_index]['seconds']}.")
+                    # We don't care about creating here
+                    # because in any way the created item couldn't be rounded
+                    # AND it will NOT be selected in this for loop (so it 
+                    # won't be deleted)
                     else:
-                        # we have to create it
-                        create_item = {
-                                       # Ok so value is 1
-                                       'value'      :   1,
-                                       # need to rstrip
-                                       'name_rstrip':   nextkey_name.rstrip('s'),
-                                       'name'       :   nextkey_name,
-                                       # Seconds and count are equal because value is 1
-                                       'seconds'    :   self.intervals[nextkey_name],
-                                       'count'      :   self.intervals[nextkey_name]
-                                       }
-                        logger.debug(f"Item created and appended: {create_item}.")
-                        # insert in the list
-                        result.append(create_item)
-                
+                        logger.debug("Skip rounding: next item missing.")
+                # Also, don't care about adding seconds to next item
+                # Because, it will not change the final result AND nuanced 
+                # won't work ...
+                else:
+                    logger.debug("Current item removed and will NOT be"
+                                + " rounded.")
+                    del result[current_index]
                 # Then reduce length
                 length -= 1
+            else:
+                logger.debug("Granularity >= start, keeping current item.")
             start -= 1
         
-        logger.debug("Current state of result list after first pass:")
+        logger.debug("Current state of the list after first pass:")
         for item in result:
             logger.debug(f"Item: {item}")
         
+        logger.debug("Recalculate reversed list.")
         # SECOND PASS
-        if not rounded_applied:
-            logger.debug("The rounded haven't been applied, skipping"
-                         + " recompute.")
-        else:
-            logger.debug("The rounded have been applied, recompute is"
-                         + " necessary, reversing result list.")
-            # Ok now recalcul every thing
-            # Reverse as well
-            for item in reversed(result[:]):
-                # Check if seconds is superior or equal to the next item 
-                # but not from 'result' list but from 'self.intervals' dict
-                nextkey_name = self.nextkey[item['name']]
-                logger.debug(f"Next key name from intervals: {nextkey_name}")
-                current_index = result.index(item)
-                next_index = current_index - 1
-                logger.debug(f"List index: current: {current_index}, next:"
-                             + f" {next_index}")
-                # Stop to weeks
-                if item['seconds'] >= self.intervals[nextkey_name] and not \
-                    item['name'] == 'weeks':
-                    logger.debug("This item have to be removed and its values"
-                                 + " should be added to the next item")
-                    logger.debug(f"Current item values: {item}")
-                    # Remove current item
-                    logger.debug("Removing current item")
-                    del result[result.index(item)]
-                    # First make sure we have the 'next item'
-                    if result[next_index]['name'] == nextkey_name:
-                        logger.debug("Next item in result list exists:"
-                                    + " current values:"
-                                    + f" {result[next_index]}.")
-                        # Append to
-                        result[next_index]['seconds'] += item['seconds']
-                        # recalcul value
-                        result[next_index]['value'] = result[next_index]['seconds'] // \
-                                                        result[next_index]['count']
-                        # strip or not
-                        result[next_index]['name_rstrip'] = __rstrip(result[next_index]['value'],
-                                                                    result[next_index]['name'])
-                        logger.debug(f"Recalculate item values: {result[next_index]}")
-                    else:
-                        # Creating 
-                        # get count
-                        next_item_count = self.intervals[nextkey_name]
-                        # convert seconds
-                        next_item_value = item['seconds'] // next_item_count
-                        # strip 's' or not
-                        next_item_name_strip = __rstrip(next_item_value, nextkey_name)
-                        # added to dict
-                        next_item = {
-                                    'value'      :   next_item_value,
-                                    'name_rstrip' :   next_item_name_strip,
-                                    'name'       :   nextkey_name,
-                                    'seconds'    :   item['seconds'],
-                                    'count'      :   next_item_count
-                                    }
-                        # insert to the list
-                        result.append(next_item)
-                        logger.debug(f"Item created and appended: {next_item}.")
-                    
+        # Ok now recalcul every thing
+        # Reverse as well
+        for item in reversed(result[:]):
+            logger.debug(f"Inspecting item: {item}.")
+            # Check if seconds is superior or equal to the next item 
+            # but not from 'result' list but from 'self.intervals' dict
+            nextkey_name = self.nextkey[item['name']]
+            logger.debug(f"Next key name from intervals: {nextkey_name}.")
+            current_index = result.index(item)
+            next_index = current_index - 1
+            # Stop to weeks
+            if item['seconds'] >= self.intervals[nextkey_name] and not \
+                item['name'] == 'weeks':
+                # Remove current item
+                logger.debug("Current item removed and its values should"
+                            + " be added to the next item.")
+                del result[result.index(item)]
+                # First make sure we have the 'next item'
+                # IF current_index == 0 then it's first/last/only item left
+                if not current_index == 0 and \
+                    result[next_index]['name'] == nextkey_name:
+                    logger.debug("Next item in result list exists:"
+                                + " current values:"
+                                + f" {result[next_index]}.")
+                    # Append to
+                    result[next_index]['seconds'] += item['seconds']
+                    # recalcul value
+                    result[next_index]['value'] = result[next_index]['seconds'] // \
+                                                    result[next_index]['count']
+                    # strip or not
+                    result[next_index]['name_rstrip'] = __rstrip(result[next_index]['value'],
+                                                                result[next_index]['name'])
+                    logger.debug("Recalculate next item values:"
+                                 + f" {result[next_index]}.")
                 else:
-                    # for current item recalculate
-                    # keys 'value' and 'name_rstrip'
-                    logger.debug("Keeping current item, current values:"
-                                + f" {item}")
-                    item['value'] = item['seconds'] // item['count']
-                    item['name_rstrip'] = __rstrip(item['value'], item['name'])
-                    logger.debug(f"Recalculate item values: {item}")
+                    # Creating 
+                    # get count
+                    next_item_count = self.intervals[nextkey_name]
+                    # convert seconds
+                    next_item_value = item['seconds'] // next_item_count
+                    # strip 's' or not
+                    next_item_name_strip = __rstrip(next_item_value, nextkey_name)
+                    # added to dict
+                    next_item = {
+                                'value'      :   next_item_value,
+                                'name_rstrip' :   next_item_name_strip,
+                                'name'       :   nextkey_name,
+                                'seconds'    :   item['seconds'],
+                                'count'      :   next_item_count
+                                }
+                    # insert to the list
+                    result.append(next_item)
+                    logger.debug("Next item created and appended:"
+                                 + f" {next_item}.")
+                
+            else:
+                # for current item recalculate
+                # keys 'value' and 'name_rstrip'
+                item['value'] = item['seconds'] // item['count']
+                item['name_rstrip'] = __rstrip(item['value'], item['name'])
+                logger.debug("Keeping current item, recalculate values:"
+                             + f" {item}.")
                     
-        logger.debug("Current state of result list after second pass:")
+        logger.debug("Final state of the list after second pass:")
         for item in result:
-            logger.debug(f"Item: {item}") 
+            logger.debug(f"Item: {item}.") 
             
         # TEST try to nuance rounded result
         # Same here cannot pass empty string to gettext...
@@ -879,10 +876,10 @@ class FormatTimestamp:
             # And calculate if seconds left
             seconds_left = seconds_arg - seconds_sum
             logger.debug(f"Seconds stats: Arg: {seconds_arg} Sum:" 
-                         f" {seconds_sum}, Left: {seconds_left}")
+                         f" {seconds_sum}, Left: {seconds_left}.")
             # For positive value
             if seconds_left > 0:
-                logger.debug("Nuanced applied: in more")
+                logger.debug("Nuanced applied: in more.")
                 if seconds_left > 3600:
                     nuanced_msg = _('more than ')
                 elif 60 < seconds_left < 3599:
@@ -891,7 +888,7 @@ class FormatTimestamp:
                     nuanced_msg = _('a little bit more than ')
             # For negative value
             elif seconds_left < 0:
-                logger.debug("Nuanced applied: in less")
+                logger.debug("Nuanced applied: in less.")
                 if seconds_left < -3600:
                     nuanced_msg = _('less than ')
                 elif -60 > seconds_left > -3599:
@@ -901,13 +898,11 @@ class FormatTimestamp:
                 
         # Return rounded result using translation or not 
         if translate:
-            logger.debug("Translate enabled.")
             return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], 
                                                                       _(self.translate[item['name']]), 
                                                                       _(self.translate[item['punctuation']])) \
                                                                       for item in __format(result))
         else:
-            logger.debug("Translate disabled.")
             return f'{_(nuanced_msg)}' + ' '.join('{0} {1}{2}'.format(item['value'], item['name'], 
                                                                       item['punctuation']) \
                                                                       for item in __format(result))
