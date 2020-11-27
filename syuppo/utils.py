@@ -535,7 +535,7 @@ class FormatTimestamp:
     inspired by https://stackoverflow.com/a/24542445/11869956
     """
     # WARNING Be carefull because this should NOT be call a lot 
-    # (mean every 0.1s for ex) IF rounded=True
+    # (mean every 0.1s for ex) only IF rounded=True
     
     
     def __init__(self):
@@ -610,14 +610,15 @@ class FormatTimestamp:
         
         
     def convert(self, seconds, granularity=2, rounded=True, translate=False,
-                nuanced=False, disable_debug=False):
+                nuanced=False, enable_debug=False):
         """
         Proceed the conversion
         """
         logger = logging.getLogger(f'{self.logger_name}convert::')
-        # disable debug only for this part
-        if disable_debug:
-            logger.setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
+        # enable debug only for this part
+        if enable_debug:
+            logger.setLevel(logging.DEBUG)
         
         def __format(result):
             """
@@ -882,19 +883,23 @@ class FormatTimestamp:
                 logger.debug("Nuanced applied: in more.")
                 if seconds_left > 3600:
                     nuanced_msg = _('more than ')
-                elif 60 < seconds_left < 3599:
-                    nuanced_msg = _('a bit more than ')
-                elif seconds_left < 60:
-                    nuanced_msg = _('a little bit more than ')
+                else:
+                    nuanced_msg = _('approximately')
+                #elif 60 < seconds_left < 3599:
+                    #nuanced_msg = _('a bit more than ')
+                #elif seconds_left < 60:
+                    #nuanced_msg = _('a little bit more than ')
             # For negative value
             elif seconds_left < 0:
                 logger.debug("Nuanced applied: in less.")
                 if seconds_left < -3600:
                     nuanced_msg = _('less than ')
-                elif -60 > seconds_left > -3599:
-                    nuanced_msg = _('a bit less than ')
-                elif seconds_left > -60:
-                    nuanced_msg = _('a little bit less than ')
+                else:
+                    nuanced_msg = _('approximately')
+                #elif -60 > seconds_left > -3599:
+                    #nuanced_msg = _('a bit less than ')
+                #elif seconds_left > -60:
+                    #nuanced_msg = _('a little bit less than ')
                 
         # Return rounded result using translation or not 
         if translate:
