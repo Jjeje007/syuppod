@@ -884,22 +884,14 @@ class FormatTimestamp:
                 if seconds_left > 3600:
                     nuanced_msg = _('more than ')
                 else:
-                    nuanced_msg = _('approximately')
-                #elif 60 < seconds_left < 3599:
-                    #nuanced_msg = _('a bit more than ')
-                #elif seconds_left < 60:
-                    #nuanced_msg = _('a little bit more than ')
+                    nuanced_msg = _('approximately ')
             # For negative value
             elif seconds_left < 0:
                 logger.debug("Nuanced applied: in less.")
                 if seconds_left < -3600:
                     nuanced_msg = _('less than ')
                 else:
-                    nuanced_msg = _('approximately')
-                #elif -60 > seconds_left > -3599:
-                    #nuanced_msg = _('a bit less than ')
-                #elif seconds_left > -60:
-                    #nuanced_msg = _('a little bit less than ')
+                    nuanced_msg = _('approximately ')
                 
         # Return rounded result using translation or not 
         if translate:
