@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2020-11-27 16:30+0100\n"
+"POT-Creation-Date: 2020-11-27 16:36+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,254 +17,254 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../utils.py:574
+#: utils.py:574
 msgid "weeks"
 msgstr ""
 
-#: ../utils.py:575
+#: utils.py:575
 msgid "days"
 msgstr ""
 
-#: ../utils.py:576
+#: utils.py:576
 msgid "hours"
 msgstr ""
 
-#: ../utils.py:577
+#: utils.py:577
 msgid "minutes"
 msgstr ""
 
-#: ../utils.py:578 ../client.py:152 ../client.py:174
+#: utils.py:578 client.py:152 client.py:174
 msgid "seconds"
 msgstr ""
 
-#: ../utils.py:580
+#: utils.py:580
 msgid "week"
 msgstr ""
 
-#: ../utils.py:581
+#: utils.py:581
 msgid "day"
 msgstr ""
 
-#: ../utils.py:582
+#: utils.py:582
 msgid "hour"
 msgstr ""
 
-#: ../utils.py:583
+#: utils.py:583
 msgid "minute"
 msgstr ""
 
-#: ../utils.py:584
+#: utils.py:584
 msgid "second"
 msgstr ""
 
-#: ../utils.py:585
+#: utils.py:585
 msgid " and"
 msgstr ""
 
-#: ../utils.py:586
+#: utils.py:586
 msgid ","
 msgstr ""
 
-#: ../utils.py:682
+#: utils.py:682
 msgid "any time now"
 msgstr ""
 
-#: ../utils.py:686
+#: utils.py:686
 msgid "less than a minute"
 msgstr ""
 
-#: ../utils.py:690
+#: utils.py:690
 msgid "now"
 msgstr ""
 
-#: ../utils.py:885
+#: utils.py:885
 msgid "more than "
 msgstr ""
 
-#: ../utils.py:887 ../utils.py:894
+#: utils.py:887 utils.py:894
 msgid "approximately "
 msgstr ""
 
-#: ../utils.py:892
+#: utils.py:892
 msgid "less than "
 msgstr ""
 
-#: ../client.py:63
+#: client.py:63
 msgid "Success"
 msgstr ""
 
-#: ../client.py:64
+#: client.py:64
 msgid "Failed"
 msgstr ""
 
-#: ../client.py:65
+#: client.py:65
 msgid "Program never sync"
 msgstr ""
 
-#: ../client.py:66
+#: client.py:66
 msgid "Last state of the repositories syncronizer:"
 msgstr ""
 
-#: ../client.py:88
+#: client.py:88
 msgid "Session"
 msgstr ""
 
-#: ../client.py:89
+#: client.py:89
 msgid "Overall"
 msgstr ""
 
-#: ../client.py:92
+#: client.py:92
 msgid "The repositories syncronizer run successfully:"
 msgstr ""
 
-#: ../client.py:99
+#: client.py:99
 msgid "time"
 msgstr ""
 
-#: ../client.py:101
+#: client.py:101
 msgid "times"
 msgstr ""
 
-#: ../client.py:118
+#: client.py:118
 msgid "seconds since epoch (unix / posix time)"
 msgstr ""
 
-#: ../client.py:121
+#: client.py:121
 msgid "The "
 msgstr ""
 
-#: ../client.py:127
+#: client.py:127
 msgid "There is "
 msgstr ""
 
-#: ../client.py:128
+#: client.py:128
 msgid "ago"
 msgstr ""
 
-#: ../client.py:131
+#: client.py:131
 msgid "Last repositories synchronization:"
 msgstr ""
 
-#: ../client.py:156
+#: client.py:156
 msgid "Current repositories synchronization interval:"
 msgstr ""
 
-#: ../client.py:168
+#: client.py:168
 msgid "Current repositories synchronization elapsed time:"
 msgstr ""
 
-#: ../client.py:169
+#: client.py:169
 msgid "Current repositories synchronization remain time:"
 msgstr ""
 
-#: ../client.py:193
+#: client.py:193
 msgid "Portage package update status:"
 msgstr ""
 
-#: ../client.py:197
+#: client.py:197
 msgid "Available"
 msgstr ""
 
-#: ../client.py:199
+#: client.py:199
 msgid "Not available"
 msgstr ""
 
-#: ../client.py:203
+#: client.py:203
 msgid "Available portage package update, version:"
 msgstr ""
 
-#: ../client.py:210
+#: client.py:210
 #, python-brace-format
 msgid "Available (from {0} to {1})"
 msgstr ""
 
-#: ../client.py:212
+#: client.py:212
 #, python-brace-format
 msgid "Not available ({0})"
 msgstr ""
 
-#: ../client.py:224 ../client.py:249
+#: client.py:224 client.py:249
 msgid "None"
 msgstr ""
 
-#: ../client.py:228
+#: client.py:228
 msgid "Available packages to update:"
 msgstr ""
 
-#: ../client.py:242
+#: client.py:242
 msgid "Last world update state:"
 msgstr ""
 
-#: ../client.py:245
+#: client.py:245
 msgid "Last world update packages:"
 msgstr ""
 
-#: ../client.py:250
+#: client.py:250
 msgid "Last world update failed package:"
 msgstr ""
 
-#: ../client.py:253
+#: client.py:253
 msgid "Last world update failed packages:"
 msgstr ""
 
-#: ../client.py:256 ../client.py:260
+#: client.py:256 client.py:260
 #, python-brace-format
 msgid "The {0}"
 msgstr ""
 
-#: ../client.py:257
+#: client.py:257
 msgid "Last world update started:"
 msgstr ""
 
-#: ../client.py:261
+#: client.py:261
 msgid "Last world update stoped:"
 msgstr ""
 
-#: ../client.py:266
+#: client.py:266
 #, python-brace-format
 msgid "There is {0} ago"
 msgstr ""
 
-#: ../client.py:267
+#: client.py:267
 msgid "Last world update finished:"
 msgstr ""
 
-#: ../client.py:273
+#: client.py:273
 msgid "Last world update lasted:"
 msgstr ""
 
-#: ../client.py:311
+#: client.py:311
 msgid "Sync is in progress, abording..."
 msgstr ""
 
-#: ../client.py:312
+#: client.py:312
 msgid "Global update is in progress, abording..."
 msgstr ""
 
-#: ../client.py:313
+#: client.py:313
 msgid "Recompute already in progress, abording..."
 msgstr ""
 
-#: ../client.py:314
+#: client.py:314
 #, python-brace-format
 msgid "Recompute have just been completed {0} ago.\n"
 msgstr ""
 
-#: ../client.py:315
+#: client.py:315
 #, python-brace-format
 msgid "{0}You have to wait "
 msgstr ""
 
-#: ../client.py:316
+#: client.py:316
 #, python-brace-format
 msgid "{0} before you can run it again."
 msgstr ""
 
-#: ../client.py:317
+#: client.py:317
 #, python-brace-format
 msgid "Order have been sent, see {0} for more details."
 msgstr ""
 
-#: ../client.py:321
+#: client.py:321
 msgid "Force recompute available update packages:"
 msgstr ""
