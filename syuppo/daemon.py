@@ -27,6 +27,7 @@ from syuppo.dbus import PortageDbus
 from syuppo.manager import EmergeLogWatcher
 from syuppo.argsparser import DaemonParserHandler
 from syuppo.logger import LogLevelFilter
+from syuppo.logger import addLoggingLevel
 
 try:
     from gi.repository import GLib
@@ -53,11 +54,14 @@ pathdir = {
     }
 
 # Custom level name share across all logger
-logging.addLevelName(logging.CRITICAL, '[Crit ]')
-logging.addLevelName(logging.ERROR,    '[Error]')
-logging.addLevelName(logging.WARNING,  '[Warn ]')
-logging.addLevelName(logging.INFO,     '[Info ]')
-logging.addLevelName(logging.DEBUG,    '[Debug]')
+logging.addLevelName(logging.CRITICAL, '[Crit  ]')
+logging.addLevelName(logging.ERROR,    '[Error ]')
+logging.addLevelName(logging.WARNING,  '[Warn  ]')
+logging.addLevelName(logging.INFO,     '[Info  ]')
+logging.addLevelName(logging.DEBUG,    '[Debug ]')
+# Adding advanced debug loglevel
+addLoggingLevel('DEBUG2', 9)
+logging.addLevelName(logging.DEBUG2,   '[vdebug]')
 
 # Configure timing exit
 timing_exit = { }
@@ -328,7 +332,7 @@ def main():
     # Ok so first parse argvs
     myargsparser = DaemonParserHandler(pathdir, __version__)
     args = myargsparser.parsing()
-    
+       
     # Then configure logging
     if sys.stdout.isatty():
         from syuppo.logger import LogLevelFormatter
@@ -431,7 +435,7 @@ def main():
     myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
     
     # Init portagemanager
-    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun)
+    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun, vdebug=args.vdebug)
     
     # Check sync
     myportmanager.check_sync(init_run=True, recompute=True)

@@ -98,6 +98,43 @@ class CustomArgsCheck:
                                                           f'\'failed\', \'elapsed\' or \'duration\').')
         return last
 
+    #def _check_args_advanced_debug(self, adv):
+        #"""Checking advanced debug arguments"""
+        #if 'logparser' in adv:
+            #return { 'logparser' : True }
+        #elif 'formattimestamp' in adv:
+            #return { 'formattimestamp' : True }
+        #else:
+            #self.parser.error(f"invalid choice: '{adv}' (valid choices:"
+                              #+ " 'logparser', 'formattimestamp').")
+                              
+class DictAction(argparse.Action):
+    """Advanced Action which add each choices value to dictionnary
+    as key and with default value to False. Then modify 
+    default key value False to True if key is present in called values.
+    For exemple: 
+        choices = [ 'item1', 'item2' ]
+        then default dict = { 'item1' : False, 'item2' : False }
+        If called with 'item1' then:
+        returned dict = { 'item1' : True, 'item2' : False }
+    It's easy to add more key: just add more choices :)   
+       Inspirated by https://stackoverflow.com/a/22636121 thx!!"""
+    
+    def __init__(self, **kwargs):
+        """Adding default values"""
+        super().__init__(**kwargs)
+        ## Make sure we have choices
+        if self.choices:
+            self.default = { item : False for item in self.choices }
+        else:
+            raise ValueError('choices is required to use this action')
+    
+    def __call__(self, parser, namespace, values, option_string=None):
+        """Modify default values"""
+        for item in values:
+            self.default[item] = True
+        setattr(namespace, self.dest, self.default)
+
 
 class DaemonParserHandler(CustomArgsCheck):
     """
@@ -149,6 +186,14 @@ class DaemonParserHandler(CustomArgsCheck):
                                     help = """Run daemon without writing/creating anything to statefile or logs.
                                             This intend to be run from terminal.""",
                                     action = 'store_true')
+        advanced_debug.add_argument('--vdebug',
+                                    help = """Enable advanced debug for [m]odules:
+                                            logparser, formattimestamp. Be carrefull this make
+                                            ALOT of log.""",
+                                    metavar = 'm',
+                                    action = DictAction,
+                                    nargs = '+',
+                                    choices = [ 'logparser', 'formattimestamp' ])
     def parsing(self):
         self.args = self.parser.parse_args()
         return self.args
