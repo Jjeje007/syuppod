@@ -1556,7 +1556,6 @@ class EmergeLogParser:
         # So now compare and get the highest 'start' timestamp from each list
         logger.debug2("Extracting lastest world update from 'completed'"
                     + f"'{incompleted_msg}' and 'partial' collected lists.")
-        ## TODO TODO TODO
         tocompare = [ ]
         for target in 'completed', 'incompleted', 'partial':
             if self.collect[target]:
@@ -1707,6 +1706,7 @@ class EmergeLogWatcher(threading.Thread):
     def __init__(self, pathdir, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Init logger
+        ### TODO ok so detect internal / external sync
         self.logger_name = f'::{__name__}::EmergeLogWatcher::'
         logger = logging.getLogger(f'{self.logger_name}init::')
         # For exiting
@@ -1752,6 +1752,9 @@ class EmergeLogWatcher(threading.Thread):
             sys.exit(1)
         
     def run(self):
+        # TODO TODO TODO reply to ALL inotify read: Add 'Burst' reply:
+        # This mean that more read come less call is done
+        
         logger = logging.getLogger(f'{self.logger_name}run::')
         logger.debug('Emerge log watcher daemon started (monitoring {0}).'.format(self.pathdir['emergelog']))
         remain = 0
@@ -1843,7 +1846,12 @@ class EmergeLogWatcher(threading.Thread):
             
             time.sleep(1)
         # Exiting
-        logger.debug('Received exit order... exiting now, bye.')
+        logger.debug("Received exit order...")
+        if not self.reader:
+            self.reader.close()
+            logger.debug("Inotify() shut downed.")
+        
+        logger.debug("...exiting now, bye.")
         # Send reply to main
         self.exit_now = 'Done'
     
