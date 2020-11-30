@@ -1847,8 +1847,8 @@ class EmergeLogWatcher(threading.Thread):
             time.sleep(1)
         # Exiting
         logger.debug("Received exit order...")
-        if not self.reader:
-            self.reader.close()
+        if not self.inotify:
+            self.inotify.close()
             logger.debug("Inotify() shut downed.")
         
         logger.debug("...exiting now, bye.")
