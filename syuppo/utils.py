@@ -912,6 +912,27 @@ class FormatTimestamp:
 
 
 
+class CatchExitSignal:
+    """
+    Catch SIGINT or SIGTERM signal and advise signal receive
+    """
+    # TODO Get sigkill !
+    def __init__(self):
+        self.logger_name = f'::{__name__}::CatchExitSignal::'
+        logger = logging.getLogger(f'{self.logger_name}init::')
+        self.exit_now = False
+        logger.debug('Watching signal SIGINT.')
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        logger.debug('Watching signal SIGTERM.')
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        logger = logging.getLogger(f'{self.logger_name}exit_gracefully::')
+        logger.debug(f'Got signal: \'{signum}\' on stack frame: \'{frame}\'.')
+        logger.info(f'Received signal \'{signum}\'...')
+        self.exit_now = True
+
+
 # TODO Should we need logger ???
 # Taken from https://gist.github.com/evansd/2346614
 def on_parent_exit(signame='SIGTERM'):

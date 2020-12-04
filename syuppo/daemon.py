@@ -28,6 +28,7 @@ from syuppo.manager import EmergeLogWatcher
 from syuppo.argsparser import DaemonParserHandler
 from syuppo.logger import LogLevelFilter
 from syuppo.logger import addLoggingLevel
+from syuppo.utils import CatchExitSignal
 
 try:
     from gi.repository import GLib
@@ -72,27 +73,6 @@ timing_exit['msg'] = 'seconds'
 #if sys.version_info[:2] > (3, 6):
     #timing_exit['processor'] = time.process_time_ns
     #timing_exit['msg'] = 'nanoseconds'
-
-
-class CatchExitSignal:
-    """
-    Catch SIGINT or SIGTERM signal and advise signal receive
-    """
-    def __init__(self):
-        self.logger_name = f'::{__name__}::CatchExitSignal::'
-        logger = logging.getLogger(f'{self.logger_name}init::')
-        self.exit_now = False
-        logger.debug('Watching signal SIGINT.')
-        signal.signal(signal.SIGINT, self.exit_gracefully)
-        logger.debug('Watching signal SIGTERM.')
-        signal.signal(signal.SIGTERM, self.exit_gracefully)
-
-    def exit_gracefully(self, signum, frame):
-        logger = logging.getLogger(f'{self.logger_name}exit_gracefully::')
-        logger.debug(f'Got signal: \'{signum}\' on stack frame: \'{frame}\'.')
-        logger.info(f'Received signal \'{signum}\'...')
-        self.exit_now = True
-
 
 
 class MainDaemon(threading.Thread):
