@@ -15,7 +15,7 @@ except ImportError:
     # Ensure a clean reload from the new location.
     if 'syuppo' in sys.modules:
         try: # py3 compat
-            from imp import reload
+            from importlib import reload
         except ImportError:
             pass
         
