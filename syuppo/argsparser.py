@@ -7,7 +7,7 @@
 import re
 import argparse
 import sys
-import argcomplete
+#import argcomplete
 
 ## TODO TODO TODO for client part, what about not just checking if option are ok
 #                 we should parse it, and return for exemple dict? 
@@ -328,7 +328,7 @@ class ClientParserHandler(CustomArgsCheck):
                                   help='Display all the informations in one time with defaults options.')
         
     def parsing(self):
-        argcomplete.autocomplete(self.parser)
+        #argcomplete.autocomplete(self.parser)
         args = self.parser.parse_args()
         # Print usage if no arg has been given
         noarg = True
