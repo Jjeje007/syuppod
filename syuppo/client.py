@@ -13,9 +13,11 @@ import sys
 import gettext
 import pathlib
 import re
+import logging
 
 
 from syuppo.argsparser import ClientParserHandler
+from syuppo.logger import addLoggingLevel
 from syuppo.utils import _format_date
 from syuppo.utils import _format_timestamp
 from syuppo.utils import FormatTimestamp
@@ -51,6 +53,10 @@ domain = gettext.textdomain('syuppoc')
 gettext.install(domain)
 gettext.bindtextdomain(domain, localedir)
 _ = gettext.gettext
+
+# WARNING This is for compatibilty between client and daemon
+# TODO add debug option for client 
+addLoggingLevel('DEBUG2', 9)
 
 ## TODO wait until daemon API is stabilized then update all this :p
 ## TODO better english (try it :p )
