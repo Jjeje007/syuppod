@@ -632,7 +632,7 @@ class PortageHandler:
                     logger.warning('The previously task was already cancelled, check and report if False.')
                 self.pretend['cancelled'] = True
                 self.pretend['cancel'] = False
-                self.pretend[status] = 'ready'
+                self.pretend['status'] = 'ready'
                 # skip every thing else
                 return
             
