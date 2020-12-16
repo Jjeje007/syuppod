@@ -1068,6 +1068,10 @@ class EmergeLogParser:
         #   Make sure it failed with status == 1
         failed = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
         succeeded = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
+        ## TODO TODO TODO
+        # BUG THIS HAVE TO BE DETECTED AT THE END "1607364725:  *** terminating."
+        # otherwise it's fucked up all the parser so this mean even we have no failed or
+        # succeeded match we have ALWAYS '*** terminating' line 
         
         # TODO  Give a choice to enable or disable incompleted collect
         # TODO  Improve performance, for now :
