@@ -145,7 +145,7 @@ class PortageHandler:
         
         # Sync attributes TODO clean up ?
         self.sync = {
-            'status'        :   False, # True when running / False when not
+            'status'        :   'ready',    # values: ready | running
             'state'         :   loaded_stateopts.get('sync state'),
             'network_error' :   loaded_stateopts.get('sync network_error'),
             'retry'         :   loaded_stateopts.get('sync retry'),
@@ -193,7 +193,6 @@ class PortageHandler:
             'remain'    :   30,     # check every 30s when 'available' is True
             'logflow'   :   True    # Control log info flow to avoid spamming syslog
             }
-
        
     def check_sync(self, init_run=False, recompute=False):
         """ Checking if we can sync repo depending on time interval.
@@ -277,7 +276,7 @@ class PortageHandler:
         tosave = [ ]
         
         # This is for asyncio: don't run twice
-        self.sync['status'] = True
+        self.sync['status'] = 'running'
         
         # Refresh repositories infos
         self.sync['repos'] = get_repo_info()
@@ -505,7 +504,7 @@ class PortageHandler:
             if not self.sync[value] == getattr(self, value):
                 self.sync[value] = getattr(self, value)
                 tosave.append([f'sync {value}', self.sync[value]])
-        if not self.sync['status']:
+        if not self.sync['status'] == 'running':
             logger.error('We are about to leave syncing process, but just found status already to False,'.format(
                                                                                         self.sync['repos']['msg']))
             logger.error('which mean syncing is/was NOT in progress, please check and report if True')
