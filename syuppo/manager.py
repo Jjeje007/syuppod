@@ -13,6 +13,8 @@ import subprocess
 import io
 import uuid
 import logging
+
+from threading import Lock
 from portage.versions import pkgcmp, pkgsplit
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
@@ -129,7 +131,18 @@ class PortageHandler:
             # We don't need to convert from str() to another type
             # it's done auto by class StateInfo
             loaded_stateopts = self.stateinfo.load()
-                
+        
+        # locks for shared method/attr accross daemon threads
+        self.locks = {
+            'check_sync'        :   Lock(),
+            'proceed'           :   Lock(),
+            'cancel'            :   Lock(),
+            'cancelled'         :   Lock(),
+            'pretend_status'    :   Lock(),
+            'sync_remain'       :   Lock(),
+            'sync_elapsed'      :   Lock()
+            }
+        
         # Sync attributes TODO clean up ?
         self.sync = {
             'status'        :   False, # True when running / False when not
@@ -206,7 +219,8 @@ class PortageHandler:
             elif not self.sync['timestamp'] == sync_timestamp:
                 logger.debug('{0} have been sync outside the program, forcing pretend world...'.format(
                                                                                 self.sync['repos']['msg'].capitalize()))
-                self.pretend['proceed'] = True # So run pretend world update
+                with self.locks['proceed']:
+                    self.pretend['proceed'] = True # So run pretend world update
                 self.sync['timestamp'] = sync_timestamp
                 tosave.append(['sync timestamp', self.sync['timestamp']])
                 recompute = True
@@ -218,12 +232,14 @@ class PortageHandler:
                 logger.debug('Recompute is enable.')
                 logger.debug('Current sync elapsed timestamp:' 
                                   + ' {0}'.format(self.sync['elapsed']))
-                self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
+                with self.locks['sync_remain']:
+                    self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
                 logger.debug('Recalculate sync elapsed timestamp:' 
                                   + ' {0}'.format(self.sync['elapsed']))
                 logger.debug('Current sync remain timestamp:' 
                                   + ' {0}.'.format(self.sync['remain']))
-                self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
+                with self.locks['sync_remain']:
+                    self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
                 logger.debug('Recalculate sync remain timestamp:' 
                                   + ' {0}'.format(self.sync['remain']))
             # For debug better to output with granularity=5
@@ -252,7 +268,6 @@ class PortageHandler:
                 return True # We can sync :)
             return False
         return False        
-    
     
     def dosync(self):
         """ Updating repo(s) """
@@ -380,17 +395,20 @@ class PortageHandler:
                 # after 5 times @ 3600s (1h) - real is : 1h30
                 # then reset to interval (so mini is 24H)
                 msg_on_retry = ''
-                self.sync['remain'] = 600
+                with self.locks['sync_remain']:
+                    self.sync['remain'] = 600
                 if self.retry == 1:
                     msg_on_retry = ' (1 time already)'
                 elif 2 <= self.retry <= 5:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
                 elif 6 <= self.retry <= 10:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    self.sync['remain'] = 3600
+                    with self.locks['sync_remain']:
+                        self.sync['remain'] = 3600
                 elif self.retry > 10:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    self.sync['remain'] = self.sync['interval']
+                    with self.locks['sync_remain']:
+                        self.sync['remain'] = self.sync['interval']
                 
                 if not self.sync['repos']['success']:
                     # All the repos failed
@@ -437,7 +455,8 @@ class PortageHandler:
                 
                 logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
                 # Any way reset remain to interval
-                self.sync['remain'] = self.sync['interval']
+                with self.locks['sync_remain']:
+                    self.sync['remain'] = self.sync['interval']
         else:
             # Ok good :p
             self.state = 'Success'
@@ -473,10 +492,12 @@ class PortageHandler:
                     self.sync['timestamp'] = sync_timestamp
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
-            self.pretend['proceed'] = True
+            with self.locks['proceed']:
+                self.pretend['proceed'] = True
             logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             # Reset remain to interval
-            self.sync['remain'] = self.sync['interval']
+            with self.locks['sync_remain']:
+                self.sync['remain'] = self.sync['interval']
             logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
                     
         # Write / mod value only if change
@@ -492,8 +513,9 @@ class PortageHandler:
         if tosave:
             self.stateinfo.save(*tosave)
         # At the end
-        self.sync['elapsed'] = 0
-        self.sync['status'] = False
+        with self.locks['sync_remain']:
+            self.sync['elapsed'] = 0
+        self.sync['status'] = 'waiting'
         return                 
             
             
@@ -518,7 +540,8 @@ class PortageHandler:
                 if not self.world[key] == get_world_info[key]:
                     # Ok this mean world update has been run
                     # So run pretend_world()
-                    self.pretend['proceed'] = True
+                    with self.locks['proceed']:
+                        self.pretend['proceed'] = True
                     updated = True
                     if to_print:
                         logger.info('Global update have been run.') # TODO: give more details
@@ -545,8 +568,10 @@ class PortageHandler:
         tosave = [ ]
         
         # Disable pretend authorization
-        self.pretend['proceed'] = False
-        self.pretend['status'] = 'running'
+        with self.locks['proceed']:
+            self.pretend['proceed'] = False
+        with self.locks['pretend_status']:
+            self.pretend['status'] = 'running'
         
         logger.debug('Start searching available package(s) update.')
                 
@@ -630,9 +655,12 @@ class PortageHandler:
                 # Don't write log because it's have been cancelled (log is only partial)
                 if self.pretend['cancelled']:
                     logger.warning('The previously task was already cancelled, check and report if False.')
-                self.pretend['cancelled'] = True
-                self.pretend['cancel'] = False
-                self.pretend[status] = 'ready'
+                with self.locks['cancelled']:
+                    self.pretend['cancelled'] = True
+                with self.locks['cancel']:
+                    self.pretend['cancel'] = False
+                with self.locks['pretend_status']:
+                    self.pretend['status'] = 'ready'
                 # skip every thing else
                 return
             
@@ -704,11 +732,13 @@ class PortageHandler:
         if self.pretend['cancelled']:
             logger.debug('The previously task have been cancelled,' 
                              + ' resetting state to False (as this one is completed).')
-        self.pretend['cancelled'] = False
+        with self.locks['cancelled']:
+            self.pretend['cancelled'] = False
         # Save
         if tosave:
             self.stateinfo.save(*tosave)
-        self.pretend['status'] = 'completed'
+        with self.locks['pretend_status']:
+            self.pretend['status'] = 'completed'
 
 
     def available_portage_update(self):
