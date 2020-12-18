@@ -516,10 +516,11 @@ class PortageHandler:
             self.sync['elapsed'] = 0
         self.sync['status'] = 'waiting'
         return                 
-            
-            
+           
     def get_last_world_update(self, detected=False):
-        """Getting last world update timestamp"""
+        """
+        Getting last world update timestamp
+        """
         
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
@@ -528,12 +529,14 @@ class PortageHandler:
         myparser = EmergeLogParser(self.pathdir['emergelog'])
         # keep default setting 
         # TODO : give the choice cf EmergeLogParser() --> last_world_update()
-        get_world_info = myparser.last_world_update(advanced_debug=self.vdebug['logparser'])
-                
+        ### WARNING to remove lastlines=1000 WARNING
+        get_world_info = myparser.last_world_update(lastlines=1000,
+                                    advanced_debug=self.vdebug['logparser'])
+        
+        updated = False
         tosave = [ ]
         if get_world_info:
             to_print = True
-            updated = False
             # Write only if change
             for key in 'start', 'stop', 'state', 'total', 'failed':
                 if not self.world[key] == get_world_info[key]:
@@ -549,14 +552,21 @@ class PortageHandler:
                     self.world[key] = get_world_info[key]
                     tosave.append([f'world last {key}', self.world[key]])
             if not updated:
-                logger.debug('Global update haven\'t been run, keeping last know informations.')
-                # TEST so if detected then global update have been aborded
+                logger.debug("Global update haven't been run," 
+                             " keeping last know informations.")
+                # TEST so if detected then global update 
+                # have been aborded TEST WARNING this is not sure
+                # at 100% because it could be incompleted and reject
+                # because it didn't pass limit number (nincompleted) 
+                # set in EmergeLogParser.last_world_update()
                 if detected:
                     logger.info('Global update have been aborded.')
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
-        return
+        if updated:
+            return True
+        return False
     
     
     def pretend_world(self):
