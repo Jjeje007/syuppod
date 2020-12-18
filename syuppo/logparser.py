@@ -18,14 +18,15 @@ except Exception as exc:
 
 class EmergeLogParser:
     """
-    Parse emerge.log file and extract informations.
+    Parse log file and extract informations.
     """
-    def __init__(self, emergelog):
-        self.logger_name =  f'::{__name__}::EmergeLogParser::' 
-        # Get a logger
-        logger = logging.getLogger(f'{self.logger_name}init::')
+    def __init__(self, **kwargs):
+        self.__nlogger =  f'::{__name__}::EmergeLogParser::' 
+        logger = logging.getLogger(f'{self.__nlogger}init::')
+        
         self.aborded = 5
-        self.emergelog = emergelog
+        self.emergelog = kwargs.get('log',
+                                    '/var/log/emerge.log')
         
         nlines = self.getlines()
         self.log_lines = { }
@@ -37,8 +38,8 @@ class EmergeLogParser:
                 'real'     :   False
                 }
             logger.error(f"Couldn't get '{self.emergelog}' lines count,"
-                         + f" setting arbitrary to: {self.log_lines['count']}"
-                         + "lines.")
+                         " setting arbitrary to: "
+                         f"{self.log_lines['count']} lines.")
         else:
             self.log_lines = {
                 'count'     :   nlines, 
@@ -48,9 +49,108 @@ class EmergeLogParser:
                          + f" {self.log_lines['count']} lines.")
         # Init numpy range lists
         self._range = { }
-    
-    
-    def last_sync(self, lastlines=500, nrange=10):
+
+    def getlines(self):
+        """
+        Get total number of lines from log file
+        """
+        logger = logging.getLogger(f'{self.__nlogger}getlines::')
+        
+        myargs = ['/bin/wc', '--lines', self.emergelog]
+        mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        nlines = re.compile(r'^(\d+)\s.*$')
+        
+        for line in mywc.stdout:
+            if nlines.match(line):
+                return int(nlines.match(line).group(1))
+        mywc.stdout.close()
+        
+        return_code = mywc.poll()
+        if return_code:
+            logger.error(f'Got error while getting lines number for \'{self.emergelog}\' file.')
+            logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
+            for line in mywc.stderr:
+                line = line.rstrip()
+                if line:
+                    logger.error(f'Stderr: {line}')
+            mywc.stderr.close()
+        # Got nothing
+        return False
+   
+   
+    def getlog(self, lastlines=500):
+        """
+        Get last n lines from log file
+        https://stackoverflow.com/a/136280/11869956
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}getlog::')
+                
+        myargs = ['/bin/tail', '-n', str(lastlines), self.emergelog]
+        mytail = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        
+        # From https://stackoverflow.com/a/4417735/11869956
+        for line in iter(mytail.stdout.readline, ""):
+            yield line.rstrip()
+        mytail.stdout.close()
+        
+        return_code = mytail.poll()
+        if return_code:
+            logger.error(f'Error reading \'{self.emergelog}\','
+                         + f" command: \'{' '.join(myargs)}\'," 
+                         + f' return code: \'{return_code}\'.')
+            for line in mytail.stderr:
+                line = line.rstrip()
+                if line:
+                    logger.error(f'Stderr: {line}')
+            mytail.stderr.close()
+            
+             
+    def keep_collecting(self, curr_loop, msg, key):
+        """
+        Restart collecting if nothing has been found and
+        managing lastlines increment to load.
+        """
+               
+        logger = logging.getLogger(f'{self.__nlogger}keep_collecting::')
+        
+        if not self.log_lines['real']:
+            additionnal_msg='(unknow maximum lines)'
+        else:
+            additionnal_msg='(it is the maximum)'
+        # Get loop count
+        loop_count = len(self._range[key])
+        
+        if curr_loop < loop_count:
+            logger.debug(f'Retry {curr_loop}/{loop_count - 1}: {msg[0]}' 
+                         + ' not found, reloading an bigger increment...')
+            self.lastlines = self._range[key][curr_loop]
+            return True
+        elif curr_loop >= loop_count:
+            logger.error(f'After {loop_count - 1} retries and {self.lastlines} lines read' 
+                         + f' {additionnal_msg}, {msg[0]} not found.')
+            logger.error(f'Look like the system {msg[1]}')
+            return False
+ 
+ 
+ 
+class LastSync(EmergeLogParser):
+    """
+    Get the last sync timestamp
+    """
+    def __init__(self, lastlines=500, nrange=10, **kwargs):
+        super().__init__(**kwargs)     
+        
+        self.lastlines = lastlines
+        # construct exponantial list
+        self._range['sync'] = numpy.geomspace(self.lastlines, self.log_lines['count'], 
+                                              num=nrange, endpoint=True, dtype=int)
+        self.__nlogger = f'::{__name__}::LastSync::' 
+        
+    def get(self):
         """
         Return last sync timestamp
         @returns: timestamp
@@ -86,13 +186,9 @@ class EmergeLogParser:
             adapt from https://stackoverflow.com/a/54023859/11869956
         """
         
-        logger = logging.getLogger(f'{self.logger_name}last_sync::')
+        logger = logging.getLogger(f'{self.__nlogger}get::')
         
         completed_re = re.compile(r'^(\d+):\s{1}===.Sync.completed.for.gentoo$')
-        self.lastlines = lastlines
-        # construct exponantial list
-        self._range['sync'] = numpy.geomspace(self.lastlines, self.log_lines['count'], 
-                                              num=nrange, endpoint=True, dtype=int)
         collect = [ ]
         keep_running = True
         count = 1
@@ -110,8 +206,8 @@ class EmergeLogParser:
             if collect:
                 keep_running = False
             else:
-                # __keep_collecting manage self.lastlines increment
-                if self.__keep_collecting(count, ['last sync timestamp for main repo \'gentoo\'', 
+                # keep_collecting manage self.lastlines increment
+                if self.keep_collecting(count, ['last sync timestamp for main repo \'gentoo\'', 
                                             'never sync...'], 'sync'):
                     count = count + 1
                     keep_running = True
@@ -135,65 +231,81 @@ class EmergeLogParser:
         
         logger.error('Failed to found latest update timestamp for main repo gentoo.')
         return False
-     
-    
-    def last_world_update(self, lastlines=3000, incompleted=True, 
-                          nincompleted=[30/100, 'percentage'], nrange=8,
-                          advanced_debug=False):
+      
+      
+      
+class LastWorldUpdate(EmergeLogParser):
+    """
+    Get the last world update informations
+    """
+    def __init__(self,  lastlines=3000, incompleted=True, 
+                nincompleted=[30/100, 'percentage'], nrange=8,
+                advanced_debug=False, **kwargs):
         """
-        Get last world update timestamp
-        @param lastlines  read last n lines from emerge log file (as we don't have to read all the file to get last world update)
-                          you can tweak it but any way if you lower it and if the function don't get anything in the first pass
-                          it will increment it depending on function __keep_collecting()
-        @type integer
-        @param incompleted enable or disable the search for start but failed update world
-        @type boolean
-        @param nincompleted a list which filter start from how much packages the function capture or not failed update world.                        
-        @type list where first element should integer or percentage in this form (n/100)
-                   where second element require either 'number' (if first element is number) or 'percentage' (if first element is percentage)
-        @returns: dictionary
-        @keys:  'start'     -> start timestamp.
-                'stop'      -> stop timestamp.
-                'total'     -> total packages which has been update.
-                'state'     -> 'completed' / 'partial' / 'incompleted'
-                'failed'    -> if 'completed': 'none', if 'partial' / 'incompleted': package number which failed. 
-        @error: return False
-        
-        Exemple from emerge.log:
-            1569446718:  *** emerge --newuse --update --ask --deep --keep-going --quiet-build=y --verbose world
-            1569447047:  >>> emerge (1 of 44) sys-kernel/linux-firmware-20190923 to /
-            1569447213:  === (1 of 44) Cleaning (sys-kernel/linux-firmware-20190923::/usr/portage/sys-kernel/linux-firmware/linux-firmware-20190923.ebuild)
-            1569447214:  === (1 of 44) Compiling/Merging (sys-kernel/linux-firmware-20190923::/usr/portage/sys-kernel/linux-firmware/linux-firmware-20190923.ebuild)
-            1569447219:  === (1 of 44) Merging (sys-kernel/linux-firmware-20190923::/usr/portage/sys-kernel/linux-firmware/linux-firmware-20190923.ebuild)
-            1569447222:  >>> AUTOCLEAN: sys-kernel/linux-firmware:0
-            1569447222:  === Unmerging... (sys-kernel/linux-firmware-20190904)
-            1569447224:  >>> unmerge success: sys-kernel/linux-firmware-20190904
-            1569447225:  === (1 of 44) Post-Build Cleaning (sys-kernel/linux-firmware-20190923::/usr/portage/sys-kernel/linux-firmware/linux-firmware-20190923.ebuild)
-            1569447225:  ::: completed emerge (1 of 44) sys-kernel/linux-firmware-20190923 to / 
+        :param lastlines:  
+            Read last n lines from emerge log file (as we don't have
+            to read all the file to get last world update)
+            Can be tweak but any way if you lower it and if the function
+            don't get anything in the first pass it will increment it 
+            depending on function keep_collecting()
+        :param incompleted:
+            Enable or disable the search for start but failed update world.
+            True for enabled else False.
+        :param nincompleted:
+            List which filter start from how much packages the function capture
+            or not failed update world.                        
+            First element should be integer or percentage in this form (n/100).
+            Second element require either 'number' (if first element is number)
+            or 'percentage' (if first element is percentage).
+        :return: 
+            If detected a dictionary:
+            'start'     :   start timestamp.
+            'stop'      :   stop timestamp.
+            'total'     :   total packages which has been update.
+            'state'     :   'completed' / 'partial' / 'incompleted'
+            'failed'    :   if 'completed': 'none', if 'partial' / 'incompleted':
+                            package number which failed. 
+            Else False.
         """
         
-        # TODO clean-up it's start to be huge !
-        # Logging setup
-        logger = logging.getLogger(f'{self.logger_name}last_world_update::')
         if not hasattr(logging, 'DEBUG2'):
             raise AttributeError("logging.DEBUG2 NOT setup.")
-        if advanced_debug:
-            logger.setLevel(logging.DEBUG2)
-
+        
+        super().__init__(**kwargs)
+               
+        self.__nlogger = f'::{__name__}::LastWorldUpdate::'
+        self.lastlines = lastlines
+        self.incompleted = incompleted
+        self.nincompleted = nincompleted
+        self.advanced_debug = advanced_debug
+        
+        # construct exponantial list
+        self._range['world'] = numpy.geomspace(self.lastlines, self.log_lines['count'], num=nrange, endpoint=True, dtype=int)
+        
         self.collect = {
             'completed'     :   [ ],
             'incompleted'   :   [ ],
             'partial'       :   [ ]
             }
         self.packages_count = 1
-        self.lastlines = lastlines
-        self.nincompleted = nincompleted
         self.group = { }
-        # construct exponantial list
-        self._range['world'] = numpy.geomspace(self.lastlines, self.log_lines['count'], num=nrange, endpoint=True, dtype=int)
+        
+    def get(self):
+        """
+        Return the informations
+        """
+        logger = logging.getLogger(f'{self.__nlogger}get::')
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
+        
+        
+        # TODO clean-up it's start to be huge !
+        # Logging setup
+        
+        
         
         incompleted_msg = ''
-        if incompleted:
+        if self.incompleted:
             incompleted_msg = ', incompleted'
 
         compiling = False
@@ -429,7 +541,7 @@ class EmergeLogParser:
                             if keepgoing and 'total' in self.group['saved']:
                                 logger.debug2("Calling _saved_partial().")
                                 _saved_partial()
-                            elif incompleted:
+                            elif self.incompleted:
                                 logger.debug2("Calling _saved_incompleted().")
                                 _saved_incompleted()
                             else:
@@ -439,7 +551,7 @@ class EmergeLogParser:
                                             + 'total packages: {0}, '.format(self.group['total'])
                                             + 'failed: {0}'.format(self.group['failed']))
                                 logger.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
-                                                f'incompleted ({incompleted}), '
+                                                f'incompleted ({self.incompleted}), '
                                                 f'nincompleted ({self.nincompleted[0]} / {self.nincompleted[1]}).')
                             # At then end reset
                             self.packages_count = 1
@@ -498,7 +610,7 @@ class EmergeLogParser:
                                                 + ' using partial (start: {0}).'.format(self.group['start']))
                                     _saved_partial()
                                 # incompleted is enable ?
-                                elif incompleted:
+                                elif self.incompleted:
                                     logger.debug('Forcing save of current world update group'
                                                 + ' using incompleted (start: {0}).'.format(self.group['start']))
                                     _saved_incompleted()
@@ -698,13 +810,13 @@ class EmergeLogParser:
                         # don't touch linecompiling
                   
             # Do we got something ?
-            if incompleted:
+            if self.incompleted:
                 if self.collect['completed'] or self.collect['incompleted'] or self.collect['partial']:
                     logger.debug2("Stop running, collect has been successfull.")
                     keep_running = False
                 else:
                     # That mean we have nothing ;)
-                    if self.__keep_collecting(count, ['last global update informations', 
+                    if self.keep_collecting(count, ['last global update informations', 
                                 'has never been update using \'world\' update schema...'], 'world'):
                         keep_running = True
                         count += 1
@@ -716,7 +828,7 @@ class EmergeLogParser:
                     logger.debug2("Stop running, collect has been successfull.")
                     keep_running = False
                 else:
-                    if self.__keep_collecting(count, ['last global update informations', 
+                    if self.keep_collecting(count, ['last global update informations', 
                                  'has never been update using \'world\' update schema...'], 'world'):
                         keep_running = True
                         count += 1
@@ -780,91 +892,5 @@ class EmergeLogParser:
             return latest_sublist
         else:
             logger.error('Failed to found latest global update informations.')
-            return False           
-   
-   
-    def getlines(self):
-        """
-        Get total number of lines from log file
-        """
-        logger = logging.getLogger(f'{self.logger_name}getlines::')
-        
-        myargs = ['/bin/wc', '--lines', self.emergelog]
-        mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-        
-        nlines = re.compile(r'^(\d+)\s.*$')
-        
-        for line in mywc.stdout:
-            if nlines.match(line):
-                return int(nlines.match(line).group(1))
-        mywc.stdout.close()
-        
-        return_code = mywc.poll()
-        if return_code:
-            logger.error(f'Got error while getting lines number for \'{self.emergelog}\' file.')
-            logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
-            for line in mywc.stderr:
-                line = line.rstrip()
-                if line:
-                    logger.error(f'Stderr: {line}')
-            mywc.stderr.close()
-        # Got nothing
-        return False
-   
-   
-    def getlog(self, lastlines=500):
-        """
-        Get last n lines from log file
-        https://stackoverflow.com/a/136280/11869956
-        """
-        
-        logger = logging.getLogger(f'{self.logger_name}getlog::')
-                
-        myargs = ['/bin/tail', '-n', str(lastlines), self.emergelog]
-        mytail = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-        
-        # From https://stackoverflow.com/a/4417735/11869956
-        for line in iter(mytail.stdout.readline, ""):
-            yield line.rstrip()
-        mytail.stdout.close()
-        
-        return_code = mytail.poll()
-        if return_code:
-            logger.error(f'Error reading \'{self.emergelog}\','
-                         + f" command: \'{' '.join(myargs)}\'," 
-                         + f' return code: \'{return_code}\'.')
-            for line in mytail.stderr:
-                line = line.rstrip()
-                if line:
-                    logger.error(f'Stderr: {line}')
-            mytail.stderr.close()
-            
-             
-    def __keep_collecting(self, curr_loop, msg, key):
-        """
-        Restart collecting if nothing has been found and
-        managing lastlines increment to load.
-        """
-               
-        logger = logging.getLogger(f'{self.logger_name}keep_collecting::')
-        
-        if not self.log_lines['real']:
-            additionnal_msg='(unknow maximum lines)'
-        else:
-            additionnal_msg='(it is the maximum)'
-        # Get loop count
-        loop_count = len(self._range[key])
-        
-        if curr_loop < loop_count:
-            logger.debug(f'Retry {curr_loop}/{loop_count - 1}: {msg[0]}' 
-                         + ' not found, reloading an bigger increment...')
-            self.lastlines = self._range[key][curr_loop]
-            return True
-        elif curr_loop >= loop_count:
-            logger.error(f'After {loop_count - 1} retries and {self.lastlines} lines read' 
-                         + f' {additionnal_msg}, {msg[0]} not found.')
-            logger.error(f'Look like the system {msg[1]}')
             return False
- 
+        
