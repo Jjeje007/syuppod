@@ -6,11 +6,14 @@
 # Part of syuppo package
 # Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-# TEST in progress: exit gracefully 
 # TODO write GOOD english :p
-# TODO : debug log level !
-# TODO threading cannot share object attribute 
-#       or it will not be update ?!?
+# TODO : extend debug log level
+# TODO implent threading.Event() for:
+#           saving_status
+#           pretend_world()
+#           dosync()
+                                    
+
 
 import sys
 import logging
@@ -24,10 +27,10 @@ import threading
 import signal
 
 from syuppo.dbus import PortageDbus
-from syuppo.manager import EmergeLogWatcher
 from syuppo.argsparser import DaemonParserHandler
 from syuppo.logger import LogLevelFilter
 from syuppo.logger import addLoggingLevel
+from syuppo.utils import CheckProcRunning
 
 try:
     from gi.repository import GLib
@@ -35,6 +38,12 @@ try:
 except Exception as exc:
     print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
+    sys.exit(1)
+
+try:
+    import inotify_simple
+except Exception as exc:
+    print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
 __version__ = 'dev'
@@ -54,30 +63,24 @@ pathdir = {
     }
 
 # Custom level name share across all logger
-logging.addLevelName(logging.CRITICAL, '[Crit  ]')
+logging.addLevelName(logging.CRITICAL, '[ Crit ]')
 logging.addLevelName(logging.ERROR,    '[Error ]')
-logging.addLevelName(logging.WARNING,  '[Warn  ]')
-logging.addLevelName(logging.INFO,     '[Info  ]')
+logging.addLevelName(logging.WARNING,  '[ Warn ]')
+logging.addLevelName(logging.INFO,     '[ Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug ]')
 # Adding advanced debug loglevel
 addLoggingLevel('DEBUG2', 9)
 logging.addLevelName(logging.DEBUG2,   '[vdebug]')
 
 # Configure timing exit
-timing_exit = { }
-# keep compatibility for v3.5/v3.6
-timing_exit['processor'] = time.process_time
-timing_exit['msg'] = 'seconds'
-# time.process_time_ns() have been added to v3.7
-#if sys.version_info[:2] > (3, 6):
-    #timing_exit['processor'] = time.process_time_ns
-    #timing_exit['msg'] = 'nanoseconds'
+timing_exit = time.process_time
 
 
 class CatchExitSignal:
     """
     Catch SIGINT or SIGTERM signal and advise signal receive
     """
+    # TODO add sigkill
     def __init__(self):
         self.logger_name = f'::{__name__}::CatchExitSignal::'
         logger = logging.getLogger(f'{self.logger_name}init::')
@@ -95,15 +98,20 @@ class CatchExitSignal:
 
 
 
-class MainDaemon(threading.Thread):
+class RegularDaemon(threading.Thread):
     """
-    Main Daemon Thread
+    Regular daemon Thread which handle sync and
+    pretend run 
     """
-    def __init__(self, myport, *args, **kwargs):
-        self.logger_name = f'::{__name__}::MainDaemonThread::'
-        logger = logging.getLogger(f'{self.logger_name}init::')
+    def __init__(self, manager, dbus_daemon, dynamic_daemon, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.myport = myport
+        
+        self.logger_name = f'::{__name__}::RegularDaemon::'
+        logger = logging.getLogger(f'{self.logger_name}init::')
+        
+        self.manager = manager
+        self.dbus_daemon = dbus_daemon
+        self.dynamic_daemon = dynamic_daemon
         # Init asyncio loop
         self.scheduler = asyncio.new_event_loop()
         # Change log level of asyncio 
@@ -113,215 +121,505 @@ class MainDaemon(threading.Thread):
         logging.getLogger('asyncio').setLevel(currentlevel)
         # Catch signals
         self.mysignal = CatchExitSignal()
+        
+        self.logflow = 10
+        self.delayed = {
+            'count' :   0,
+            'proc'  :   None
+            }
+    
+    
+    def allow(self, tocall):
+        """
+        Authorized the call to the specified method
+        if no process is in progress.
+        :param tocall:
+            This is the method we want to call: choose between
+            'sync' and 'pretend'
+        :return:
+            True if allowed else False
+        """
+        
+        logger = logging.getLogger(f'{self.logger_name}allow::')
+        
+        allowed = False
+        # Make sure no monitoring process is running
+        if not self.dynamic_daemon.pstate:
+            
+            msg = ''
+            if self.delayed['proc']:
+                msg_count = "less than a second"
+                if self.delayed['count']:
+                    msg_count = f"{self.delayed['count']} second(s)"
+                msg = (" (delayed by the execution of the"
+                        f" '{self.delayed['proc']}' process for"
+                        f" {msg_count}).")
+            
+            if tocall == 'sync':
+                # For sync there is an another step
+                with self.manager.locks['check_sync']:
+                    if self.manager.check_sync(recompute=True):
+                        logger.debug(f"Allow running dosync(){msg}")
+                        allowed = True
+            elif tocall == 'pretend':
+                logger.debug(f"Allow running pretend_world(){msg}")
+                allowed = True
+            
+            self.logflow = 10
+            self.delayed['count'] = 0
+            self.delayed['proc'] = None
+        # If a process is running then wait until it's finished
+        # and record how long it been waiting for and which 
+        # process
+        else:
+            # count how long it will be delayed and by witch process
+            self.delayed['count'] += 1
+            self.delayed['proc'] = self.dynamic_daemon.pstate['proc']
+            # Avoid flood logger.debug, call every 10s
+            if self.logflow <= 0:
+                logger.debug("Delaying call for check_sync(): "
+                            + f"process: {self.delayed['proc']} running"
+                            + " (already delayed since:"
+                            + f" {self.delayed['count']} second(s)")
+                self.logflow = 10
+            self.logflow -= 1
+        return allowed    
     
     def run(self):
+        """
+        Proceed call to pretend_world() and
+        to dosync() according to conditions
+        """
         logger = logging.getLogger(f'{self.logger_name}run::')
-        logger.info('Start up completed.')
-        logger.debug('Main Daemon Thread started.')
-        logflow = 10
-        # LOOP start
+        logger.debug('Regular Daemon Thread started.')
+        
         while not self.mysignal.exit_now:
             
-            # Check pending requests for 'sync'
-            # TEST workaround - but it have more latency 
-            if self.myport['watcher'].tasks['world']['inprogress']:
-                self.myport['manager'].world_state = True
-            else:
-                self.myport['manager'].world_state = False
-            if self.myport['watcher'].tasks['sync']['inprogress']:
-                self.myport['manager'].sync_state = True
-            else:
-                self.myport['manager'].sync_state = False
-            ### End workaround
+            # Regular sync
+            if (self.manager.sync['remain'] <= 0
+               and self.manager.sync['status'] == 'ready'):
+                if self.allow('sync'):
+                    logger.debug("Running dosync()")
+                    # sync not blocking using asyncio and thread 
+                    self.scheduler.run_in_executor(None, 
+                                            self.manager.dosync, )
+            # This should be almost 1s ;)
+            with self.manager.locks['sync_remain']:
+                self.manager.sync['remain'] -= 1
+            with self.manager.locks['sync_elapsed']:
+                self.manager.sync['elapsed'] += 1
             
-            # get sync timestamp or world pretend only if emergelog have been close_write 
-            # AND if there was an sync / update / both in progress.
-            if self.myport['watcher'].tasks['sync']['requests']['pending'] \
-               and not self.myport['watcher'].tasks['sync']['inprogress']:
-                # Take a copy so you can immediatly send back what we take and 
-                # still process it here
-                sync_requests = self.myport['watcher'].tasks['sync']['requests']['pending'].copy()
-                msg = ''
-                if len(sync_requests) > 1:
-                    msg = 's'
-                logger.debug(f'Got refresh request{msg}'
-                             + ' (id{0}={1})'.format(msg, '|'.join(sync_requests)) 
-                             + ' for sync informations.')
-                # Send reply
-                self.myport['watcher'].tasks['sync']['requests']['completed'] = sync_requests[-1]
-                # Dont automatically recompute, let check_sync() make the decision
-                self.myport['manager'].check_sync()
-            
-            # pretend running and world is running as well so call cancel
-            if self.myport['manager'].pretend['status'] == 'running' \
-               and self.myport['watcher'].tasks['world']['inprogress']:
-                self.myport['manager'].pretend['cancel'] = True
-            
-            # Check pending requests for 'world' <=> global update
-            if self.myport['watcher'].tasks['world']['requests']['pending'] \
-               and not self.myport['watcher'].tasks['world']['inprogress']:
-                world_requests = self.myport['watcher'].tasks['world']['requests']['pending'].copy()
-                msg = ''
-                if len(world_requests) > 1:
-                    msg = 's'
-                logger.debug(f'Got refresh request{msg}'
-                             + ' (id{0}={1})'.format(msg, '|'.join(world_requests)) 
-                             + ' for global update informations.')
-                # Send reply
-                self.myport['watcher'].tasks['world']['requests']['completed'] = world_requests[-1]
-                # Call get_last_world so we can know if world has been update and it will call pretend
-                # TEST just notify get_last_world_update that global update have been detected
-                self.myport['manager'].get_last_world_update(detected=True)
-            
-            # This is the case where we want to call pretend, there is not sync and world in progress
-            # and pretend is waiting and it was cancelled so recall pretend :p
-            if not self.myport['watcher'].tasks['sync']['inprogress'] \
-               and not self.myport['watcher'].tasks['world']['inprogress'] \
-               and self.myport['manager'].pretend['status'] == 'ready' \
-               and self.myport['manager'].pretend['cancelled']:
-                logger.warning('Recalling available packages updates search as it was cancelled.')
-                self.myport['manager'].pretend['proceed'] = True
-                self.myport['manager'].pretend['cancelled'] = False
+            # This is the case where we want to call pretend,
+            # there is not process running
+            # and pretend is waiting and 
+            # it was cancelled so recall pretend :p
+            if (self.manager.pretend['cancelled'] 
+               and not self.dynamic_daemon.pstate):
+                logger.warning("Recalling available packages updates"
+                               " search as it was cancelled.")
+                with self.manager.locks['proceed']:
+                    self.manager.pretend['proceed'] = True
+                with self.manager.locks['cancelled']:
+                    self.manager.pretend['cancelled'] = False
             
             # Every thing is OK: pretend was wanted, has been called and is completed 
-            if self.myport['manager'].pretend['status'] == 'completed':
+            if self.manager.pretend['status'] == 'completed':
                 # Wait between two pretend_world() run 
-                if self.myport['manager'].pretend['remain'] <= 0:
-                    logger.debug('Changing state for pretend process from \'completed\' to \'waiting\'.')
-                    logger.debug('pretend_world() can be call again.')
-                    self.myport['manager'].pretend['remain'] = self.myport['manager'].pretend['interval']
-                    self.myport['manager'].pretend['status'] = 'ready'
-                else:
-                    self.myport['manager'].pretend['remain'] -= 1
-            
-            # Check pending requests for portage package update
-            # don't call if sync/world/both is in progress
-            # remain is set in portagemanager, this will avoid call to often
-            if self.myport['watcher'].tasks['package']['requests']['pending'] \
-               and self.myport['manager'].portage['remain'] <= 0:
-                package_requests = self.myport['watcher'].tasks['package']['requests']['pending'].copy()
-                msg = ''
-                if len(package_requests) > 1:
-                    msg = 's'
-                logger.debug(f'Got refresh request{msg}'
-                             + ' (id{0}={1})'.format(msg, '|'.join(package_requests)) 
-                             + ' for portage\'s package update informations.')
-                # Send reply
-                self.myport['watcher'].tasks['package']['requests']['completed'] = package_requests[-1] 
-                # Set timer to 30s between two (group) of request
-                # This is done in available_portage_update()
-                self.myport['manager'].available_portage_update()
-            self.myport['manager'].portage['remain'] -= 1    
-            
-            # Regular sync
-            if self.myport['manager'].sync['remain'] <= 0 \
-               and not self.myport['manager'].sync['status'] \
-               and not self.myport['watcher'].tasks['sync']['inprogress']:
-                # TEST avoid syncing when updating world or it could crash emerge:
-                #  FileNotFoundError: [Errno 2] No such file or directory: 
-                #   b'/var/db/repos/gentoo/net-misc/openssh/openssh-8.3_p1-r1.ebuild'
-                if not self.myport['watcher'].tasks['world']['inprogress']:
-                    logflow = 10
-                    # recompute time remain
-                    if self.myport['manager'].check_sync(recompute=True):
-                        # sync not blocking using asyncio and thread 
-                        # this is for python 3.5+ / None -> default ThreadPoolExecutor 
-                        # where max_workers = n processors * 5
-                        # TODO FIXME should we need all ?
-                        logger.debug('Running dosync()')
-                        self.scheduler.run_in_executor(None, self.myport['manager'].dosync, ) # -> ', )' = No args
-                else:
-                    # Avoid spamming every 1s debug log
-                    if logflow <= 0:
-                        logger.debug('Delaying call for check_sync() because world update is in progress.')
-                        logflow = 10
-                    logflow -= 1
-            self.myport['manager'].sync['remain'] -= 1  # Should be 1 second or almost ;)
-            self.myport['manager'].sync['elapsed'] += 1
+                if self.manager.pretend['remain'] <= 0:
+                    logger.debug("Changing state for pretend process" 
+                                " from completed to waiting.")
+                    logger.debug("pretend_world() can be call again.")
+                    interval = self.manager.pretend['interval']
+                    self.manager.pretend['remain'] = interval
+                    with self.manager.locks['pretend_status']:
+                        self.manager.pretend['status'] = 'ready'
+                self.manager.pretend['remain'] -= 1
             
             # Run pretend_world() if authorized 
             # Leave other check (sync running ? pretend already running ? world update running ?)
             # to portagedbus module so it can reply to client.
-            # Disable pretend_world() if sync is in progress other wise will run twice.
-            # Better to go with watcher over manager because it could be an external sync which will not be detected
-            # by manager
+            # Disable pretend_world() if sync is in progress otherwise will run twice.
             # Don't run pretend if world / sync in progress or if not status == 'ready'
-            if self.myport['manager'].pretend['proceed'] \
-               and self.myport['manager'].pretend['status'] == 'ready' \
-               and not self.myport['watcher'].tasks['sync']['inprogress'] \
-               and not self.myport['watcher'].tasks['world']['inprogress']:
-                if self.myport['manager'].pretend['forced']:
-                    logger.warning('Recompute available packages updates as requested by dbus client.')
-                    self.myport['manager'].pretend['forced'] = False
-                logger.debug('Running pretend_world()')
-                # Making async and non-blocking
-                self.scheduler.run_in_executor(None, self.myport['manager'].pretend_world, ) # -> ', )' = same here
-            
+            if (self.manager.pretend['proceed']
+               and self.manager.pretend['status'] == 'ready'):
+                if self.allow('pretend'):
+                    if self.manager.pretend['forced']:
+                        logger.warning('Recompute available packages updates'
+                                        ' as requested by dbus client.')
+                        self.manager.pretend['forced'] = False
+                    logger.debug('Running pretend_world()')
+                    # Making async and non-blocking
+                    self.scheduler.run_in_executor(None, 
+                                self.manager.pretend_world, ) # -> ', )' = same here
+                        
             time.sleep(1)
-        
-        # LOOP Terminate
+        # Loop exit
+        logger.debug('Received exit order...')
+        self.stop_dbus()
+        self.stop_running_proc()
+        self.wait_on_saving()
+        logger.debug('...exiting now, bye.')
+       
+    def stop_dbus(self):
+        """
+        Stop dbus loop if running
+        """
+        logger = logging.getLogger(f'{self.logger_name}stop_dbus::')
         # This is a workaround: GLib.MainLoop have to been terminate 
         # Here or it will never return to main()
         # But be sure it have been run()
-        logger.debug('Received exit order...')
-        if self.myport['dbus'] and self.myport['dbus'].is_running():
-            start_time = timing_exit['processor']()
+        if self.dbus_daemon and self.dbus_daemon.is_running():
+            start_time = timing_exit()
             logger.debug('Sending quit() to dbus loop (Glib.MainLoop()).')
-            self.myport['dbus'].quit()
-            end_time = timing_exit['processor']()
-            logger.debug('Dbus loop have been shut down in'
-                         + ' {0}'.format(end_time - start_time)
-                         + f" {timing_exit['msg']}.")
-        
-        #  Wait before exiting if:
-        # dosync() is running through self.scheduler (asyncio)
-        if self.myport['manager'].sync['status']:
-            start_time = timing_exit['processor']()
-            logger.debug('Sending exit request for running dosync().')
-            self.myport['manager'].exit_now['sync'] = True
-            # Wait for reply
-            while not self.myport['manager'].exit_now['sync'] == 'Done':
-                # So if we don't have reply but if
-                # status change to False then process have been done
-                # just break
-                if not self.myport['manager'].sync['status']:
-                    logger.debug('dosync() process have been completed.')
-                    break
-            end_time = timing_exit['processor']()
-            logger.debug('dosync() have been shut down in'
-                         + ' {0}'.format(end_time - start_time)
-                         + f" {timing_exit['msg']}.")
-        
-        # pretend_world() is running through self.scheduler (asyncio)
-        if self.myport['manager'].pretend['status'] == 'running':
-            start_time = timing_exit['processor']()
-            logger.debug('Sending exit request for running pretend_world().')
-            self.myport['manager'].exit_now['pretend'] = True
-            # Wait for reply
-            while not self.myport['manager'].exit_now['pretend'] == 'Done':
-                # same as dosync() shut down
-                if self.myport['manager'].pretend['status'] == 'completed':
-                    logger.debug('pretend_world() process have been completed.')
-                    break
-            end_time = timing_exit['processor']()
-            logger.debug('pretend_world() have been shut down in'
-                         + ' {0}'.format(end_time - start_time)
-                         + f" {timing_exit['msg']}.")
-        
-        # IF we are writing something to the statefile.
+            self.dbus_daemon.quit()
+            end_time = timing_exit()
+            logger.debug("Dbus loop have been shut down in"
+                         f" {end_time - start_time} second(s).")
+    
+    def stop_running_proc(self):
+        """
+        Stop asyncio process dosync()
+        and or pretend_world() if
+        running
+        """
+        logger = logging.getLogger(f'{self.logger_name}stop_running_proc::')
+        # Check and stop:
+        # dosync() if running through self.scheduler (asyncio)
+        # pretend_world() if running through self.scheduler (asyncio)
+        for proc in 'sync', 'pretend':
+            method = self.manager.sync
+            msg = 'dosync()'
+            if proc == 'pretend':
+                method = self.manager.pretend
+                msg = 'pretend_world()'
+            
+            if method['status'] == 'running':
+                start_time = timing_exit()
+                logger.debug(f"Sending exit request for running {msg}.")
+                
+                self.manager.exit_now[proc] = True
+                # Wait for reply
+                while not self.manager.exit_now[proc] == 'Done':
+                    # So if we don't have reply but if
+                    # status change to False then process have been done
+                    # just break
+                    if method['status'] in ('completed', 'ready'):
+                        logger.debug(f"{msg} process have been completed.")
+                        break
+                end_time = timing_exit()
+                logger.debug(f"{msg} have been shut down in "
+                             f"{end_time - start_time} second(s).")
+    
+    def wait_on_saving(self):
+        """
+        Wait if we are writing to statefile
+        """
+        logger = logging.getLogger(f'{self.logger_name}wait_on_saving::')
+        # Wait if we are writing something to the statefile.
         process_wait = False
-        start_time = timing_exit['processor']()
-        while self.myport['manager'].saving_status:
+        start_time = timing_exit()
+        while self.manager.saving_status:
             process_wait = True
         if process_wait:
-            end_time = timing_exit['processor']()
-            logger.debug('...exiting now, bye' 
-                        + ' (remaining processes have been shut down in'
-                        + ' {0}'.format(end_time - start_time)
-                        + f" {timing_exit['msg']}).")
-        else:
-            logger.debug('...exiting now, bye.')
+            end_time = timing_exit()
+            logger.debug("Remaining processes have been shut down in"
+                         f" {end_time - start_time} second(s).")
+
+
+
+class DynamicDaemon(threading.Thread):
+    """
+    Proceed changes depending on dynamics conditions
+    """
+    def __init__(self, pathdir, manager, advanced_debug=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Init logger
+        self.logger_name = f'::{__name__}::DynamicDaemon::'
+        logger = logging.getLogger(f'{self.logger_name}init::')
+        # For exiting
+        self.exit_now = False
+        # Wait for this thread exiting
+        self.exiting = threading.Event()
+        self.manager = manager
+        #logger.debug(f"MANAGER: {self.manager}")
+        # Switch between watched target
+        self.watch = {
+            'inotify'  :   {
+                'path'      :   pathdir['emergelog'],
+                'flags'     :   8,
+                'id'        :   'inotify',
+                'call'      :   self.inotifywatch
+                },
+            'file'   :   {
+                'path'      :   False,
+                'id'        :   'file',
+                'call'      :   self.filewatch
+                }
+            }
+        # Default inotify setup
+        self.caller = self.watch['inotify']
+        self.timeout = 1
+        self.inotify = False
         
+        # for process querying
+        self.prun = CheckProcRunning()
+        self.pstate = False 
+        
+    def filewatch(self):
+        """
+        Using pathlib to watch deleted file in /proc since 
+        inotify won't work on /proc.
+        """
+        # TODO TODO TODO : logger + logflow
+        #msg = {
+            #'world'     :   'global update',
+            #'sync'      :   'sync',
+            #'system'    :   'system update',
+            #'portage'   :   'portage package update'
+        #}
+        logger = logging.getLogger(f'{self.logger_name}filewatch::')
+        
+        logger.debug(f"Started monitoring: '{self.caller['path']}'"
+                    + f" using pathlib.Path().exists()")
+        
+        # For world update, make sure pretend is NOT running
+        if pathlib.Path(self.caller['path']).exists() and \
+           self.manager.pretend['status'] == 'running':
+            logger.debug("Found pretend process running, shutting down.")
+            with self.manager.locks['cancel']:
+                self.manager.pretend['cancel'] = True
+            # Leave the recall to RegularDaemon
+            
+        # it's not the best 
+        # but haven't found a better way...
+        # For exit order also
+        while pathlib.Path(self.caller['path']).exists() and \
+        not self.exit_now:
+            time.sleep(1)
+        if self.exit_now:
+            logger.debug("Stop waiting, receive exit order.")
+            return
+        logger.debug(f"{self.caller['path']} have been deleted.")
+            
+    def inotifywatch(self):
+        """
+        Using inotify to watch specified path with specified flags.
+        """
+        logger = logging.getLogger(f'{self.logger_name}inotifywatch::')
+        # if inotify not already setup
+        if not self.inotify:
+            self.inotify = self.__inotify()
+        reader = False
+        # For exit order also
+        # But should be self.timeout != 0 / None
+        # Otherwise it will be stuck until new data is available
+        while not reader and not self.exit_now:
+            reader = self.inotify.read(timeout=self.timeout)
+    
+        if self.exit_now:
+            logger.debug("Stop waiting, receive exit order.")
+            return 
+        
+        logger.debug(f"State changed with: {reader}.")
+        # DONT close here: let self.checking() doing it
+        # OR at the end of run()
+    
+    def __inotify(self):
+        """
+        Setup a watch and return its
+        """
+        logger = logging.getLogger(f'{self.logger_name}__inotify::')
+        inotify = inotify_simple.INotify()
+        # Ouput by flag over one numeric value
+        get_flags = inotify_simple.flags.from_mask
+        try:
+            log_wd = inotify.add_watch(self.caller['path'], self.caller['flags'])
+        except OSError as error:
+            logger.error(f"Inotify watch crash: Using:"
+                        + f" '{self.caller['path']}'.")
+            logger.error(f"{error}: Exiting with status '1'.")
+            sys.exit(1)
+        else:
+            logger.debug(f"Started monitoring: '{self.caller['path']}', flags:"
+                        + f" '{get_flags(self.caller['flags'])}',"
+                        + f" timeout={self.timeout}.")
+            return inotify
+          
+    def checking(self):
+        """
+        Checking process using CheckProcRunning()
+        and changed caller depending of
+        its output
+        """
+        logger = logging.getLogger(f'{self.logger_name}checking::')
+        # Get current processes state
+        self.pstate = self.prun.check()
+        # Found process
+        if self.pstate:
+            logger.debug("Found running process:"
+                        + f" {self.pstate}")
+            # For sync detect internal/external
+            if self.pstate['proc'] == 'sync':
+                # Just get the status from manager: True if internal else False
+                if self.manager.sync['status'] == 'running':
+                    self.pstate['internal'] = True
+                    self.manager.external_sync = False
+                else:
+                    self.pstate['internal'] = False
+                    # So advise dbus sync is external
+                    # And set its pid. 'path' is a PosixPath object
+                    self.manager.external_sync = self.pstate['path'].stem
+                    logger.debug("Setting dbus external_sync to:"
+                                f" {self.manager.external_sync}")
+                logger.debug(f"Sync is internal: {self.pstate['internal']}")
+            # For world advise also dbus and set its pid
+            if self.pstate['proc'] == 'world':
+                self.manager.world_state = self.pstate['path'].stem
+                logger.debug("Setting dbus world_state to:"
+                                f" {self.manager.world_state}")
+            
+            # Now switch the caller 
+            self.watch['file']['path'] = self.pstate['path']
+            # First close self.inotify() and
+            # set it to False 
+            if self.inotify:
+                logger.debug(f"Closing inotify watcher: {self.inotify}")
+                self.inotify.close()
+                self.inotify = False
+            # Then switch caller
+            current_caller = self.caller
+            self.caller = self.watch['file']
+            logger.debug(f"Setting caller from '{current_caller}'"
+                         + f" to '{self.caller}'.")
+        # Not found
+        else:
+            # Reset dbus manager states
+            logger.debug("Reset dbus manager states to False: current:"
+                        f" external_sync: {self.manager.external_sync}"
+                        f" world_state: {self.manager.world_state}")
+            self.manager.external_sync = False
+            self.manager.world_state = False
+            # Make sure to get the default caller
+            if not self.caller['id'] == 'inotify':
+                current_caller = self.caller
+                self.caller = self.watch['inotify']
+                logger.debug(f"Resetting caller from '{current_caller}'"
+                             f" to '{self.caller}' (default).")
+            else:
+                logger.debug(f"Keeping default caller: {self.caller}")
+       
+    def sync(self):
+        """
+        Update all attributes and methods
+        related to a sync status changed
+        """
+        logger = logging.getLogger(f'{self.logger_name}sync::')
+        
+        # After a sync, portage package update have to be run
+        logger.debug("Running .portage()")
+        self.portage()
+        # pretend_world() should also be run
+        # but only if it's an external sync 
+        if self.pstate['internal']:
+            logger.debug("Skip the rest of the processes: sync was internal.")
+            return
+        
+        # This is for external sync only
+        # Make sure to lock the method
+        with self.manager.locks['check_sync']:
+            logger.debug("Running check_sync()")
+            # Don't automatically recompute, let check_sync()
+            # make the decision
+            self.manager.check_sync()
+            # If pretend_world() should be run 
+            # then let RegularDaemon handle it
+        
+    def world(self):
+        """
+        Update all attributes and methods
+        related to a world update changed
+        """
+        logger = logging.getLogger(f'{self.logger_name}world::')
+        
+        # call get_last_world_update() for update available
+        # package update (could be to 0)
+        logger.debug("Running get_last_world_update()")
+        # TEST now get_last_world_update return True if
+        # world update have run else False.
+        if self.manager.get_last_world_update(detected=True):
+            # let pretend_world() be run by RegularDaemon
+            # And manage directly by get_last_world_update()
+            # Also, call portage to update portage package update
+            # status only if world have been updated
+            logger.debug("Running '.portage()'")
+            self.portage()
+    
+    def system(self):
+        """
+        Update all attributes and methods
+        related to a system update changed
+        """
+        logger = logging.getLogger(f'{self.logger_name}system::')
+        # TODO TODO First we have to implant parser for system
+        logger.debug("TODO !!")
+        
+    def portage(self):
+        """
+        Update all attributes and methods
+        related to a portage status changed
+        """
+        logger = logging.getLogger(f'{self.logger_name}portage::')
+        
+        logger.debug("Running available_portage_update()")
+        self.manager.available_portage_update()
+        
+    def run(self):
+        """
+        Wait on specifics status changes for specifics files and
+        call specific methods depending situations.
+        """
+        logger = logging.getLogger(f'{self.logger_name}run::')
+        logger.debug('Dynamic Daemon Thread started.')
+        
+        # Before entering the loop, select the appropriate caller
+        self.checking()                
+        while not self.exit_now:
+            # wait on watching specified file/dir with specific caller
+            self.caller['call']()
+            
+            if self.exit_now:
+                break            
+            # state has changed
+            # there is two choices depending on caller
+            if self.caller['id'] == 'inotify':
+                logger.debug("Checking if specified process is running")
+                self.checking()
+                # self.checking() will automatically changed caller so
+                # all we have to do here is to restart the loop :p
+            elif self.caller['id'] == 'file':
+                # this mean: we started to monitor inotify which result
+                # in flags changed. Then, we check if specified process
+                # is running which result to true. So, we wait to this 
+                # specified process has finished, which is true now.
+                # And here we are :p
+                # All depend on self.pstate['proc']
+                getattr(self, self.pstate['proc'])()
+                # After this recall self.checking() 
+                # so it can set the 'good' caller again
+                self.checking()
+                
+        # Loop Stop
+        logger.debug("Received exit order...")
+        if self.inotify:
+            self.inotify.close()
+            logger.debug("Inotify() shut downed.")
+        
+        logger.debug("...exiting now, bye.")
+        # Send reply to main
+        self.exit_now = 'Done'
+        # Test: set event
+        self.exiting.set()
+
 
 
 def main():
@@ -346,9 +644,10 @@ def main():
         # Default to info
         logger.setLevel(logging.INFO)
         # Working with xfce4-terminal and konsole if set to '%w'
-        # See -> https://gitweb.gentoo.org/proj/portage.git/tree/lib/portage/output.py?id=03d4c33f48eb5e98c9fdc8bf49ee239489229b8e
-        # For a better approch ?
-        print(f'\33]0;{prog_name} - version: {__version__}\a', end='', flush=True)
+        # TODO For a better approch ? see [1]
+        # [1]: https://gitweb.gentoo.org/proj/portage.git/tree/lib/portage/output.py?id=03d4c33f48eb5e98c9fdc8bf49ee239489229b8e
+        print(f'\33]0;{prog_name} - version: {__version__}\a', end='', 
+             flush=True)
     else:
         # configure the root logger
         logger = logging.getLogger()
@@ -358,16 +657,23 @@ def main():
         handlers = { }
         if args.debug and not args.quiet:
             # Ok so it's 5MB each, rotate 3 times = 15MB TEST
-            debug_handler = logging.handlers.RotatingFileHandler(pathdir['debuglog'], maxBytes=5242880, backupCount=3)
-            debug_formatter   = logging.Formatter('%(asctime)s  %(name)s  %(message)s')
+            debug_handler = logging.handlers.RotatingFileHandler(
+                                                        pathdir['debuglog'],
+                                                        maxBytes=5242880,
+                                                        backupCount=3)
+            debug_formatter = logging.Formatter('%(asctime)s  %(name)s'
+                                                '  %(message)s')
             debug_handler.setFormatter(debug_formatter)
-            # For a better understanding get all level message for debug log 
+            # For a better understanding get 
+            # all level message for debug log
             debug_handler.addFilter(LogLevelFilter(50))
             debug_handler.setLevel(10)
             handlers['debug'] = debug_handler
         # Other level goes to Syslog
-        syslog_handler   = logging.handlers.SysLogHandler(address='/dev/log',facility='daemon')
-        syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s  %(message)s')
+        syslog_handler = logging.handlers.SysLogHandler(address='/dev/log',
+                                                        facility='daemon')
+        syslog_formatter = logging.Formatter(f'{prog_name} %(levelname)s'
+                                             '  %(message)s')
         syslog_handler.setFormatter(syslog_formatter)
         syslog_handler.setLevel(20)
         handlers['syslog'] = syslog_handler
@@ -379,24 +685,23 @@ def main():
     
     # Then, pre-check
     if not sys.stdout.isatty():
-        display_init_tty = 'Log are located to {0}'.format(pathdir['debuglog'])
+        display_init_tty = f"Log are located to {pathdir['debuglog']}"
         # Check for --dryrun
         if args.dryrun:
-            logger.error('Running --dryrun from /etc/init.d/ is NOT supported.')
-            logger.error('Exiting with status \'1\'.')
+            logger.error("Running --dryrun from /etc/init.d/"
+                         " is NOT supported.")
+            logger.error("Exiting with status 1.")
             sys.exit(1)
     elif sys.stdout.isatty():
         from getpass import getuser
         display_init_tty = ''
         logger.info('Interactive mode detected, all logs go to terminal.')
-        # TODO FIXME this have to be removed when we will change how syuppod is setup
-        logger.info('Make sure to run init file as root to setup syuppod.')
         # Just check if user == 'syuppod'
         running_user = getuser()
         if not running_user == 'syuppod':
-            logger.error('Running program from terminal require to' 
-                         + f' run as \'syuppod\' user (current: {running_user}).')
-            logger.error('Exiting with status \'1\'.')
+            logger.error("Running program from terminal require to run as"
+                         f" syuppod user (current: {running_user}).")
+            logger.error("Exiting with status '1'.")
             sys.exit(1)
         # Check if directories exists
         if not args.dryrun:
@@ -404,22 +709,23 @@ def main():
             for directory in 'basedir', 'logdir':
                 if not pathlib.Path(pathdir[directory]).is_dir():
                     # Ok so exit because we cannot manage this:
-                    # Program has to been run as syuppod
-                    # BUT creating directories has to be run as root...
+                    # Program have to been run as syuppod
+                    # BUT creating directories have to be run as root...
                     logger.error(f"Missing directory: '{pathdir[directory]}'.")
-                    logger.error('Exiting with status \'1\'.')
+                    logger.error("Exiting with status '1'.")
                     sys.exit(1)
         else:
-            logger.warning('Dryrun is enabled, skipping all write process.')
+            logger.warning("Dryrun is enabled, skipping all write process.")
           
     # Setup level logging (default = INFO)
     if args.debug and args.quiet:
-        logger.info('Both debug and quiet opts have been enabled,' 
-                    + ' falling back to log level info.')
+        logger.info("Both debug and quiet opts have been enabled," 
+                    " falling back to log level info.")
     elif args.debug:
         logger.setLevel(logging.DEBUG)
-        logger.info(f'Debug is enabled. {display_init_tty}')
-        logger.debug('Messages are from this form \'::module::class::method:: msg\'.')
+        logger.info(f"Debug is enabled. {display_init_tty}")
+        logger.debug("Messages are from this form "
+                     "'::module::class::method:: msg'.")
     elif args.quiet:
         logger.setLevel(logging.ERROR)
     
@@ -430,82 +736,75 @@ def main():
         dbusloop = GLib.MainLoop()
         dbus_session = SystemBus()
     
-    # Init Emerge log watcher
-    # For now status of emerge --sync and @world is get directly from portagemanager module
-    myportwatcher = EmergeLogWatcher(pathdir, name='Emerge Log Watcher Daemon', daemon=True)
+    # Init manager
+    manager = PortageDbus(interval=args.sync, pathdir=pathdir, 
+                          dryrun=args.dryrun, vdebug=args.vdebug)
     
-    # Init portagemanager
-    myportmanager = PortageDbus(interval=args.sync, pathdir=pathdir, dryrun=args.dryrun, vdebug=args.vdebug)
+    # Init Dynamic Daemon
+    dynamic_daemon = DynamicDaemon(pathdir, manager, 
+                                  name='Dynamic Daemon Thread', daemon=True)
     
     # Check sync
-    myportmanager.check_sync(init_run=True, recompute=True)
+    # Don't need to lock here 
+    manager.check_sync(init_run=True, recompute=True)
     # Get last portage package
-    # Better first call here because this won't be call before EmergeLogWatcher detected close_write
-    myportmanager.available_portage_update()
-    # Same here: Check if global update has been run 
-    myportmanager.get_last_world_update()
+    # Better first call here because this won't be call 
+    # before DynamicDaemon detected close_write
+    manager.available_portage_update()
+    # Same here: Check if global update have been run 
+    manager.get_last_world_update()
     
-    # Adding objet to myport
-    myport = { }
-    myport['manager'] = myportmanager
-    myport['watcher'] = myportwatcher
+    dbus_daemon = False
     if not args.nodbus:
-        myport['dbus'] = dbusloop
-    else:
-        myport['dbus'] = False
-        
+        dbus_daemon = dbusloop        
     
     failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
-                               + r'.own.the.service.*due.to.security'
-                               + r'.policies.in.the.configuration.file.*$')
+                               r'.own.the.service.*due.to.security'
+                               r'.policies.in.the.configuration.file.*$')
     if not args.nodbus:
         busconfig = True
         # Adding dbus publisher
         try:
-            dbus_session.publish('net.syuppod.Manager.Portage', myportmanager)
+            dbus_session.publish('net.syuppod.Manager.Portage', manager)
         except GLib.GError as error:
             error = str(error)
             if failed_access.match(error):
-                logger.error(f'Got error: {error}')
-                logger.error(f'Try to copy configuration file: \'{dbus_conf}\''
-                            + ' to \'/usr/share/dbus-1/system.d/\' and restart daemon')
+                logger.error(f"{error}")
+                logger.error(f"Try to copy configuration file: '{dbus_conf}'"
+                             " to '/usr/share/dbus-1/system.d/'"
+                             " and restart the daemon.")
             else:
-                logger.error(f'Got unexcept error: {error}')
-            logger.error('Dbus bindings have been DISABLED !!')
+                logger.error(f"Unexcept error: {error}")
+            logger.error("Dbus bindings have been DISABLED !")
             busconfig = False
     else:
         busconfig = False
     
     # Init daemon thread
-    daemon_thread = MainDaemon(myport, name='Main Daemon Thread', daemon=True)
+    regular_daemon = RegularDaemon(manager, dbus_daemon, dynamic_daemon, 
+                                   name='Regular Daemon Thread', daemon=True)
     
+    logger.info('Start up completed.')
     # Start all threads and dbus thread
-    myport['watcher'].start()
-    daemon_thread.start()
+    dynamic_daemon.start()
+    regular_daemon.start()
     if busconfig:
         logger.debug('Running dbus loop using Glib.MainLoop().')
         dbusloop.run()
     
-    # Exiting gracefully - Try to :p
+    # Exiting gracefully
     # Glib.MainLoop is shut down in MainDaemonThread
-    daemon_thread.join()
+    regular_daemon.join()
     
-    # For watcher thread
-    # This could, sometime, last almost 10s before exiting
-    # TODO Maybe we could investigate more about this
-    logger.debug('Sending exit request to watcher thread.')
-    start_time = timing_exit['processor']()
-    myport['watcher'].exit_now = True
-    # Only wait for thread to send 'Done'
-    # TODO : maybe better using wait()?
-    # see: https://docs.python.org/3/library/threading.html#threading.Condition.wait
-    while not myport['watcher'].exit_now == 'Done':
-        pass
-    end_time = timing_exit['processor']()
-    logger.debug('Watcher thread have been shut down in'
-                + ' {0}'.format(end_time - start_time)
-                + f" {timing_exit['msg']}.")
-    myport['watcher'].join()
+    logger.debug('Sending exit request to Dynamic Daemon thread.')
+    start_time = timing_exit()
+    dynamic_daemon.exit_now = True
+    # Wait for the event
+    dynamic_daemon.exiting.wait()
+    end_time = timing_exit()
+    logger.debug("Dynamic Daemon thread have been shut down in"
+                f" {end_time - start_time} second(s).")
+    dynamic_daemon.join()
     
     # Every thing done
     logger.info('...exiting, ...bye-bye.')
