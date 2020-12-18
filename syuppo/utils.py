@@ -13,6 +13,7 @@ import signal
 import gettext
 import logging
 
+from collections import deque
 from distutils.version import StrictVersion
 from distutils.util import strtobool
 from ctypes import cdll
@@ -911,6 +912,137 @@ class FormatTimestamp:
                                                                       for item in __format(result))
 
 
+
+class CheckProcRunning:
+    """
+    Check if specific process is running using /proc
+    Adapt from https://stackoverflow.com/a/31997847/11869956
+    """
+    
+    def __init__(self, advanced_debug=False):
+        if not hasattr(logging, 'DEBUG2'):
+            raise AttributeError("logging.DEBUG2 NOT setup.")
+        
+        # Setup logging
+        self.logger_name = f'::{__name__}::CheckProcRunning::'
+        logger = logging.getLogger(f'{self.logger_name}__init__::')
+        self.advanced_debug = advanced_debug
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
+        
+        # WARNING: @./kernel/pid.c: #define RESERVED_PIDS           300
+        # so we don't care before 300 atm (2020-12-13)
+        self.pids_only = re.compile(r'^[3-9][0-9][0-9]$|^\d{4,}$')
+        self.world = re.compile(r'^.*emerge.*\s(?:world|@world)\s*.*$')
+        self.pretend = re.compile(r'.*emerge.*\s-\w*p\w*\s.*|.*emerge.*\s--pretend\s.*')
+        self.sync = re.compile(r'.*emerge\s--sync\s*$')
+        self.wrsync = re.compile(r'.*emerge-webrsync\s*.*$')
+        self.system = re.compile(r'.*emerge.*\s(?:system|@system)\s*.*$')
+        self.portage = re.compile(r""".*emerge.*\s(?:portage|sys-apps/portage|
+                              =sys-apps/portage-(?:[\d+\.\-r]))\s*.*$""", re.X)
+    
+        logger.debug(f"Running with advanced_debug={advanced_debug}.")
+        logger.debug2(f"Re pids_only: {self.pids_only}")
+        logger.debug2(f"Re world_proc: {self.world}")
+        logger.debug2(f"Re pretend_opt: {self.pretend}")
+        logger.debug2(f"Re sync_proc: {self.sync},"
+                      + f" wrsync_proc: {self.wrsync}")
+        logger.debug2(f"Re system_proc: {self.system}")
+        logger.debug2(f"Re portage_proc: {self.portage}")
+    
+    
+    def __get_pid_dirs(self):
+        """
+        Return all the pid dir from /proc
+        """
+        logger = logging.getLogger(f'{self.logger_name}__get_pid_dirs::')
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
+            
+        logger.debug2("Get pid only directories from '/proc'.")
+        with pathlib.Path('/proc') as listdir:
+            for name in listdir.iterdir():
+                logger.debug2(f"Inspect: {name}")
+                if name.is_dir():
+                    logger.debug2(f"Validate directory: {name}")
+                    if self.pids_only.match(name.parts[-1]):
+                        logger.debug2("Validate: Pid only and > 300"
+                                      + " (kernel RESERVED_PIDS).")
+                        yield name
+                    else:
+                        logger.debug2(f"Reject: {name}: Not pid only or"
+                                      "pid < 300 (kernel RESERVED_PIDS).")
+                else:
+                    logger.debug2(f"Reject: {name}: Not dir, doesn't exist,"
+                              + " broken symlink, permission errors.")
+    
+    
+    def __get_content(self):
+        """
+        Return all content using __get_pid_dirs()
+        """
+        logger = logging.getLogger(f'{self.logger_name}__get_content::')
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
+            
+        for dirname in self.__get_pid_dirs():
+            logger.debug2(f"Extract content from: {dirname}")
+            try:
+                with pathlib.Path(f'{dirname}/cmdline').open('rb') as myfd:
+                    content = myfd.read().decode().split('\x00')
+                    content = ' '.join(content)
+                    if content:
+                        logger.debug2("Extract successfully.")
+                        yield (content, dirname)
+                    else:
+                        logger.debug2(f"Skip current content: {content}"
+                                  " no data.")
+            # IOError exception when pid is terminate between getting the 
+            # dir list and open each.
+            except IOError as error:
+                logger.debug(f"IOError: {error}, skipping...")
+                continue
+            except Exception as exc:
+                logger.error(f"Got unexcept error: {exc},"
+                                + "skipping...")
+                continue 
+    
+    def check(self):
+        """
+        Check if specific process is running 
+        using content from __get_content()
+        """
+        logger = logging.getLogger(f'{self.logger_name}check::')
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
+        
+        found = False
+        for cmdline, dirname in self.__get_content():
+            logger.debug2(f"Search from: '{cmdline}'.")
+            for proc in 'world', 'system', 'sync', 'portage':
+                attr = getattr(self, proc)
+                logger.debug2(f"Use '{proc}' re: {attr}")
+                if attr.match(cmdline):
+                    found = True
+                    logger.debug2("Got positive match.")
+                    if proc == 'world' or proc == 'system':
+                        if self.pretend.match(cmdline):
+                            found = False
+                            logger.debug2("NOT validate the match:"
+                                          + "pretend_opt.")
+                
+                if found:
+                    logger.debug2("Validate the match.")
+                    logger.debug(f"{proc} process running from cmdline:"
+                                + f" '{cmdline}' and using: {dirname}")
+                    return { 'proc'  : proc, 
+                    # dirname: will return an PosixPath object
+                             'path'  : dirname } 
+                logger.debug2("No positive match.")
+        logger.debug("No processes running.")
+        return False
+    
+    
 
 # TODO Should we need logger ???
 # Taken from https://gist.github.com/evansd/2346614
