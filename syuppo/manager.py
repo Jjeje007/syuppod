@@ -22,7 +22,8 @@ from portage.dbapi.vartree import vardbapi
 from syuppo.utils import FormatTimestamp
 from syuppo.utils import StateInfo
 from syuppo.logger import ProcessLoggingHandler
-from syuppo.logparser import EmergeLogParser
+from syuppo.logparser import LastSync
+from syuppo.logparser import LastWorldUpdate 
 from syuppo.utils import on_parent_exit
 
 try:
@@ -167,7 +168,7 @@ class PortageHandler:
                              self.format_timestamp.convert(self.sync['interval'], granularity=5)))
         
         # Last global update informations
-        # For more details see -> class EmergeLogParser -> last_world_update()
+        # For more details see module logparser
         self.world = {
             'state'     :   loaded_stateopts.get('world last state'), 
             'start'     :   loaded_stateopts.get('world last start'),
@@ -202,8 +203,8 @@ class PortageHandler:
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}check_sync::')
         # Get the last emerge sync timestamp
-        myparser = EmergeLogParser(self.pathdir['emergelog'])
-        sync_timestamp = myparser.last_sync()
+        myparser = LastSync(log=self.pathdir['emergelog'])
+        sync_timestamp = myparser.get()
         current_timestamp = time.time()
         tosave = [ ]
         
@@ -479,10 +480,10 @@ class PortageHandler:
             
             # Get sync timestamp from emerge.log
             logger.debug('Initializing emerge log parser:')
-            myparser = EmergeLogParser(self.pathdir['emergelog'])
+            myparser = LastSync(log=self.pathdir['emergelog'])
             logger.debug('Parsing file: {0}'.format(self.pathdir['emergelog']))
             logger.debug('Searching last sync timestamp.')
-            sync_timestamp = myparser.last_sync()
+            sync_timestamp = myparser.get()
             
             if sync_timestamp:
                 if sync_timestamp == self.sync['timestamp']:
@@ -526,13 +527,13 @@ class PortageHandler:
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
         logger.debug('Searching for last global update informations.')
-        
-        myparser = EmergeLogParser(self.pathdir['emergelog'])
-        # keep default setting 
-        # TODO : give the choice cf EmergeLogParser() --> last_world_update()
         ### WARNING to remove lastlines=1000 WARNING
-        get_world_info = myparser.last_world_update(lastlines=1000,
-                                    advanced_debug=self.vdebug['logparser'])
+        myparser = LastWorldUpdate(lastlines=1000,
+                                    advanced_debug=self.vdebug['logparser'],
+                                    log=self.pathdir['emergelog'])
+        # keep default setting 
+        # TODO : give the choice cf logparser module
+        get_world_info = myparser.get()
         
         updated = False
         tosave = [ ]
@@ -559,7 +560,7 @@ class PortageHandler:
                 # have been aborded TEST WARNING this is not sure
                 # at 100% because it could be incompleted and reject
                 # because it didn't pass limit number (nincompleted) 
-                # set in EmergeLogParser.last_world_update()
+                # set in module logparser
                 if detected:
                     logger.info('Global update have been aborded.')
         # Saving in one shot
