@@ -58,7 +58,9 @@ class EmergeLogParser:
         
         myargs = ['/bin/wc', '--lines', self.emergelog]
         mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE, 
+                                universal_newlines=True)
         
         nlines = re.compile(r'^(\d+)\s.*$')
         
@@ -153,8 +155,9 @@ class LastSync(EmergeLogParser):
     def get(self):
         """
         Return last sync timestamp
-        @returns: timestamp
-        @error: return False
+        :return: 
+            timestamp else False
+        
         Exemple of emerge.log :
             1569592862: Started emerge on: sept. 27, 2019 16:01:02
             1569592862:  *** emerge --keep-going --quiet-build=y --sync
@@ -238,61 +241,219 @@ class LastWorldUpdate(EmergeLogParser):
     """
     Get the last world update informations
     """
-    def __init__(self,  lastlines=3000, incompleted=True, 
-                nincompleted=[30/100, 'percentage'], nrange=8,
-                advanced_debug=False, **kwargs):
+    def __init__(self,  lastlines=3000, incomplete=30/100, 
+                 nrange=8, advanced_debug=False, **kwargs):
         """
         :param lastlines:  
             Read last n lines from emerge log file (as we don't have
             to read all the file to get last world update)
             Can be tweak but any way if you lower it and if the function
             don't get anything in the first pass it will increment it 
-            depending on function keep_collecting()
-        :param incompleted:
+            depending on function keep_collecting(). Default 3000. 
+        :param incomplete:
             Enable or disable the search for start but failed update world.
-            True for enabled else False.
-        :param nincompleted:
-            List which filter start from how much packages the function capture
-            or not failed update world.                        
-            First element should be integer or percentage in this form (n/100).
-            Second element require either 'number' (if first element is number)
-            or 'percentage' (if first element is percentage).
+            True for enable without limiter. False for disable. 
+            Integer or float to enable limiter. 
+            When limiter is enabled, integer setup will filter by arbitary
+            number the limit where it will save failed update world or not.
+            So, for exemple, if emerge have to update 150 packages but failed
+            at 50 and incomplete=45 then this will be recorded. Float setup,
+            will filter by percentage. Default 30/100.
+        :nrange: 
+            List length for numpy to build an exponantial list. Default 8. 
+        :advanced_debug:
+            Enable or disable advanced debugging. This will make A LOT of log.
+            True for enable else False. Default False.
         :return: 
-            If detected a dictionary:
+            If detected, a dictionary:
             'start'     :   start timestamp.
             'stop'      :   stop timestamp.
-            'total'     :   total packages which has been update.
-            'state'     :   'completed' / 'partial' / 'incompleted'
-            'failed'    :   if 'completed': 'none', if 'partial' / 'incompleted':
+            'total'     :   total packages which have been update.
+            'state'     :   'complete' or 'partial' or 'incomplete'
+            'failed'    :   if 'complete': 'none', if 'partial' or 'incomplete':
                             package number which failed. 
             Else False.
         """
         
         if not hasattr(logging, 'DEBUG2'):
             raise AttributeError("logging.DEBUG2 NOT setup.")
-        
+                
         super().__init__(**kwargs)
                
         self.__nlogger = f'::{__name__}::LastWorldUpdate::'
         self.lastlines = lastlines
-        self.incompleted = incompleted
-        self.nincompleted = nincompleted
+        self.incomplete = incomplete
         self.advanced_debug = advanced_debug
         
         # construct exponantial list
         self._range['world'] = numpy.geomspace(self.lastlines, self.log_lines['count'], num=nrange, endpoint=True, dtype=int)
         
-        self.collect = {
-            'completed'     :   [ ],
-            'incompleted'   :   [ ],
-            'partial'       :   [ ]
-            }
-        self.packages_count = 1
         self.group = { }
         
+        self.collect = {
+            'complete'     :   [ ],
+            'incomplete'   :   [ ],
+            'partial'       :   [ ]
+            }
+        
+        self.packages_count = 1
+    
+    def _save(self, target):
+        """
+        Common saving process.
+        :target:
+            Targeted group from complete, partial or incomplete.
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}__save::')
+        
+        # The BUG have been fixed but keep this in case
+        # This was a workaround but WARNING this have to
+        # removed when reaching v1.0 WARNING
+        for key in 'start', 'stop', 'total':
+            try:
+                self.group[key]
+            except KeyError:
+                logger.error(f"When saving '{target} world update' "
+                             f"informations, got KeyError for key: '{key}'.")
+                logger.error("Skip current process but please report it.")
+                # Ok so return and don't save
+                return
+        
+        
+        # Make sure start timestamp > stop timestamp
+        # This was a workaround but WARNING this have to
+        # removed when reaching v1.0 WARNING
+        if self.group['stop'] <= self.group['start']:
+            logger.debug(f"NOT recording {target},"
+                         f" start: {self.group['start']},"
+                         f" stop: {self.group['stop']},"
+                         f" total packages: {self.group['total']},"
+                         f" failed: {self.group['failed']}.")
+            logger.debug('BUG, rejecting because stop timestamp <= start timestamp')
+            return
+        
+        # Ok so we can validate the collect
+        self.collect[target].append(self.group)
+        logger.debug(f"Recording {target},"
+                    f" start: {self.group['start']},"
+                    f" stop: {self.group['stop']},"
+                    f" total packages: {self.group['total']},"
+                    f" failed: {self.group['failed']}.")
+        self.packages_count = 1
+     
+    def _save_incomplete(self):
+        """
+        Specific saving process for the incomplete group.
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}__save_incomplete::')
+        
+        # If self.incomplete == True then save anyway
+        # and at this point it should only be True
+        if not isinstance(self.incomplete, bool):
+            
+            # For float
+            if not isinstance(self.incomplete, int):
+                limit = round(self.group['total'] * self.incomplete)
+                _type = 'float'
+                logger.debug("Limiter is activated using a percentage"
+                            f" template: {self.incomplete}")
+            # For int
+            else:
+                limit = self.incomplete
+                _type = 'int'
+                logger.debug("Limiter is activated using a fixed"
+                            f" template: {self.incomplete}")
+            
+            if self.packages_count < limit:
+                logger.debug("NOT recording incomplete,"
+                            f" start: {self.group['start']},"
+                            f" stop: {self.group['stop']},"
+                            f" total packages: {self.group['total']},"
+                            f" failed: {self.group['failed']}.")
+            
+                msg = f"fixed limit number ({limit})"
+                if _type == 'float':
+                    msg = (f"packages total ({self.group['total']})"
+                           f" * limit ({self.incomplete})"
+                           f" (rounded result: {limit})")
+                    
+                logger.debug("Rejecting because packages count"
+                            f" ({self.packages_count}) < {msg}.")
+                self.packages_count = 1
+                return
+        else:
+            logger.debug("Limiter is deactived.")
+        # Ok everything is validate
+        self.group['state'] = 'incomplete'
+        self._save('incomplete')
+        
+    def _save_partial(self):
+        """
+        Specific saving process for the partial group.
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}_save_partial::')
+        
+        # Ok so we have to validate the collect
+        # This mean that total number of package should be 
+        # equal to : total of saved count - total of failed packages
+        # This is NOT true every time, so go a head and validate any way
+        # TODO: keep testing :)
+        # TEST Try to detect skipped packages due to dependency
+        # First make sure 'failed' key doesn't contain element
+        # None: this mean that parser isn't working proprely
+        try:
+            for item in self.group['failed']:
+                if not item:
+                    raise TypeError("'failed' list contain"
+                                    " unexpected 'NoneType' item")
+        except TypeError as error:
+            logger.error("When saving 'partial world update'"
+                        f" informations: {error}.")
+            logger.error("Skip current process but please report it.")
+            self.packages_count = 1
+            return
+        
+        dropped = (self.group['saved']['total'] - 
+                   self.group['saved']['count'] -
+                   self.packages_count)
+        if dropped > 0:
+            logger.debug(f"Some package(s) have been dropped: {dropped}")
+            self.group['failed'] = (f"{' '.join(self.group['failed'])}"
+                                   f" (+{dropped} dropped)")
+                                                                                
+        self.group['total'] = self.group['saved']['total']
+        self.group['state'] = 'partial'
+        self._save('partial')
+    
+    def _save_complete(self):
+        """
+        Specific saving process for the complete group.
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}_save_complete::')
+        
+        # Make sure there is no key 'failed' and 'saved'
+        # otherwise this method shouln't have been called...
+        for key in 'failed', 'saved':
+            if key in self.group:
+                logger.error("When saving 'complete world update'"
+                            " informations: 'group' dictionary contain"
+                            f" unexpected key '{key}'.")
+                logger.error("Skip current process but please report it.")
+                return                    
+        
+        # For comptability if not 'failed' then 'failed' = 'none'
+        self.group['failed'] = 'none'
+        self.group['state'] = 'complete'
+        self._save('complete')
+    
+                    
     def get(self):
         """
-        Return the informations
+        Collect and return the informations.
         """
         logger = logging.getLogger(f'{self.__nlogger}get::')
         if self.advanced_debug:
@@ -301,12 +462,9 @@ class LastWorldUpdate(EmergeLogParser):
         
         # TODO clean-up it's start to be huge !
         # Logging setup
-        
-        
-        
-        incompleted_msg = ''
-        if self.incompleted:
-            incompleted_msg = ', incompleted'
+        incomplete_msg = ''
+        if self.incomplete:
+            incomplete_msg = ', incomplete'
 
         compiling = False
         package_name = None
@@ -352,7 +510,7 @@ class LastWorldUpdate(EmergeLogParser):
         failed = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
         succeeded = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
         
-        # TODO  Give a choice to enable or disable incompleted collect
+        # TODO  Give a choice to enable or disable incomplete collect
         # TODO  Improve performance, for now :
         #       Elapsed Time: 2.97 seconds.  Collected 217 stack frames (88 unique)
         #       For 51808 lines read (the whole file) - but it's not intend to be 
@@ -379,143 +537,21 @@ class LastWorldUpdate(EmergeLogParser):
         # TODO  After some more test with an old emerge.log, we really have to implant detection 
         #       of parallel merge
         
-        def _saved_incompleted():
-            """
-            Saving world update 'incompleted' state
-            """
-            if self.nincompleted[1] == 'percentage':
-                if self.packages_count <= round(self.group['total'] * self.nincompleted[0]):
-                    logger.debug('NOT recording incompleted, ' 
-                                 + 'start: {0}, '.format(self.group['start']) 
-                                 + 'stop: {0}, '.format(self.group['stop']) 
-                                 + 'total packages: {0}, '.format(self.group['total'])
-                                 + 'failed: {0}'.format(self.group['failed']))
-                    msg = f'* {self.nincompleted[1]}'
-                    if self.nincompleted[1] == 'number':
-                        msg = f'- {self.nincompleted[1]}'
-                    logger.debug(f'Rejecting because packages count ({self.packages_count})'
-                                 + ' <= packages total ({0})'.format(self.group['total'])
-                                 + f' {msg} limit ({self.nincompleted[0]})')
-                    logger.debug('Rounded result is :' 
-                                 + ' {0}'.format(round(self.group['total'] * self.nincompleted[0])))
-                    self.packages_count = 1
-                    return
-            elif self.nincompleted[1] == 'number':
-                if self.packages_count <= self.nincompleted[0]:
-                    logger.debug('NOT recording incompleted, ' 
-                                 + 'start: {0}, '.format(self.group['start']) 
-                                 + 'stop: {0}, '.format(self.group['stop']) 
-                                 + 'total packages: {0}, '.format(self.group['total'])
-                                 + 'failed: {0}'.format(self.group['failed']))
-                    logger.debug(f'Rejecting because packages count ({self.packages_count})'
-                                 + f' <= number limit ({self.nincompleted[0]}).')
-                    self.packages_count = 1
-                    return
-            # Record how many package compile successfully
-            # if it passed self.nincompleted
-            # TEST try to fix bug: during world update, emerge crash:
-            # FileNotFoundError: [Errno 2] No such file or directory: 
-            #   b'/var/db/repos/gentoo/net-misc/openssh/openssh-8.3_p1-r1.ebuild'
-            # This have to be fix in main also: sync shouldn't be run if world update is in progress ??
-            if self.group['stop'] <= self.group['start']:
-                logger.debug('NOT recording incompleted, ' 
-                              + 'start: {0}, '.format(self.group['start']) 
-                              + 'stop: {0}, '.format(self.group['stop']) 
-                              + 'total packages: {0}, '.format(self.group['total'])
-                              + 'failed: {0}'.format(self.group['failed']))
-                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
-                return
-            self.group['state'] = 'incompleted'
-            self.collect['incompleted'].append(self.group)
-            logger.debug('Recording incompleted, ' 
-                            + 'start: {0}, '.format(self.group['start']) 
-                            + 'stop: {0}, '.format(self.group['stop']) 
-                            + 'total packages: {0}, '.format(self.group['total'])
-                            + 'failed: {0}'.format(self.group['failed']))
-            
-        def _saved_partial():
-            """
-            Saving world update 'partial' state
-            """ 
-            # Ok so we have to validate the collect
-            # This mean that total number of package should be 
-            # equal to : total of saved count - total of failed packages
-            # This is NOT true every time, so go a head and validate any way
-            # TODO: keep testing :)
-            # Try to detect skipped packages due to dependency
-            # TEST here like upstair
-            if self.group['stop'] <= self.group['start']:
-                logger.debug('NOT recording partial, ' 
-                              + 'start: {0}, '.format(self.group['start']) 
-                              + 'stop: {0}, '.format(self.group['stop']) 
-                              + 'total packages: {0}, '.format(self.group['total'])
-                              + 'failed: {0}'.format(self.group['failed']))
-                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
-                return
-            self.group['dropped'] = ''
-            dropped =   self.group['saved']['total'] - \
-                        self.group['saved']['count'] - \
-                        self.packages_count
-            if dropped > 0:
-                self.group['dropped'] = f' (+{dropped} dropped)'
-                                                                                    
-            self.group['state'] = 'partial'
-            self.group['total'] = self.group['saved']['total']
-            # Easier to return str over list - because it's only for display
-            self.group['failed'] = ' '.join(self.group['failed']) \
-                                        + '{0}'.format(self.group['dropped'])
-            self.collect['partial'].append(self.group)
-            logger.debug('Recording partial, ' 
-                            + 'start: {0}, '.format(self.group['start']) 
-                            + 'stop: {0}, '.format(self.group['stop']) 
-                            + 'total packages: {0}, '.format(self.group['total'])
-                            + 'failed: {0}'.format(self.group['failed']))
-            
-        def _saved_completed():
-            """
-            Saving world update 'completed' state.
-            """
-            # The BUG have been fixed but keep this in case
-            for key in 'start', 'stop', 'total':
-                try:
-                    self.group[key]
-                except KeyError:
-                    logger.error('While saving completed world update informations,')
-                    logger.error(f'got KeyError for key {key}, skip saving but please report this.')
-                    # Ok so return and don't save
-                    return
-            # Same here TEST
-            if self.group['stop'] <= self.group['start']:
-                logger.debug('NOT recording completed, ' 
-                              + 'start: {0}, '.format(self.group['start']) 
-                              + 'stop: {0}, '.format(self.group['stop']) 
-                              + 'total packages: {0}, '.format(self.group['total'])
-                              + 'failed: {0}'.format(self.group['failed']))
-                logger.debug('BUG, rejecting because stop timestamp =< start timestamp')
-                return
-            self.group['state'] = 'completed'
-            # For comptability if not 'failed' then 'failed' = 'none'
-            self.group['failed'] = 'none'
-            self.collect['completed'].append(self.group)
-            self.packages_count = 1
-            logger.debug('Recording completed, start: {0}, stop: {1}, packages: {2}'
-                           .format(self.group['start'], self.group['stop'], self.group['total']))
-        
                     
         while keep_running:
             logger.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
-            logger.debug(f'Extracting list of completed{incompleted_msg} and partial global update'
+            logger.debug(f'Extracting list of complete{incomplete_msg} and partial global update'
                            + ' group informations.')
             for line in self.getlog(self.lastlines):
                 linecompiling += 1
                 if compiling:
-                    # If keepgoing is detected, last package could be in completed state
+                    # If keepgoing is detected, last package could be in complete state
                     # so current_package is False but compiling end to a failed match.
                     if current_package or (keepgoing and \
                         # mean compile as finished (it's the last package)
                         self.packages_count == self.group['total'] and \
                         # make sure emerge was auto restarted
-                        # other wise this end to a completed update
+                        # other wise this end to a complete update
                         'total' in self.group['saved'] ):
                         # Save lines
                         if current_package:
@@ -537,22 +573,21 @@ class LastWorldUpdate(EmergeLogParser):
                                      + f" {self.packages_count}, compiling:"
                                      + f" {compiling}, current_package:"
                                      + f" {current_package}.")
-                            # first test if it's been restarted (keepgoing) or it's just incompleted.
+                            # first test if it's been restarted (keepgoing) or it's just incomplete.
                             if keepgoing and 'total' in self.group['saved']:
-                                logger.debug2("Calling _saved_partial().")
-                                _saved_partial()
-                            elif self.incompleted:
-                                logger.debug2("Calling _saved_incompleted().")
-                                _saved_incompleted()
+                                logger.debug2("Calling _save_partial().")
+                                self._save_partial()
+                            elif self.incomplete:
+                                logger.debug2("Calling _save_incomplete().")
+                                self._save_incomplete()
                             else:
-                                logger.debug('NOT recording partial/incompleted, ' 
+                                logger.debug('NOT recording partial/incomplete, ' 
                                             + 'start: {0}, '.format(self.group['start']) 
                                             + 'stop: {0}, '.format(self.group['stop']) 
                                             + 'total packages: {0}, '.format(self.group['total'])
                                             + 'failed: {0}'.format(self.group['failed']))
                                 logger.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
-                                                f'incompleted ({self.incompleted}), '
-                                                f'nincompleted ({self.nincompleted[0]} / {self.nincompleted[1]}).')
+                                                f'incomplete ({self.incomplete})')
                             # At then end reset
                             self.packages_count = 1
                             current_package = False
@@ -608,12 +643,12 @@ class LastWorldUpdate(EmergeLogParser):
                                 if keepgoing and 'total' in self.group['saved']:
                                     logger.debug('Forcing save of current world update group'
                                                 + ' using partial (start: {0}).'.format(self.group['start']))
-                                    _saved_partial()
-                                # incompleted is enable ?
-                                elif self.incompleted:
+                                    self._save_partial()
+                                # incomplete is enable ?
+                                elif self.incomplete:
                                     logger.debug('Forcing save of current world update group'
-                                                + ' using incompleted (start: {0}).'.format(self.group['start']))
-                                    _saved_incompleted()
+                                                + ' using incomplete (start: {0}).'.format(self.group['start']))
+                                    self._save_incomplete()
                                 else:
                                     logger.debug('Skipping save of current world update group'
                                                    + ' (unmet conditions).')
@@ -674,7 +709,7 @@ class LastWorldUpdate(EmergeLogParser):
                                             + r'.*of.*' 
                                             + str(self.group['total']) 
                                             + r'\).*$', line):
-                            logger.debug2("Got completed match at line:"
+                            logger.debug2("Got complete match at line:"
                                         + f" '{line}'.")
                             current_package = False # Compile finished for the current package
                             record = [ ] # same here it's finished so reset record
@@ -740,10 +775,10 @@ class LastWorldUpdate(EmergeLogParser):
                                      + f" {self.packages_count}, compiling:"
                                      + f" {compiling}, current_package:"
                                      + f" {current_package}.")
-                            logger.debug2("Calling _saved_completed().")
-                            _saved_completed()
+                            logger.debug2("Calling _save_complete().")
+                            self._save_complete()
                         else:
-                            logger.debug('NOT recording completed,' 
+                            logger.debug('NOT recording complete,' 
                                          + ' start: {0},'.format(self.group['start'])
                                          + ' stop: {0},'.format(self.group['stop']) 
                                          + ' packages: {0}'.format(self.group['total']))
@@ -810,8 +845,8 @@ class LastWorldUpdate(EmergeLogParser):
                         # don't touch linecompiling
                   
             # Do we got something ?
-            if self.incompleted:
-                if self.collect['completed'] or self.collect['incompleted'] or self.collect['partial']:
+            if self.incomplete:
+                if self.collect['complete'] or self.collect['incomplete'] or self.collect['partial']:
                     logger.debug2("Stop running, collect has been successfull.")
                     keep_running = False
                 else:
@@ -824,7 +859,7 @@ class LastWorldUpdate(EmergeLogParser):
                         logger.debug("FAILED to collect last world update informations.")
                         return False
             else:
-                if self.collect['completed'] or self.collect['partial']:
+                if self.collect['complete'] or self.collect['partial']:
                     logger.debug2("Stop running, collect has been successfull.")
                     keep_running = False
                 else:
@@ -837,10 +872,10 @@ class LastWorldUpdate(EmergeLogParser):
                         return False
                    
         # So now compare and get the highest 'start' timestamp from each list
-        logger.debug2("Extracting lastest world update from 'completed'"
-                    + f"'{incompleted_msg}' and 'partial' collected lists.")
+        logger.debug2("Extracting lastest world update from 'complete'"
+                    + f"'{incomplete_msg}' and 'partial' collected lists.")
         tocompare = [ ]
-        for target in 'completed', 'incompleted', 'partial':
+        for target in 'complete', 'incomplete', 'partial':
             if self.collect[target]:
                 logger.debug2(f"Extracting latest world update from '{target}'.")
                 # This is the 'start' timestamp
@@ -872,13 +907,13 @@ class LastWorldUpdate(EmergeLogParser):
             return False
         
         if latest_sublist:
-            if latest_sublist['state'] == 'completed':
-                logger.debug('Selecting completed,' 
+            if latest_sublist['state'] == 'complete':
+                logger.debug('Selecting complete,' 
                              + ' start: {0},'.format(latest_sublist['start']) 
                              + ' stop: {0},'.format(latest_sublist['stop'])
                              + ' total packages: {0}'.format(latest_sublist['total']))
-            elif latest_sublist['state'] == 'incompleted':
-                logger.debug('Selecting incompleted,' 
+            elif latest_sublist['state'] == 'incomplete':
+                logger.debug('Selecting incomplete,' 
                              + ' start: {0},'.format(latest_sublist['start']) 
                              + ' stop: {0},'.format(latest_sublist['stop'])
                              + ' total packages: {0}'.format(latest_sublist['total'])
