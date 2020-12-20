@@ -297,6 +297,82 @@ class LastWorldUpdate(EmergeLogParser):
             }
         
         self.packages_count = 1
+        self.compiling = False
+        self.package_name = None
+        self.current_package = False
+        self.keepgoing = False
+        self.linecompiling = 0
+        self.record = [ ]
+        ## RE setup ##
+        #   Added @world
+        #   Added \s* after (?:world|@world) to make sure we match only @world or world 
+        #   Should we match with '.' or '\s' ??
+        self.start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
+        # TODO ?
+        # start_parallel = re.compile(r'^\d+:\s{1}Started.emerge.on:.*$')
+        #   Detect package dropped due to unmet dependency
+        #   for exemple (display in terminal only):
+        #       * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
+        #       * >=kde-apps/kio-extras-19.08.3:5
+        #   BUT we get nothing in a emerge.log about that.
+        #   We CAN'T have the name of the package.
+        #   Just get the number and display some more informations, like:
+        #   (+n package(s) dropped) - this has to be TEST more and more
+        
+        #   --keep-going opts: restart immediatly after failed package ex:
+        #       1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
+        #       1572887531:  === (1078 of 1150) Cleaning (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+        #       1572887531:  === (1078 of 1150) Compiling/Merging (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
+        #       1572887560:  >>> emerge (1 of 72) x11-libs/gtk+-3.24.11 to /
+        #   And the package number should be:
+        #       total package number - package failed number
+        #   And it should restart to 1
+        #   This is NOT true each time, some time emerge jump over more than just
+        #   the package which failed (depending of the list of dependency)
+        #       For the moment: if opts --keep-going found,
+        #      if new emerge is found (mean restart to '1 of n') then this will be treat as
+        #       an auto restart, only true if self.current_package == True 
+        self.keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
+        #   So make sure we start to compile the world update and this should be the first package 
+        self.start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.\(1.of.(\d+)\)\s(.*)\sto.*$')
+        #   Make sure it failed with status == 1
+        self.failed_line = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
+        self.succeeded_line = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
+        # TODO  Give a choice to enable or disable incomplete collect
+        # TODO  Improve performance, for now :
+        #       Elapsed Time: 2.97 seconds.  Collected 217 stack frames (88 unique)
+        #       For 51808 lines read (the whole file) - but it's not intend to be 
+        #       run like that
+        #       With default settings:
+        #       Elapsed Time: 0.40 seconds.  Collected 118 stack frames (82 unique)
+        #       For last 3000 lines.
+        # BUGFIX This is detected :
+        #           1563019245:  >>> emerge (158 of 165) kde-plasma/powerdevil-5.16.3 to /
+        #           1563025365: Started emerge on: juil. 13, 2019 15:42:45
+        #           1563025365:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
+        #       this is NOT a parallel emerge and the merge which 'crashed' was a world update...
+        #       After some more investigation: this is the only time in my emerge.log (~52000 lines)
+        #       After more and more investigation: this is an emerge crashed.
+        #       So don't know but i think this could be a power cut or something like that.
+        #       And the program raise:
+        #           Traceback (most recent call last):
+        #           File "./test.py", line 40, in <module>
+        #           get_world_info = myparser.last_world_update(lastlines=60000)
+        #           File "/data/01/devel/python/syuppod/portagemanager.py", line 876, in last_world_update
+        #           group['failed'] = ' '.join(group['failed']) \
+        #           TypeError: sequence item 1: expected str instance, NoneType found
+        # TODO  After some more test with an old emerge.log, we really have to implant detection 
+        #       of parallel merge
+                    
+    def _compiling(self):
+        """
+        Manage calls related to compiling lines.
+        """
+        
+        logger = logging.getLogger(f'{self.__nlogger}_compiling::')
+        
+        
+        
     
     def _save(self, target):
         """
@@ -305,11 +381,10 @@ class LastWorldUpdate(EmergeLogParser):
             Targeted group from complete, partial or incomplete.
         """
         
-        logger = logging.getLogger(f'{self.__nlogger}__save::')
+        logger = logging.getLogger(f'{self.__nlogger}_save::')
         
-        # The BUG have been fixed but keep this in case
-        # This was a workaround but WARNING this have to
-        # removed when reaching v1.0 WARNING
+        # The BUG have been fixed but keep this as a safeguard
+        # Keep WARNING for each theses safeguard
         for key in 'start', 'stop', 'total':
             try:
                 self.group[key]
@@ -322,8 +397,9 @@ class LastWorldUpdate(EmergeLogParser):
         
         
         # Make sure start timestamp > stop timestamp
-        # This was a workaround but WARNING this have to
-        # removed when reaching v1.0 WARNING
+        # Same here keep this as a safeguard, better 
+        # to catch error then let all the parser crashed
+        # Keep WARNING for each theses safeguard
         if self.group['stop'] <= self.group['start']:
             logger.debug(f"NOT recording {target},"
                          f" start: {self.group['start']},"
@@ -347,7 +423,7 @@ class LastWorldUpdate(EmergeLogParser):
         Specific saving process for the incomplete group.
         """
         
-        logger = logging.getLogger(f'{self.__nlogger}__save_incomplete::')
+        logger = logging.getLogger(f'{self.__nlogger}_save_incomplete::')
         
         # If self.incomplete == True then save anyway
         # and at this point it should only be True
@@ -400,10 +476,10 @@ class LastWorldUpdate(EmergeLogParser):
         # This mean that total number of package should be 
         # equal to : total of saved count - total of failed packages
         # This is NOT true every time, so go a head and validate any way
-        # TODO: keep testing :)
         # TEST Try to detect skipped packages due to dependency
-        # First make sure 'failed' key doesn't contain element
-        # None: this mean that parser isn't working proprely
+        # First make sure 'failed' key doesn't contain item
+        # as NoneType: this mean that parser isn't working proprely
+        # Keep WARNING for each theses safeguard
         try:
             for item in self.group['failed']:
                 if not item:
@@ -437,6 +513,7 @@ class LastWorldUpdate(EmergeLogParser):
         
         # Make sure there is no key 'failed' and 'saved'
         # otherwise this method shouln't have been called...
+        # Keep WARNING for each theses safeguard
         for key in 'failed', 'saved':
             if key in self.group:
                 logger.error("When saving 'complete world update'"
@@ -455,126 +532,57 @@ class LastWorldUpdate(EmergeLogParser):
         """
         Collect and return the informations.
         """
+        
         logger = logging.getLogger(f'{self.__nlogger}get::')
+        
         if self.advanced_debug:
             logger.setLevel(logging.DEBUG2)
         
-        
-        # TODO clean-up it's start to be huge !
-        # Logging setup
         incomplete_msg = ''
         if self.incomplete:
             incomplete_msg = ', incomplete'
-
-        compiling = False
-        package_name = None
+        
         keep_running =  True
-        current_package = False
-        count = 1
-        keepgoing = False
-        linecompiling = 0
-        record = [ ]
-        forced = False       
-       
-        #   Added @world
-        #   Added \s* after (?:world|@world) to make sure we match only @world or world 
-        #   Should we match with '.' or '\s' ??
-        start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s(?:world|@world)\s*.*$')
-        start_parallel = re.compile(r'^\d+:\s{1}Started.emerge.on:.*$')
-        #   Detect package dropped due to unmet dependency
-        #   for exemple (display in terminal only):
-        #       * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped because it requires
-        #       * >=kde-apps/kio-extras-19.08.3:5
-        #   BUT we get nothing in a emerge.log about that.
-        #   We CAN'T have the name of the package.
-        #   Just get the number and display some more informations, like:
-        #   (+n package(s) dropped) - this has to be TEST more and more
-        
-        #   --keep-going opts: restart immediatly after failed package ex:
-        #       1572887531:  >>> emerge (1078 of 1150) kde-apps/kio-extras-19.08.2 to /
-        #       1572887531:  === (1078 of 1150) Cleaning (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
-        #       1572887531:  === (1078 of 1150) Compiling/Merging (kde-apps/kio-extras-19.08.2::/usr/portage/kde-apps/kio-extras/kio-extras-19.08.2.ebuild)
-        #       1572887560:  >>> emerge (1 of 72) x11-libs/gtk+-3.24.11 to /
-        #   And the package number should be:
-        #       total package number - package failed number
-        #   And it should restart to 1
-        #   This is NOT true each time, some time emerge jump over more than just
-        #   the package which failed (depending of the list of dependency)
-        #       For the moment: if opts --keep-going found,
-        #      if new emerge is found (mean restart to '1 of n') then this will be treat as
-        #       an auto restart, only true if current_package == True 
-        keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
-        #   So make sure we start to compile the world update and this should be the first package 
-        start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.\(1.of.(\d+)\)\s(.*)\sto.*$')
-        #   Make sure it failed with status == 1
-        failed = re.compile(r'(\d+):\s{2}\*\*\*.exiting.unsuccessfully.with.status.\'1\'\.$')
-        succeeded = re.compile(r'(\d+):\s{2}\*\*\*.exiting.successfully\.$')
-        
-        # TODO  Give a choice to enable or disable incomplete collect
-        # TODO  Improve performance, for now :
-        #       Elapsed Time: 2.97 seconds.  Collected 217 stack frames (88 unique)
-        #       For 51808 lines read (the whole file) - but it's not intend to be 
-        #       run like that
-        #       With default settings:
-        #       Elapsed Time: 0.40 seconds.  Collected 118 stack frames (82 unique)
-        #       For last 3000 lines.
-        
-        # BUGFIX This is detected :
-        #           1563019245:  >>> emerge (158 of 165) kde-plasma/powerdevil-5.16.3 to /
-        #           1563025365: Started emerge on: juil. 13, 2019 15:42:45
-        #           1563025365:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
-        #       this is NOT a parallel emerge and the merge which 'crashed' was a world update...
-        #       After some more investigation: this is the only time in my emerge.log (~52000 lines)
-        #       After more and more investigation: this is an emerge crashed.
-        #       So don't know but i think this could be a power cut or something like that.
-        #       And the program raise:
-        #           Traceback (most recent call last):
-        #           File "./test.py", line 40, in <module>
-        #           get_world_info = myparser.last_world_update(lastlines=60000)
-        #           File "/data/01/devel/python/syuppod/portagemanager.py", line 876, in last_world_update
-        #           group['failed'] = ' '.join(group['failed']) \
-        #           TypeError: sequence item 1: expected str instance, NoneType found
-        # TODO  After some more test with an old emerge.log, we really have to implant detection 
-        #       of parallel merge
-        
-                    
+        count = 1                    
+
         while keep_running:
-            logger.debug('Loading last \'{0}\' lines from \'{1}\'.'.format(self.lastlines, self.emergelog))
-            logger.debug(f'Extracting list of complete{incomplete_msg} and partial global update'
-                           + ' group informations.')
+            logger.debug(f"Loading last {self.lastlines} lines"
+                         f" from {self.emergelog}.")
+            logger.debug(f"Extracting list of complete{incomplete_msg} and"
+                         " partial global update group informations.")
             for line in self.getlog(self.lastlines):
-                linecompiling += 1
-                if compiling:
-                    # If keepgoing is detected, last package could be in complete state
-                    # so current_package is False but compiling end to a failed match.
-                    if current_package or (keepgoing and \
+                self.linecompiling += 1
+                if self.compiling:
+                    # If self.keepgoing is detected, last package could be in complete state
+                    # so self.current_package is False but compiling end to a failed match.
+                    if self.current_package or (self.keepgoing and \
                         # mean compile as finished (it's the last package)
                         self.packages_count == self.group['total'] and \
                         # make sure emerge was auto restarted
                         # other wise this end to a complete update
                         'total' in self.group['saved'] ):
                         # Save lines
-                        if current_package:
+                        if self.current_package:
                             # This will just record line from current package (~10lines max)
-                            record.append(line)
+                            self.record.append(line)
                             logger.debug2(f"Recording line: '{line}'.")
-                        if failed.match(line):
+                        if self.failed_line.match(line):
                             logger.debug2(f"Got failed match at line: {line}.")
                             # We don't care about record here so reset it
-                            record = [ ]
+                            self.record = [ ]
                             if not 'failed' in self.group:
-                                self.group['failed'] = f'at {self.packages_count} ({package_name})'
+                                self.group['failed'] = f'at {self.packages_count} ({self.package_name})'
                             # set stop
-                            self.group['stop'] = int(failed.match(line).group(1))
+                            self.group['stop'] = int(self.failed_line.match(line).group(1))
                             logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
-                            # first test if it's been restarted (keepgoing) or it's just incomplete.
-                            if keepgoing and 'total' in self.group['saved']:
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
+                            # first test if it's been restarted (self.keepgoing) or it's just incomplete.
+                            if self.keepgoing and 'total' in self.group['saved']:
                                 logger.debug2("Calling _save_partial().")
                                 self._save_partial()
                             elif self.incomplete:
@@ -586,36 +594,36 @@ class LastWorldUpdate(EmergeLogParser):
                                             + 'stop: {0}, '.format(self.group['stop']) 
                                             + 'total packages: {0}, '.format(self.group['total'])
                                             + 'failed: {0}'.format(self.group['failed']))
-                                logger.debug(f'Additionnal informations: keepgoing ({keepgoing}), '
+                                logger.debug(f'Additionnal informations: keepgoing ({self.keepgoing}), '
                                                 f'incomplete ({self.incomplete})')
                             # At then end reset
                             self.packages_count = 1
-                            current_package = False
-                            compiling = False
-                            package_name = None
-                            keepgoing = False
+                            self.current_package = False
+                            self.compiling = False
+                            self.package_name = None
+                            self.keepgoing = False
                             logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
-                        elif keepgoing and start_compiling.match(line):
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
+                        elif self.keepgoing and self.start_compiling.match(line):
                             logger.debug2("Keepgoing enable, got start"
                                         + " compiling line at" 
                                         + f" line: '{line}'.")
                             # Try to fix BUG describe upstair
                             unexpect_start = False
                             logger.debug2("Start analizing record lines.")
-                            for saved_line in record:
+                            for saved_line in self.record:
                                 logger.debug2(f"Record: {saved_line}.")
                                 # This is also handled :
                                 # 1581349345:  === (2 of 178) Compiling/Merging (kde-apps/pimcommon-19.12.2::/usr/portage/kde-apps/pimcommon/pimcommon-19.12.2.ebuild)
                                 # 1581349360:  *** terminating.
                                 # 1581349366: Started emerge on: févr. 10, 2020 16:42:46
                                 # 1581349366:  *** emerge --newuse --update --ask --deep --keep-going --with-bdeps=y --quiet-build=y --verbose world
-                                if start_opt.match(saved_line):
+                                if self.start_opt.match(saved_line):
                                     logger.debug2("Got start opt at recorded"
                                                 + f" line: '{saved_line}',"
                                                 + " stop analizing.")
@@ -629,18 +637,18 @@ class LastWorldUpdate(EmergeLogParser):
                                                + f' \'{unexpect_start}\'' 
                                                ' (please report this).')
                                 # Expect first element in a list is a stop match
-                                self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', record[0]).group(1))
+                                self.group['stop'] = int(re.match(r'^(\d+):\s+.*$', self.record[0]).group(1))
                                 if not 'failed' in self.group:
-                                    self.group['failed'] = f'at {self.packages_count} ({package_name})'
+                                    self.group['failed'] = f'at {self.packages_count} ({self.package_name})'
                                 logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                            + f" {keepgoing}, linecompiling: "
-                                            + f" {linecompiling}, package_name:"
-                                            + f" {package_name}, packages_count:"
+                                            + f" {self.keepgoing}, linecompiling: "
+                                            + f" {self.linecompiling}, package_name:"
+                                            + f" {self.package_name}, packages_count:"
                                             + f" {self.packages_count}, compiling:"
-                                            + f" {compiling}, current_package:"
-                                            + f" {current_package}.")
+                                            + f" {self.compiling}, current_package:"
+                                            + f" {self.current_package}.")
                                 # First try if it was an keepgoing restart
-                                if keepgoing and 'total' in self.group['saved']:
+                                if self.keepgoing and 'total' in self.group['saved']:
                                     logger.debug('Forcing save of current world update group'
                                                 + ' using partial (start: {0}).'.format(self.group['start']))
                                     self._save_partial()
@@ -655,29 +663,29 @@ class LastWorldUpdate(EmergeLogParser):
                                 # Ok now we have to restart everything
                                 self.group = { }
                                 # Get the timestamp
-                                self.group['start'] = int(start_opt.match(unexpect_start).group(1))
+                                self.group['start'] = int(self.start_opt.match(unexpect_start).group(1))
                                 #--keep-going setup
-                                if keepgoing_opt.match(unexpect_start):
+                                if self.keepgoing_opt.match(unexpect_start):
                                     logger.debug2("Got unexcept keepgoing match"
                                                 + f" at line: {unexpect_start}.")
-                                    keepgoing = True
-                                self.group['total'] = int(start_compiling.match(line).group(1))
+                                    self.keepgoing = True
+                                self.group['total'] = int(self.start_compiling.match(line).group(1))
                                 # Get the package name
-                                package_name = start_compiling.match(line).group(2)
-                                compiling = True
+                                self.package_name = self.start_compiling.match(line).group(2)
+                                self.compiling = True
                                 self.packages_count = 1
                                 self.group['saved'] = {
                                     'count' :    0
                                 }
                                 # we are already 'compiling' the first package
-                                current_package = True
+                                self.current_package = True
                                 logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
                                 logger.debug2("Skipping everything else...")
                                 # skip everything else
                                 continue
@@ -689,21 +697,21 @@ class LastWorldUpdate(EmergeLogParser):
                             # Keep the name of each package which failed
                             if not 'failed' in self.group:
                                 self.group['failed'] =  [ ]
-                            self.group['failed'].append(package_name)
+                            self.group['failed'].append(self.package_name)
                             # Set name of the package to current one
-                            package_name = start_compiling.match(line).group(2)
+                            self.package_name = self.start_compiling.match(line).group(2)
                             # get the total number of package from this new emerge 
-                            self.group['total'] = int(start_compiling.match(line).group(1))
+                            self.group['total'] = int(self.start_compiling.match(line).group(1))
                             self.packages_count = 1
-                            current_package = True # As we restart to compile
-                            compiling = True
+                            self.current_package = True # As we restart to compile
+                            self.compiling = True
                             logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
                         elif re.match(r'\d+:\s{2}:::.completed.emerge.\(' 
                                             + str(self.packages_count) 
                                             + r'.*of.*' 
@@ -711,19 +719,19 @@ class LastWorldUpdate(EmergeLogParser):
                                             + r'\).*$', line):
                             logger.debug2("Got complete match at line:"
                                         + f" '{line}'.")
-                            current_package = False # Compile finished for the current package
-                            record = [ ] # same here it's finished so reset record
-                            compiling = True
-                            package_name = None
+                            self.current_package = False # Compile finished for the current package
+                            self.record = [ ] # same here it's finished so reset record
+                            self.compiling = True
+                            self.package_name = None
                             if not self.packages_count >= self.group['total']:
                                 self.packages_count += 1
                             logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
                     elif re.match(r'^\d+:\s{2}>>>.emerge.\('
                                             + str(self.packages_count) 
                                             + r'.*of.*' 
@@ -731,50 +739,50 @@ class LastWorldUpdate(EmergeLogParser):
                                             + r'\).*$', line):
                         logger.debug2("Got start compiling match at line:"
                                     + f" '{line}'.")
-                        current_package = True
+                        self.current_package = True
                         # reset record as it will restart
                         logger.debug2("Reset recorded lines.")
-                        record = [ ]
+                        self.record = [ ]
                         logger.debug2("Restart recording lines at line:"
                                     + f" '{line}'.")
-                        record.append(line) # Needed to set stop if unexpect_start is detected
+                        self.record.append(line) # Needed to set stop if unexpect_start is detected
                         # This is a lot of reapeat for python 3.8 we'll get this :
                         # https://www.python.org/dev/peps/pep-0572/#capturing-condition-values
                         # TODO : implant this ?
-                        package_name = re.match(r'^\d+:\s{2}>>>.emerge.\('
+                        self.package_name = re.match(r'^\d+:\s{2}>>>.emerge.\('
                                                 + str(self.packages_count) 
                                                 + r'.*of.*' 
                                                 + str(self.group['total']) 
                                                 + r'\)\s(.*)\sto.*$', line).group(1)
-                        compiling = True
+                        self.compiling = True
                         logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
-                    elif succeeded.match(line):
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
+                    elif self.succeeded_line.match(line):
                         logger.debug2(f"Got succeeded match at line: '{line}'.")
                         # Reset record here as well
                         logger.debug2("Reset recorded lines.")
-                        record = [ ]
+                        self.record = [ ]
                         # set stop
-                        self.group['stop'] = int(succeeded.match(line).group(1))
+                        self.group['stop'] = int(self.succeeded_line.match(line).group(1))
                         # Make sure it's succeeded the right compile
                         # In case we run parallel emerge
                         if self.packages_count == self.group['total']:
-                            current_package = False
-                            compiling = False
-                            package_name = None
-                            keepgoing = False
+                            self.current_package = False
+                            self.compiling = False
+                            self.package_name = None
+                            self.keepgoing = False
                             logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
                             logger.debug2("Calling _save_complete().")
                             self._save_complete()
                         else:
@@ -785,64 +793,64 @@ class LastWorldUpdate(EmergeLogParser):
                             logger.debug(f'Rejecting because packages count ({self.packages_count})' 
                                          + ' != recorded total packages' 
                                          + ' ({0}).'.format(self.group['total']))
-                elif start_opt.match(line):
+                elif self.start_opt.match(line):
                     logger.debug2(f"Got start opt match at line: '{line}'.")
                     self.group = { }
                     # Get the timestamp
-                    self.group['start'] = int(start_opt.match(line).group(1))
+                    self.group['start'] = int(self.start_opt.match(line).group(1))
                     # --keep-going setup
-                    if keepgoing_opt.match(line):
+                    if self.keepgoing_opt.match(line):
                         logger.debug2("Keepgoing enable.")
-                        keepgoing = True
-                    linecompiling = 0
+                        self.keepgoing = True
+                    self.linecompiling = 0
                     logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                 + f" {keepgoing}, linecompiling: "
-                                 + f" {linecompiling}.")
-                # So this is the nextline after start_opt match
-                # But make sure we got start_opt match !
-                elif linecompiling == 1 and 'start' in self.group:
+                                 + f" {self.keepgoing}, linecompiling: "
+                                 + f" {self.linecompiling}.")
+                # So this is the nextline after self.start_opt match
+                # But make sure we got self.start_opt match !
+                elif self.linecompiling == 1 and 'start' in self.group:
                     # Make sure it's start to compile
-                    if start_compiling.match(line):
+                    if self.start_compiling.match(line):
                         logger.debug2("Got start compiling match at line:"
                                     + f" '{line}'.")
                         # Ok we start already to compile the first package
                         # Get how many package to update 
-                        self.group['total'] = int(start_compiling.match(line).group(1))
+                        self.group['total'] = int(self.start_compiling.match(line).group(1))
                         # Get the package name
-                        package_name = start_compiling.match(line).group(2)
-                        compiling = True
+                        self.package_name = self.start_compiling.match(line).group(2)
+                        self.compiling = True
                         self.packages_count = 1
                         self.group['saved'] = {
                             'count' :    0
                             }
                         # we are already 'compiling' the first package
-                        current_package = True
+                        self.current_package = True
                         logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
                     else:
                         # This has been aborded OR it's not the right
                         # start opt match ....
                         logger.debug2("Look like it has been aborded at line:"
                                      + f" '{line}'.")
                         self.group = { }
-                        compiling = False
+                        self.compiling = False
                         self.packages_count = 1
-                        current_package = False
-                        package_name = None
-                        keepgoing = False
+                        self.current_package = False
+                        self.package_name = None
+                        self.keepgoing = False
                         logger.debug2(f"Stats: group: {self.group}, keepgoing:"
-                                     + f" {keepgoing}, linecompiling: "
-                                     + f" {linecompiling}, package_name:"
-                                     + f" {package_name}, packages_count:"
+                                     + f" {self.keepgoing}, linecompiling: "
+                                     + f" {self.linecompiling}, package_name:"
+                                     + f" {self.package_name}, packages_count:"
                                      + f" {self.packages_count}, compiling:"
-                                     + f" {compiling}, current_package:"
-                                     + f" {current_package}.")
-                        # don't touch linecompiling
+                                     + f" {self.compiling}, current_package:"
+                                     + f" {self.current_package}.")
+                        # don't touch self.linecompiling
                   
             # Do we got something ?
             if self.incomplete:
