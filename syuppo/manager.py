@@ -705,7 +705,7 @@ class PortageHandler:
                 logger.error('Command: {0} {1}, return code: {2}'.format(mycommand,
                                                                            ' '.join(myargs), return_code))
                 logger.error('You can retrieve log from: {0}.'.format(self.pathdir['pretendlog'])) 
-                if retry < 2:
+                if retry < 1:
                     logger.error('Retrying without opts \'--with-bdeps\'...')
         
             # Ok so do we got update package ?
