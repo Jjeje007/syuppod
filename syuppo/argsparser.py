@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
-# PYTHON_ARGCOMPLETE_OK
-# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Part of syuppo package
+# Copyright © 2019-2021 Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
 import re
 import argparse
 import sys
-#import argcomplete
 
 ## TODO TODO TODO for client part, what about not just checking if option are ok
 #                 we should parse it, and return for exemple dict? 
-# TODO: add --dry-run opt to not write to statefile 
-# TODO  argcomplete: make advance opts available
+# TODO  bash autocomplete
 # TODO  make opt word not all required : like argparse default if --available you can write --a 
 #       and it's match if there nothing eles which start by --a . Same here with for exemple:
 #       --count : this can be both|session|overall -> for both you could write 'b' or 'bo' or 'bot' or ...

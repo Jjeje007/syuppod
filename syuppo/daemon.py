@@ -4,17 +4,11 @@
 
 # SYnc UPdate POrtage Daemon 
 # Part of syuppo package
-# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Copyright © 2019-2021 Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
-# TODO write GOOD english :p
-# TODO : extend debug log level
-# TODO implent threading.Event() for:
-#           saving_status
-#           pretend_world()
-#           dosync()
-                                    
 
 
+# TODO write GOOD english ;)
 import sys
 import logging
 import argparse
@@ -311,7 +305,8 @@ class DynamicDaemon(threading.Thread):
     """
     Proceed changes depending on dynamics conditions
     """
-    def __init__(self, pathdir, manager, advanced_debug=False, *args, **kwargs):
+    def __init__(self, pathdir, manager, 
+                 advanced_debug=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Init logger
         self.logger_name = f'::{__name__}::DynamicDaemon::'

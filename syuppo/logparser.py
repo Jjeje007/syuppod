@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # -*- python -*- 
-# Copyright © 2019,2020: Venturi Jérôme : jerome dot Venturi at gmail dot com
+# Part of syuppo package
+# Copyright © 2019-2021 Venturi Jérôme : jerome dot Venturi at gmail dot com
 # Distributed under the terms of the GNU General Public License v3
 
 import logging
