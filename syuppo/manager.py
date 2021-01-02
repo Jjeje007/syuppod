@@ -558,8 +558,8 @@ class PortageHandler:
                              " keeping last know informations.")
                 # TEST so if detected then global update 
                 # have been aborded TEST WARNING this is not sure
-                # at 100% because it could be incompleted and reject
-                # because it didn't pass limit number (nincompleted) 
+                # at 100% because it could be incomplete and reject
+                # because it didn't pass limit number 
                 # set in module logparser
                 if detected:
                     logger.info('Global update have been aborded.')
