@@ -4,7 +4,7 @@
 > SYnc UPdate POrtage
 
 Syuppo is a python3 daemon (syuppod) / client (syuppoc) which automate sync and calculate how many packages to update
-for gentoo portage manager. Syuppod is intend to be run as service using /etc/init.d/. Since git commit id 5b75f3f5b1eac2954be4380bc03d8871f5c2e2fb, it run as an unprivileged system user (syuppod)
+for gentoo portage manager. Syuppod is intend to be run as service using /etc/init.d/ and it run as an unprivileged system user (syuppod)
 and use sudo to gain root access (only for sync).
 
 Syuppod uses dbus to expose informations to user space tools and syuppoc can retrieve informations 
@@ -18,7 +18,7 @@ to you to do whatever you want to do with these informations and from whatever p
 
 ## Dependencies
 
-* [python](https://www.python.org/) >= 3.5 (tested: v3.6.x - v3.7.7, recommanded: v3.7.x)
+* [python](https://www.python.org/) >= 3.8 
 * [pydbus](https://github.com/LEW21/pydbus)
 * [numpy](https://numpy.org/)
 * [pexpect](https://github.com/pexpect/pexpect)
@@ -53,7 +53,7 @@ All logs are autorotate.
 ## Developpement Status
 
 This is a work in progress so i haven't yet planned to make a release.\
-Syuppod API is still in developpement and it's not yet stabilized.\
+Syuppod API is stabilized.\
 
 ## Meta
 
