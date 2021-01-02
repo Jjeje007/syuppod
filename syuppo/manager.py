@@ -527,10 +527,8 @@ class PortageHandler:
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
         logger.debug('Searching for last global update informations.')
-        ### WARNING to remove lastlines=1000 WARNING
-        myparser = LastWorldUpdate(lastlines=1000,
-                                    advanced_debug=self.vdebug['logparser'],
-                                    log=self.pathdir['emergelog'])
+        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
+                                   log=self.pathdir['emergelog'])
         # keep default setting 
         # TODO : give the choice cf logparser module
         get_world_info = myparser.get()
