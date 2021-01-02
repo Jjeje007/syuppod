@@ -6,7 +6,7 @@
 import logging 
 from syuppo.manager import PortageHandler
 
-
+# TODO TODO TODO This have to be rewrite after we move to dbus-next
 
 class PortageDbus(PortageHandler):
     """
@@ -44,8 +44,8 @@ class PortageDbus(PortageHandler):
         # add specific logger
         self.named_logger = f'::{__name__}::PortageDbus::'
         logger = logging.getLogger(f'{self.named_logger}init::')
-        self.sync_state = False #kwargs.get('sync_state', 'disabled')
-        self.world_state = False #kwargs.get('world_state', 'disabled')
+        self.external_sync = False 
+        self.world_state = False
     
 
     def get_sync_attribute(self, key):
@@ -96,29 +96,23 @@ class PortageDbus(PortageHandler):
         logger.debug('Got request.')
         
         # Don't run if sync is in progress (as we will run pretend after)
-        if self.sync['status']:
+        if self.sync['status'] == 'running':
             logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
                                       + ' is in progress (internal).')
             return 'sync'
         
         # same here but external sync
-        #if not self.sync_state == 'disabled':
-        if self.sync_state:
-            logger.debug('Failed: syncing {0}'.format(self.sync['repo']['msg']) 
-                                      + ' is in progress (external).')
-        #else:
-            #logger.debug('External sync checker is disabled.')
-            #don't return 'sync' as we don't know state so just pass to the next check
-        
+        if self.external_sync:
+            logger.debug("Failed: external sync running on pid:"
+                        f"{self.external_sync}")
+            return 'sync'
+
         # Don't run if world update is in progress
-        #if not self.world_state == 'disabled':
         if self.world_state:
-            logger.debug('Failed: global update is in progress.')
+            logger.debug("Failed: global update running on pid:"
+                        f" {self.world_state}")
             return 'world'
-        #else:
-            #logger.debug('External global update checker is disabled.')
-            # same here we don't know the state of global update ...
-            
+                    
         # Don't run if pretend is running
         if self.pretend['status'] == 'running':
             logger.debug('Failed: search for available package update already in progress.')
@@ -132,7 +126,8 @@ class PortageDbus(PortageHandler):
             return 'too_early {0} {1}'.format(self.pretend['interval'], self.pretend['remain'])
         
         # Every thing is ok :p pioufff ! ;)
-        self.pretend['proceed'] = True
+        with self.locks['proceed']:
+            self.pretend['proceed'] = True
         self.pretend['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])
     

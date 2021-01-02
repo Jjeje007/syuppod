@@ -309,8 +309,8 @@ class ClientParserHandler(CustomArgsCheck):
                                   type = self._check_args_portage_last,
                                   help = 'Display last world update informations. Where \'lst\' could be: '
                                   '\'state\', \'start[:date]\', \'stop[:date]\', \'total\', \'failed\', '
-                                  '\'elapsed[:format]\' and \'duration[:format]\'. \'state\' could be in completed if'
-                                  ' last world update didn\'t failed, incompleted '
+                                  '\'elapsed[:format]\' and \'duration[:format]\'. \'state\' could be in complete if'
+                                  ' last world update didn\'t failed, incomplete '
                                   'if it failed and partial if it failed but the switch --keep-going was enable (so it'
                                   ' restart). \'total\' is the total package which was update. \'failed\' is  count ('
                                   'name of the package(s) which failed). '
