@@ -373,9 +373,6 @@ class LastWorldUpdate(EmergeLogParser):
         # TODO Give a choice to enable or disable 
         # incomplete/fragment collect
         
-        # TODO rewrite debug / debug2 to be 
-        # more understandable 
-        
         # TODO improve performance:
         # For 51808 lines read (the whole file) - but it's not 
         #   Elapsed Time: 2.97 seconds.  Collected 217 stack 
