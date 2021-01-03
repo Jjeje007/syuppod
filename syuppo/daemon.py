@@ -167,6 +167,10 @@ class RegularDaemon(threading.Thread):
         logger = logging.getLogger(f'{self.logger_name}run::')
         logger.debug('Regular Daemon Thread started.')
         
+        # Make sure we sleep exactly 1s 
+        # THX!: https://stackoverflow.com/a/49801719/11869956
+        delay = 1
+        next_time = time.time() + delay
         while not self.mysignal.exit_now:
             
             # Regular sync
@@ -177,7 +181,9 @@ class RegularDaemon(threading.Thread):
                     # sync not blocking using asyncio and thread 
                     self.scheduler.run_in_executor(None, 
                                             self.manager.dosync, )
-            # This should be almost 1s ;)
+            # TEST now it should be 1s 
+            # WARNING it's not true every time
+            # if all calls in this loop are take more than 1s WARNING
             with self.manager.locks['sync_remain']:
                 self.manager.sync['remain'] -= 1
             with self.manager.locks['sync_elapsed']:
@@ -226,7 +232,9 @@ class RegularDaemon(threading.Thread):
                     self.scheduler.run_in_executor(None, 
                                 self.manager.pretend_world, ) # -> ', )' = same here
                         
-            time.sleep(1)
+            # skip calls if we are behind schedule:
+            next_time += (time.time() - next_time) // delay * delay + delay
+            time.sleep(max(0, next_time - time.time()))
         # Loop exit
         logger.debug('Received exit order...')
         self.stop_dbus()
@@ -415,6 +423,10 @@ class DynamicDaemon(threading.Thread):
                 self.manager.pretend['cancel'] = True
             # Leave the recall to RegularDaemon
         
+        # Make sure we sleep exactly 1s 
+        # THX!: https://stackoverflow.com/a/49801719/11869956
+        delay = 1
+        next_time = time.time() + delay
         while (pathlib.Path(self.caller['path']).exists() 
                 and not self.exit_now):
             if self.display_log('debug'):
@@ -422,7 +434,9 @@ class DynamicDaemon(threading.Thread):
                              f" on pid: {self.pstate['path'].stem}")
             if self.display_log('info'):
                 logger.info(f"{msg[self.pstate['proc']]} is in progress.")
-            time.sleep(1)
+            # skip calls if we are behind schedule:
+            next_time += (time.time() - next_time) // delay * delay + delay
+            time.sleep(max(0, next_time - time.time()))
         
         # Loop terminate, we have to reset self.logflow
         self.logflow = self.__load_def()
