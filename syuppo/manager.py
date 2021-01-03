@@ -16,7 +16,9 @@ import uuid
 import logging
 
 from threading import Lock
-from portage.versions import pkgcmp, pkgsplit
+from portage.versions import pkgcmp
+from portage.versions import pkgsplit
+from portage.versions import vercmp
 from portage.dbapi.porttree import portdbapi
 from portage.dbapi.vartree import vardbapi
 
@@ -192,9 +194,7 @@ class PortageHandler:
         self.portage = {
             'current'   :   loaded_stateopts.get('portage current'),
             'latest'    :   loaded_stateopts.get('portage latest'),
-            'available' :   loaded_stateopts.get('portage available'),
-            'remain'    :   30,     # check every 30s when 'available' is True
-            'logflow'   :   True    # Control log info flow to avoid spamming syslog
+            'available' :   loaded_stateopts.get('portage available')
             }
        
     def check_sync(self, init_run=False, recompute=False):
@@ -568,8 +568,7 @@ class PortageHandler:
         if updated:
             return True
         return False
-    
-    
+       
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
@@ -750,67 +749,33 @@ class PortageHandler:
         with self.locks['pretend_status']:
             self.pretend['status'] = 'completed'
 
-
-    def available_portage_update(self):
-        """Check if an update to portage is available"""
+    def available_portage_update(self, detected=False, init=False):
+        """
+        Check if an update to portage is available.
+        """
+        
         # TODO: be more verbose for debug !
         logger = logging.getLogger(f'{self.logger_name}available_portage_update::')
-        # Reset remain here as we return depending of the situation
-        self.portage['remain'] = 30
         
+        logger.debug(f"Running with detected={detected}, init={init}")
+                
         self.available = False
         self.latest = False
         self.current = False
-        latest_version = False
-        current_version = False
-        # This mean first run ever / or reset statefile 
-        if self.portage['current'] == '0.0' and self.portage['latest'] == '0.0':
-            # Return list any way, see --> https://dev.gentoo.org/~zmedico/portage/doc/api/portage.dbapi-pysrc.html 
-            # Function 'match' ->  Returns: 
-            #                           a list of packages that match origdep 
-            portage_list = vardbapi().match('portage')
-            self.latest = portdbapi().xmatch('bestmatch-visible', 'portage')
-        else:
-            self.latest = portdbapi().xmatch('bestmatch-visible', 'portage')
-            if not self.latest:
-                logger.error('Got not result when querying portage db for latest available portage package !')
-                return False
-            # It's up to date 
-            if self.latest == self.portage['current']:
-                mysplit = pkgsplit(self.latest)
-                if not mysplit[2] == 'r0':
-                    current_version = '-'.join(mysplit[-2:])
-                else:
-                    current_version = mysplit[1]
-                logger.debug('No update to portage package is available' 
-                                 + f' (current version: {current_version})')
-                # Reset 'available' to False if not
-                # Don't mess with False vs 'False' / bool vs str
-                # TEST var is bool even loaded from statefile
-                if self.portage['available']:
-                    self.portage['available'] = False
-                    self.stateinfo.save(['portage available', self.portage['available']])
-                # Just make sure that self.portage['latest'] is also the same
-                if self.latest == self.portage['latest']:
-                    # Don't need to update any thing 
-                    return True
-                else:
-                    self.stateinfo.save(['portage latest', self.portage['latest']])
-                    return True
-            # Get the list
-            else:
-                portage_list = vardbapi().match('portage')
         
-        # Make sure current is not None
-        if not portage_list:
-            logger.error('Got no result when querying portage db for installed portage package...')
-            return False
-        if len(portage_list) > 1:
-            logger.error('Got more than one result when querying portage db for installed portage package...')
-            logger.error('The list contain: {0}'.format(' '.join(portage_list)))
-            logger.error('This souldn\'t happend, anyway picking the first in the list.')
+        # First, any way get installed and latest
+        current = vardbapi().match('portage')[0]
+        latest = portdbapi().xmatch('bestmatch-visible', 'portage')
         
-        # From https://dev.gentoo.org/~zmedico/portage/doc/api/portage.versions-pysrc.html
+        # Then just compare
+        # From site-packages/portage/versions.py
+        #   @param mypkg: either a pv or cpv
+        #   @return:
+        #   1. None if input is invalid.
+        #   2. (pn, ver, rev) if input is pv
+        #   3. (cp, ver, rev) if input is a cpv
+        result = pkgcmp(pkgsplit(latest),pkgsplit(current))
+        # From site-packages/portage/versions.py
         # Parameters:
         # pkg1 (list (example: ['test', '1.0', 'r1'])) - package to compare with
         # pkg2 (list (example: ['test', '1.0', 'r1'])) - package to compare againts
@@ -819,70 +784,119 @@ class PortageHandler:
         # 1 if pkg1 is greater than pkg2
         # -1 if pkg1 is less than pkg2
         # 0 if pkg1 equals pkg2
-        self.current = portage_list[0]
-        self.result = pkgcmp(pkgsplit(self.latest),pkgsplit(self.current))
+        if result == None or result == -1:
+            msg = 'no result (package names are not the same ?!)'
+            if result == -1:
+                msg = ('the latest version available is lower than the'
+                       ' one installed...')
+            logger.error("FAILED to compare versions when obtaining update "
+                         "informations for the portage package.")
+            logger.error(f"Result is: {msg}")
+            logger.error(f"Current portage version: {current}, latest:"
+                         f" {latest}.")
+            # Return is ignored for the moment...
+            # TODO ??
+            return
         
-        if self.result == None or self.result == -1:
-            if not self.result:
-                logger.error('Got no result when comparing latest' 
-                                + ' available with installed portage package version.')
-            else:
-                logger.error('Got unexcept result when comparing latest' 
-                                + ' available with installed portage package version.')
-                logger.error('Result indicate that the latest available' 
-                                + ' portage package version is lower than the installed one...')
-            
-            logger.error(f'Installed portage: \'{self.current}\', latest: \'{self.latest}\'.')
-            if len(portage_list) > 1:
-                logger.error('As we got more than one result when querying' 
-                                + ' portage db for installed portage package.')
-                logger.error('This could explain strange result.')
-            self.portage['logflow'] = False
-            return False
+        # Split current version
+        # as we don't know yet if latest > current
+        split = pkgsplit(current)
+        self.current = split[1]
+        if not split[2] == 'r0':
+            self.current = '-'.join(split[-2:])
+        
+        # Check if an update to portage is available
+        if result:
+            # Now, split latest because > current
+            split = pkgsplit(latest)
+            self.latest = split[1]
+            if not split[2] == 'r0':
+                self.latest = '-'.join(split[-2:])
+            logger.debug(f"Found an update to portage (from {self.current}"
+                         f" to {self.latest}).")
+            # Print only one time when program start
+            if init:
+               logger.info("Found an update to portage (from "
+                           f"{self.current} to {self.latest}).")
+            self.available = True
         else:
-            # Split current version first
-            mysplit = pkgsplit(self.current)
-            if not mysplit[2] == 'r0':
-                current_version = '-'.join(mysplit[-2:])
-            else:
-                current_version = mysplit[1]
-            if self.result == 1:
-                # Split latest version
-                mysplit = pkgsplit(self.latest)
-                if not mysplit[2] == 'r0':
-                    latest_version = '-'.join(mysplit[-2:])
-                else:
-                    latest_version = mysplit[1]
-                # Print one time only (when program start / when update found)
-                # So this mean each time the program start and if update is available 
-                # it will print only one time.
-                if self.portage['logflow']:
-                    logger.info(f'Found an update to portage (from {current_version} to {latest_version}).')
-                    self.portage['logflow'] = False
-                else:
-                    logger.debug(f'Found an update to portage (from {current_version} to {latest_version}).')
-                self.available = True
-                # Don't return yet because we have to update portage['current'] and ['latest'] 
-            elif self.result == 0:
-                logger.debug('No update to portage package is available' 
-                                  + f' (current version: {current_version})')
-                self.available = False
+            logger.debug("No update to portage package is available" 
+                        f" (current version: {self.current})")
+            self.available = False
+        
+        # For detected we have to compare current extracted
+        # version and last current know version (so from
+        # self.portage['current']. Both versions are already
+        # split 
+        if detected:
+            # From site-packages/portage/versions.py
+            #   Compare two versions
+            #   Example usage:
+            #       >>> from portage.versions import vercmp
+            #       >>> vercmp('1.0-r1','1.2-r3')
+            #       negative number    
+            #       >>> vercmp('1.3','1.2-r3')
+            #       positive number
+            #       >>> vercmp('1.0_p3','1.0_p3')
+            #       0
+            #   @param pkg1: version to compare with (see ver_regexp in portage.versions.py)
+            #   @type pkg1: string (example: "2.1.2-r3")
+            #   @param pkg2: version to compare againts (see ver_regexp in portage.versions.py)
+            #   @type pkg2: string (example: "2.1.2_rc5")
+            #   @rtype: None or float
+            #   @return:
+            #   1. positive if ver1 is greater than ver2
+            #   2. negative if ver1 is less than ver2
+            #   3. 0 if ver1 equals ver2
+            #   4. None if ver1 or ver2 are invalid (see ver_regexp in portage.versions.py)
+            compare = vercmp(self.portage['current'], self.current)
+            msg = False
+            add_msg = ''
+            if compare < 0:
+                # If not available and it have been updated
+                # than it have been updated to latest one
+                if not self.available:
+                    add_msg = 'lastest '
+                msg = (f"The portage package has been updated (from "
+                      f"{self.portage['current']} to "
+                      f"{add_msg}{self.current}).")
+            elif compare > 0:
+                # Same here but reversed: if it was not 
+                # available (self.portage['available']
+                # and now it is (self.available) than
+                # it downgraded from latest
+                if not self.portage['available'] and self.available:
+                    add_msg = 'latest '
+                msg = (f"The portage package has been downgraded (from "
+                      f"{add_msg}{self.portage['current']} to "
+                      f"{self.current}).")
+            elif compare == 0:
+                # This have been aborded
+                msg = ("The portage package process has been aborded.")
             
-            tosave = [ ]
-            # Update only if change
-            for key in 'current', 'latest', 'available':
-                if not self.portage[key] == getattr(self, key):
-                    self.portage[key] = getattr(self, key)
-                    tosave.append([f'portage {key}', self.portage[key]])
-                    # This print if there a new version of portage available
-                    # even if there is already an older version available
-                    # TEST
-                    if key == 'latest' and self.portage['logflow'] and latest_version:
-                        logger.info('Found an update to portage' 
-                                      + f' (from {current_version} to {latest_version}).')
-            if tosave:
-                self.stateinfo.save(*tosave)    
-    
+            # Just skipp if msg = False
+            # so that mean compare == None
+            if msg:
+                logger.info(msg)
+        
+        tosave = [ ]
+        # Update only if change
+        for key in 'current', 'latest', 'available':
+            if not self.portage[key] == getattr(self, key):
+                # This print if there a new version of portage available
+                # even if there is already an older version available
+                # TEST: if checking only for key latest than it could
+                # be == to current so check also result.
+                if key == 'latest' and result:
+                    logger.info("Found an update to portage (from "
+                                f"{self.current} to {self.latest}).")
+                
+                self.portage[key] = getattr(self, key)
+                tosave.append([f'portage {key}', self.portage[key]])
+        
+        if tosave:
+            self.stateinfo.save(*tosave)    
+            
     
 
 def get_repo_info():
