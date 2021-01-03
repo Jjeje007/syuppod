@@ -183,7 +183,7 @@ class RegularDaemon(threading.Thread):
                                             self.manager.dosync, )
             # TEST now it should be 1s 
             # WARNING it's not true every time
-            # if all calls in this loop are take more than 1s WARNING
+            # if all calls in this loop take more than 1s WARNING
             with self.manager.locks['sync_remain']:
                 self.manager.sync['remain'] -= 1
             with self.manager.locks['sync_elapsed']:
@@ -409,13 +409,16 @@ class DynamicDaemon(threading.Thread):
             'world'     :   'Global update',
             'sync'      :   'Synchronization',
             'system'    :   'System update',
-            'portage'   :   'The portage package update'
+            # We don't know if will be update or downgrade...
+            'portage'   :   'The portage package process'
         }
                
         logger.debug(f"Started monitoring: '{self.caller['path']}'"
                     + f" using pathlib.Path().exists()")
         
         # For world update, make sure pretend is NOT running
+        # TODO pretend could be left running when detecting
+        # portage package process ?? TODO ?
         if (pathlib.Path(self.caller['path']).exists() 
                 and self.manager.pretend['status'] == 'running'):
             logger.debug("Found pretend process running, shutting down.")
@@ -445,12 +448,11 @@ class DynamicDaemon(threading.Thread):
             logger.debug("Stop waiting, receive exit order.")
             return
         logger.debug(f"{self.caller['path']} have been deleted.")
-        # Don't print on info because we don't know
-        # if the process was successfully run or not
-        # all this is check in manager --> get_last_world_update()
+        # Don't use logger.info here because we don't know
+        # if the process was successfully run or not.
+        # This is check in manager --> get_last_world_update()
         # and check_sync() TODO: system is not implented for the 
-        # moment. And for available_portage_update() implent 
-        # detected TODO
+        # moment.
             
     def inotifywatch(self):
         """
@@ -568,7 +570,7 @@ class DynamicDaemon(threading.Thread):
         
         # After a sync, portage package update have to be run
         logger.debug("Running .portage()")
-        self.portage()
+        self.portage(detected=False)
         # pretend_world() should also be run
         # but only if it's an external sync 
         if self.pstate['internal']:
@@ -603,7 +605,7 @@ class DynamicDaemon(threading.Thread):
             # Also, call portage to update portage package update
             # status only if world have been updated
             logger.debug("Running '.portage()'")
-            self.portage()
+            self.portage(detected=False)
     
     def system(self):
         """
@@ -614,15 +616,21 @@ class DynamicDaemon(threading.Thread):
         # TODO TODO First we have to implant parser for system
         logger.debug("TODO !!")
         
-    def portage(self):
+    def portage(self, detected=True):
         """
         Update all attributes and methods
         related to a portage status changed
+        :detected:
+            If process running have been detected.
+            Defaut: True (because it's a generic call
+            in 'run' using getattr. So that mean,
+            if it call directly than it have been
+            detected)
         """
         logger = logging.getLogger(f'{self.logger_name}portage::')
         
         logger.debug("Running available_portage_update()")
-        self.manager.available_portage_update()
+        self.manager.available_portage_update(detected=detected)
         
     def run(self):
         """
@@ -801,7 +809,7 @@ def main():
     # Get last portage package
     # Better first call here because this won't be call 
     # before DynamicDaemon detected close_write
-    manager.available_portage_update()
+    manager.available_portage_update(init=True)
     # Same here: Check if global update have been run 
     manager.get_last_world_update()
     
