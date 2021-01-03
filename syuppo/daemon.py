@@ -338,43 +338,105 @@ class DynamicDaemon(threading.Thread):
         
         # for process querying
         self.prun = CheckProcRunning()
-        self.pstate = False 
+        self.pstate = False
         
+        self.logflow = self.__load_def()        
+    
+    def __load_def(self):
+        """
+        Load default logflow attrs.
+        """
+        return {
+            'debug' :   {
+                'index'     :   0,
+                'store'     :   0
+                },
+            'info'  :   {
+                'index'     :   0,
+                'store'     :   0
+                }
+            }
+        
+    def display_log(self, level):
+        """
+        Control the logflow.
+        :level:
+            The level of logging to apply.
+        :return:
+            True if authorized else False.
+        """
+        logger = logging.getLogger(f'{self.logger_name}display_log::')
+        
+        __config = {
+            # For debug ouput every 60s
+            'debug' :   ( 60, ),
+            # For info output gradually
+            # this is all in seconds because filewatch
+            # loop sleep 1s
+            # TODO this could also be tweak 
+            'info'  :   ( 1800, 3600, 7200 )
+            }
+        
+        current = time.time()
+        if self.logflow[level]['store'] <= current:
+            index = self.logflow[level]['index']
+            length = len(__config[level])
+            
+            self.logflow[level]['store'] = (current + 
+                                            __config[level][index])
+            if self.logflow[level]['index'] < length - 1:
+                self.logflow[level]['index'] += 1
+            return True
+        return False
+    
     def filewatch(self):
         """
         Using pathlib to watch deleted file in /proc since 
         inotify won't work on /proc.
         """
-        # TODO TODO TODO : logger + logflow
-        #msg = {
-            #'world'     :   'global update',
-            #'sync'      :   'sync',
-            #'system'    :   'system update',
-            #'portage'   :   'portage package update'
-        #}
+        
         logger = logging.getLogger(f'{self.logger_name}filewatch::')
         
+        msg = {
+            'world'     :   'Global update',
+            'sync'      :   'Synchronization',
+            'system'    :   'System update',
+            'portage'   :   'The portage package update'
+        }
+               
         logger.debug(f"Started monitoring: '{self.caller['path']}'"
                     + f" using pathlib.Path().exists()")
         
         # For world update, make sure pretend is NOT running
-        if pathlib.Path(self.caller['path']).exists() and \
-           self.manager.pretend['status'] == 'running':
+        if (pathlib.Path(self.caller['path']).exists() 
+                and self.manager.pretend['status'] == 'running'):
             logger.debug("Found pretend process running, shutting down.")
             with self.manager.locks['cancel']:
                 self.manager.pretend['cancel'] = True
             # Leave the recall to RegularDaemon
-            
-        # it's not the best 
-        # but haven't found a better way...
-        # For exit order also
-        while pathlib.Path(self.caller['path']).exists() and \
-        not self.exit_now:
+        
+        while (pathlib.Path(self.caller['path']).exists() 
+                and not self.exit_now):
+            if self.display_log('debug'):
+                logger.debug(f"{msg[self.pstate['proc']]} is in progress"
+                             f" on pid: {self.pstate['path'].stem}")
+            if self.display_log('info'):
+                logger.info(f"{msg[self.pstate['proc']]} is in progress.")
             time.sleep(1)
+        
+        # Loop terminate, we have to reset self.logflow
+        self.logflow = self.__load_def()
+        
         if self.exit_now:
             logger.debug("Stop waiting, receive exit order.")
             return
         logger.debug(f"{self.caller['path']} have been deleted.")
+        # Don't print on info because we don't know
+        # if the process was successfully run or not
+        # all this is check in manager --> get_last_world_update()
+        # and check_sync() TODO: system is not implented for the 
+        # moment. And for available_portage_update() implent 
+        # detected TODO
             
     def inotifywatch(self):
         """
