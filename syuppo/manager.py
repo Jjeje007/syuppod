@@ -527,13 +527,15 @@ class PortageHandler:
         
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
-        logger.debug('Searching for last global update informations.')
-        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
-                                   log=self.pathdir['emergelog'])
+        
+        logger.debug(f"Running with detected={detected}")
         # keep default setting 
         # TODO : give the choice cf logparser module
-        get_world_info = myparser.get()
-        
+        # TEST detected an failed and rejected world update.
+        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
+                                   log=self.pathdir['emergelog'],
+                                   timestamp=detected)
+        get_world_info, rejected = myparser.get()
         updated = False
         tosave = [ ]
         if get_world_info:
@@ -561,7 +563,10 @@ class PortageHandler:
                 # because it didn't pass limit number 
                 # set in module logparser
                 if detected:
-                    logger.info('Global update have been aborded.')
+                    if rejected:
+                        logger.info(f'Global update failed: {rejected}')
+                    else:
+                        logger.info('Global update have been aborded.')
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
