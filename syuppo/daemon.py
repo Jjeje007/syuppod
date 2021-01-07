@@ -119,7 +119,6 @@ class RegularDaemon(threading.Thread):
         allowed = False
         # Make sure no monitoring process is running
         if not self.dynamic_daemon.pstate:
-            
             msg = ''
             if self.delayed['proc']:
                 msg_count = "less than a second"
@@ -819,7 +818,7 @@ def main():
     
     # Check sync
     # Don't need to lock here 
-    manager.check_sync(init_run=True, recompute=True)
+    manager.check_sync(init=True, recompute=True)
     # Get last portage package
     # Better first call here because this won't be call 
     # before DynamicDaemon detected close_write
