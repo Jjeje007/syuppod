@@ -65,7 +65,7 @@ logging.addLevelName(logging.INFO,     '[ Info ]')
 logging.addLevelName(logging.DEBUG,    '[Debug ]')
 # Adding advanced debug loglevel
 addLoggingLevel('DEBUG2', 9)
-logging.addLevelName(logging.DEBUG2,   '[vdebug]')
+logging.addLevelName(logging.DEBUG2,   '[Vdebug]')
 
 # Configure timing exit
 timing_exit = time.process_time
