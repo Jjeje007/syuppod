@@ -151,7 +151,7 @@ class RegularDaemon(threading.Thread):
             self.delayed['proc'] = self.dynamic_daemon.pstate['proc']
             # Avoid flood logger.debug, call every 10s
             if self.logflow <= 0:
-                logger.debug("Delaying call for check_sync(): "
+                logger.debug(f"Delaying call for {tocall}: "
                             + f"process: {self.delayed['proc']} running"
                             + " (already delayed since:"
                             + f" {self.delayed['count']} second(s)")
