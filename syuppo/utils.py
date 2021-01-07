@@ -590,12 +590,21 @@ class FormatTimestamp:
             'minute'    :   _('minute'),
             'second'    :   _('second'),
             ' and'      :   _(' and'),
-            ','         :   _(','),     # This is for compatibility
-            ''          :   '\0'        # same here BUT we CANNOT pass EMPTY string to gettext 
-                                        # or we get : warning: Empty msgid.  It is reserved by GNU gettext:
-                                        # gettext("") returns the header entry with
-                                        # meta information, not the empty string.
-                                        # Thx to --> https://stackoverflow.com/a/30852705/11869956 - saved my day
+            # This is for compatibility
+            ','         :   _(','),
+            # same here BUT we CANNOT pass EMPTY string to gettext
+            # or we get : warning: Empty msgid.  
+            # It is reserved by GNU gettext:
+            # gettext("") returns the header entry with
+            # meta information, not the empty string.
+            # Thx to --> https://stackoverflow.com/a/30852705/11869956 
+            # saved my day ;)
+            # WARNING: using '\0' will behave strangely depending on
+            # the program reading the ouput. For exemple:
+            # 'tail' will stop its output (and skip a LOT after)
+            # 'conky' also WARNING
+            # TEST: 'Unicode Character 'ZERO WIDTH SPACE' (U+200B)'
+            ''          :   u"\u200B"                                           
             }
         # Access 'intervals':
         # by names 
@@ -871,7 +880,7 @@ class FormatTimestamp:
             
         # TEST try to nuance rounded result
         # Same here cannot pass empty string to gettext...
-        nuanced_msg = '\0'
+        nuanced_msg = u"\u200B"
         if nuanced:
             logger.debug2("Nuanced is enabled.")
             # from (-)1s left to (-)59s: "a little bit less/more"
