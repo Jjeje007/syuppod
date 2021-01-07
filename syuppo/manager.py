@@ -197,79 +197,96 @@ class PortageHandler:
             'available' :   loaded_stateopts.get('portage available')
             }
        
-    def check_sync(self, init_run=False, recompute=False):
-        """ Checking if we can sync repo depending on time interval.
-        Minimum is 24H. """
+    def check_sync(self, init=False, recompute=False):
+        """ 
+        Checking sync repo timestamp, recompute time remaining
+         and, or elapsed if requested, allow or deny sync.
+        :init:
+            This is for print informations on init program. 
+            Default False.
+        :recompute:
+            Requested to recalculate time remaining/elapsed. 
+            Default False.
+        :return:
+            True if allow to sync, else False.        
+        """
         
-        # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}check_sync::')
+        
         # Get the last emerge sync timestamp
-        myparser = LastSync(log=self.pathdir['emergelog'])
+        myparser = LastSync()
         sync_timestamp = myparser.get()
+        
+        if not sync_timestamp:
+            # Don't need to logging anything it's 
+            # already done in module logparser.
+            return False
+        
         current_timestamp = time.time()
         tosave = [ ]
         
-        if sync_timestamp:
-            # first run ever 
-            if self.sync['timestamp'] == 0:
-                logger.debug('Found sync {0} timestamp set to factory: 0.'.format(self.sync['repos']['msg']))
-                logger.debug(f'Setting to: {sync_timestamp}.')
-                self.sync['timestamp'] = sync_timestamp
-                tosave.append(['sync timestamp', self.sync['timestamp']])
-                recompute = True
-            # Detected out of program sync
-            elif not self.sync['timestamp'] == sync_timestamp:
-                logger.debug('{0} have been sync outside the program, forcing pretend world...'.format(
-                                                                                self.sync['repos']['msg'].capitalize()))
-                with self.locks['proceed']:
-                    self.pretend['proceed'] = True # So run pretend world update
-                self.sync['timestamp'] = sync_timestamp
-                tosave.append(['sync timestamp', self.sync['timestamp']])
-                recompute = True
+        msg_repo = f"{self.sync['repos']['msg'].capitalize()}"
+        
+        if not sync_timestamp == self.sync['timestamp']:
+            msg = (f"{msg_repo} have been sync outside the program")
+            # For first run / resetted statefile
+            if not self.sync['timestamp']:
+                msg = ("Setting sync timestamp from factory (0) to:"
+                       f" {sync_timestamp}")
+                       
+            logger.debug(f"{msg}, forcing pretend world...")
+            # Any way, run pretend world
+            with self.locks['proceed']:
+                self.pretend['proceed'] = True
+            self.sync['timestamp'] = sync_timestamp
+            tosave.append(['sync timestamp', self.sync['timestamp']])
+            recompute = True
+        
+        # Compute / recompute time remain
+        # This shouldn't be done every time method check_sync()
+        # is call because it will erase the arbitrary time remain
+        # set by method dosync() when sync failed (network error)
+        if recompute:
+            logger.debug('Recompute is enable.')
             
-            # Compute / recompute time remain
-            # This shouldn't be done every time method check_sync() is call
-            # because it will erase the arbitrary time remain set by method dosync()
-            if recompute:
-                logger.debug('Recompute is enable.')
-                logger.debug('Current sync elapsed timestamp:' 
-                                  + ' {0}'.format(self.sync['elapsed']))
-                with self.locks['sync_remain']:
-                    self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
-                logger.debug('Recalculate sync elapsed timestamp:' 
-                                  + ' {0}'.format(self.sync['elapsed']))
-                logger.debug('Current sync remain timestamp:' 
-                                  + ' {0}.'.format(self.sync['remain']))
-                with self.locks['sync_remain']:
-                    self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
-                logger.debug('Recalculate sync remain timestamp:' 
-                                  + ' {0}'.format(self.sync['remain']))
-            # For debug better to output with granularity=5
-            logger.debug('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed']), granularity=5))
-            logger.debug('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'], granularity=5)))
-            logger.debug('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
-                              + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
+            current = self.sync['elapsed']
+            with self.locks['sync_remain']:
+                self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
+            logger.debug(f"Sync elapsed timestamp: Current: {current}"
+                         f", recalculate: {self.sync['elapsed']}")
             
-            if init_run:
-                logger.info('Found {0}'.format(self.sync['repos']['count']) 
-                             + ' {0} to sync:'.format(self.sync['repos']['msg']) 
-                             + ' {0}.'.format(self.sync['repos']['formatted']))
-                logger.info('{0} sync elapsed time:'.format(self.sync['repos']['msg'].capitalize()) 
-                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['elapsed'])))
-                logger.info('{0} sync remain time:'.format(self.sync['repos']['msg'].capitalize())
-                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['remain'])))
-                logger.info('{0} sync interval:'.format(self.sync['repos']['msg'].capitalize())
-                             + ' {0}.'.format(self.format_timestamp.convert(self.sync['interval'])))
+            current = self.sync['remain']
+            with self.locks['sync_remain']:
+                self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
+            logger.debug(f"Sync remain timestamp: Current: {current}"
+                         f", recalculate: {self.sync['remain']}")
+        
+        if init:
+            logger.info(f"Found {self.sync['repos']['count']}"
+                        f" {self.sync['repos']['msg']} to sync:" 
+                        f" {self.sync['repos']['formatted']}")        
+        
+        # For logging in debug / info
+        for key in 'elapsed', 'remain', 'interval':
+            # For logging in: INFO
+            if init:
+                # TEST keep default granularity for info
+                timestamp = self.format_timestamp.convert(self.sync[key])
+                logger.info(f"{msg_repo} sync {key} time: {timestamp}")
+            # For logging in: DEBUG
+            if recompute and key in ('elapsed', 'remain'):
+                continue
+            # For debug, full ouput (granularity=5)
+            timestamp = self.format_timestamp.convert(self.sync[key],
+                                                      granularity=5)
+            logger.debug(f"{msg_repo} sync {key} time: {timestamp}")
+    
+        if tosave:
+            self.stateinfo.save(*tosave)
             
-            if tosave:
-                self.stateinfo.save(*tosave)
-                
-            if self.sync['remain'] <= 0:
-                return True # We can sync :)
-            return False
-        return False        
+        if self.sync['remain'] <= 0:
+            return True # We can sync :)
+        return False
     
     def dosync(self):
         """ Updating repo(s) """
