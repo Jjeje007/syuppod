@@ -534,7 +534,7 @@ class PortageHandler:
         # At the end
         with self.locks['sync_remain']:
             self.sync['elapsed'] = 0
-        self.sync['status'] = 'waiting'
+        self.sync['status'] = 'ready'
         return                 
            
     def get_last_world_update(self, detected=False):
