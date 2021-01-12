@@ -31,7 +31,8 @@ try:
     from gi.repository import GLib
     from pydbus import SystemBus
 except Exception as exc:
-    print(f'Error: unexcept error while loading dbus bindings: {exc}', file=sys.stderr)
+    print(f'Error: unexcept error while loading dbus bindings: {exc}',
+                                                       file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
@@ -201,7 +202,8 @@ class RegularDaemon(threading.Thread):
                 with self.manager.locks['cancelled']:
                     self.manager.pretend['cancelled'] = False
             
-            # Every thing is OK: pretend was wanted, has been called and is completed 
+            # Every thing is OK: pretend was wanted, 
+            # has been called and is completed 
             if self.manager.pretend['status'] == 'completed':
                 # Wait between two pretend_world() run 
                 if self.manager.pretend['remain'] <= 0:
@@ -215,10 +217,13 @@ class RegularDaemon(threading.Thread):
                 self.manager.pretend['remain'] -= 1
             
             # Run pretend_world() if authorized 
-            # Leave other check (sync running ? pretend already running ? world update running ?)
-            # to portagedbus module so it can reply to client.
-            # Disable pretend_world() if sync is in progress otherwise will run twice.
-            # Don't run pretend if world / sync in progress or if not status == 'ready'
+            # Leave other check (sync running ? pretend already 
+            # running ? world update running ?) to portagedbus 
+            # module so it can reply to client.
+            # Disable pretend_world() if sync is in progress 
+            # otherwise will run twice.
+            # Don't run pretend if world / sync in progress or 
+            # if not status == 'ready'
             if (self.manager.pretend['proceed']
                and self.manager.pretend['status'] == 'ready'):
                 if self.allow('pretend'):
@@ -228,8 +233,9 @@ class RegularDaemon(threading.Thread):
                         self.manager.pretend['forced'] = False
                     logger.debug('Running pretend_world()')
                     # Making async and non-blocking
-                    self.scheduler.run_in_executor(None, 
-                                self.manager.pretend_world, ) # -> ', )' = same here
+                    self.scheduler.run_in_executor(None,
+                                                    # -> ', )' = same here
+                                self.manager.pretend_world, ) 
                         
             # skip calls if we are behind schedule:
             next_time += (time.time() - next_time) // delay * delay + delay
@@ -246,7 +252,7 @@ class RegularDaemon(threading.Thread):
         Stop dbus loop if running
         """
         logger = logging.getLogger(f'{self.logger_name}stop_dbus::')
-        # This is a workaround: GLib.MainLoop have to been terminate 
+        # This is a workaround: GLib.MainLoop have to been terminate
         # Here or it will never return to main()
         # But be sure it have been run()
         if self.dbus_daemon and self.dbus_daemon.is_running():

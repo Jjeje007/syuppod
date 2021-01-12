@@ -604,7 +604,7 @@ class FormatTimestamp:
             # 'tail' will stop its output (and skip a LOT after)
             # 'conky' also WARNING
             # TEST: 'Unicode Character 'ZERO WIDTH SPACE' (U+200B)'
-            ''          :   u"\u200B"                                           
+            ''          :   u"\u200B"
             }
         # Access 'intervals':
         # by names 

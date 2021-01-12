@@ -878,20 +878,20 @@ class PortageHandler:
                 # If not available and it have been updated
                 # than it have been updated to latest one
                 if not self.available:
-                    add_msg = 'lastest '
+                    add_msg = 'latest '
                 msg = (f"The portage package has been updated (from "
-                      f"{self.portage['current']} to "
-                      f"{add_msg}{self.current}).")
+                       f"{self.portage['current']} to "
+                       f"{add_msg}{self.current}).")
             elif compare > 0:
                 # Same here but reversed: if it was not 
-                # available (self.portage['available']
+                # available (self.portage['available'])
                 # and now it is (self.available) than
-                # it downgraded from latest
+                # it have been downgraded from latest.
                 if not self.portage['available'] and self.available:
                     add_msg = 'latest '
                 msg = (f"The portage package has been downgraded (from "
-                      f"{add_msg}{self.portage['current']} to "
-                      f"{self.current}).")
+                       f"{add_msg}{self.portage['current']} to "
+                       f"{self.current}).")
             elif compare == 0:
                 # This have been aborded
                 msg = ("The portage package process has been aborded.")
