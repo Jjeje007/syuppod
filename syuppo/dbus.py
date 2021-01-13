@@ -32,6 +32,12 @@ class PortageDbus(PortageHandler):
                 <method name='forced_pretend'>
                     <arg type='s' name='response' direction='out'/>
                 </method>
+                <method name='get_sync_status'>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
+                <method name='get_world_update_status'>
+                    <arg type='s' name='response' direction='out'/>
+                </method>
                 <method name='_get_debug_attributes'>
                     <arg type='s' name='debug_key' direction='in'/>
                     <arg type='s' name='response' direction='out'/>
@@ -132,7 +138,29 @@ class PortageDbus(PortageHandler):
         self.pretend['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])
     
+    def get_sync_status(self):
+        """
+        Retrieve sync status
+        """
+        logger = logging.getLogger(f'{self.named_logger}get_sync_status::')
+        logger.debug('Got request.')
+        
+        if self.sync['status'] == 'running' or self.external_sync:
+            return 'True'
+        return 'False'
     
+    def get_world_update_status(self):
+        """
+        Retrieve world update status
+        """
+        name = 'get_world_update_status'
+        logger = logging.getLogger(f'{self.named_logger}{name}::')
+        logger.debug('Got request.')
+        
+        if self.world_state:
+            return 'True'
+        return 'False'
+        
     def _get_debug_attributes(self, key):
         """
         Retrieve specific attribute for debugging only

@@ -111,25 +111,33 @@ def timestamp(myobject, formatting, machine):
     # This is for --all argument
     if not formatting:
         formatting = 'date'
-    # Value is from dbus service (portagemanager and portagedbus)
-    reply = int(myobject.get_sync_attribute('timestamp'))
-    opt = re.match(r'^(unix|date.*|elapsed.*)$', formatting).group(1)
     additionnal_msg = [ ]
-    # unix timestamp, easy man ! :)
-    if opt == 'unix':
-        msg = reply
-        additionnal_msg.append('\0') # workaround for gettext ("") is reserved
-        additionnal_msg.append(_('seconds since epoch (unix / posix time)'))
-    elif 'date' in opt:
-        msg = _format_date(reply, opt)
-        additionnal_msg.append(_('The '))
-        additionnal_msg.append('\0')    # workaround for gettext ("") is reserved
-    elif 'elapsed' in opt:
-        current_timestamp = time.time()
-        elapsed = round(current_timestamp - int(reply))
-        msg = _format_timestamp(elapsed, opt)
-        additionnal_msg.append(_('There is '))
-        additionnal_msg.append(_('ago'))
+    msg = ''
+    # TEST return in progress if sync is running
+    if myobject.get_sync_status() == 'True':
+        msg = _('In progress')
+        additionnal_msg.append(u"\u200B")
+        additionnal_msg.append(u"\u200B")
+    else:
+        # Value is from dbus service (portagemanager and portagedbus)
+        reply = int(myobject.get_sync_attribute('timestamp'))
+        opt = re.match(r'^(unix|date.*|elapsed.*)$', formatting).group(1)
+        
+        # unix timestamp, easy man ! :)
+        if opt == 'unix':
+            msg = reply
+            additionnal_msg.append(u"\u200B") # workaround for gettext ("") is reserved
+            additionnal_msg.append(_('seconds since epoch (unix / posix time)'))
+        elif 'date' in opt:
+            msg = _format_date(reply, opt)
+            additionnal_msg.append(_('The '))
+            additionnal_msg.append(u"\u200B")    # workaround for gettext ("") is reserved
+        elif 'elapsed' in opt:
+            current_timestamp = time.time()
+            elapsed = round(current_timestamp - int(reply))
+            msg = _format_timestamp(elapsed, opt)
+            additionnal_msg.append(_('There is '))
+            additionnal_msg.append(_('ago'))
     # Now format 
     if not machine:
         print('[*]', _('Last repositories synchronization:'))
@@ -144,7 +152,7 @@ def interval(myobject, interval, machine):
     if not interval:
         interval = 'display'
     pattern = re.compile(r'^display(.*)?$')
-    additionnal_msg = '\0' # woraround for gettext
+    additionnal_msg = u"\u200B" # woraround for gettext
     # first check if we get only digit
     if isinstance(interval, int):
         # TODO !
@@ -178,7 +186,7 @@ def elapsed_remain(myobject, switch, opt, machine):
         additionnal_msg = _('seconds')
     else:
         msg = _format_timestamp(reply, opt)
-        additionnal_msg = '\0' # woraround gettext
+        additionnal_msg = u"\u200B" # woraround gettext
     if not machine:
         print('[*] {0}'.format(_(translate[switch])))
         print('    - {0} {1}'.format(_(msg), _(additionnal_msg)))
@@ -193,7 +201,7 @@ def available(myobject, available, machine):
         available = 'minimal'
     # Any way we have to check if available
     reply = myobject.get_portage_attribute('available')
-    msg = '\0'  # woraround gettext
+    msg = u"\u200B"  # woraround gettext
     additionnal_msg = _('Portage package update status:')
     formatting = '-'
     if available == 'minimal':
@@ -240,6 +248,7 @@ def last(myobject, last, machine):
     # Default for --all argument
     if not last:
         last = 'elapsed:r:2'
+        
     # Parse
     if 'state' in last:
         msg = myobject.get_world_attribute('state')
@@ -275,6 +284,10 @@ def last(myobject, last, machine):
         duration = round(stop - start)
         msg = _format_timestamp(duration, last)
         additionnal_msg = _('Last world update lasted:')
+    # TEST return 'In progress' if running
+    if myobject.get_world_update_status() == 'True':
+        msg = _('In progress')
+    
     # Display
     if not machine:
         print('[*] {0}'.format(_(additionnal_msg)))
