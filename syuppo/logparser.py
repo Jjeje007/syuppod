@@ -276,7 +276,9 @@ class LastWorldUpdate(EmergeLogParser):
             List length for numpy to build an exponantial list. Default 8. 
         :advanced_debug:
             Enable or disable advanced debugging. This will make A LOT of log.
-            True for enable else False. Default False.
+            True for enable else False. Default False. Note: if logging level
+            is set to DEBUG2 then it will enable advanced debug even this is
+            set to False.
         :debug_show_all_lines:
             Only if advanced_debug=True, print all emerge.log lines. 
             Default False.
@@ -369,7 +371,7 @@ class LastWorldUpdate(EmergeLogParser):
                                          '\..Cleaning up\.\.\.$')
         # For terminating line:
         #   1563026610:  *** terminating.
-        self.terminating_line = re.compile(r'(\d+):\s{2}\*\*\*.terminating\.$')
+        self.terminating_line = re.compile(r'\d+:\s{2}\*\*\*.terminating\.$')
         # For exiting line:
         self.exiting_line = re.compile(r'\d+:\s{2}\*\*\*.exiting\s{1}'
                                         '(?:successfully|unsuccessfully).*$')
@@ -444,9 +446,26 @@ class LastWorldUpdate(EmergeLogParser):
                       and 'start' in self.parser['group']):
                     # Have to be validate
                     self._validate_start()
-           
             
             # Parsing finished 
+            # TEST make sure we haven't skip any world update
+            # in progress which failed / was stopped (ctr+c kill)
+            if self.parser['running']:
+                logger.debug(f"Still something left running: {self.parser}")
+                if self.terminating_line.match(self.line):
+                    # Ok so this mean the last line of emerge.log 
+                    # file is a terminating_line. 
+                    # So this is an incomplete or fragment group.
+                    logger.debug2(f"terminating_line match at line: {self.line}")
+                    # Make sure we get the same stop timestamp every 
+                    # where otherwise this will be treat as an 
+                    # world update.
+                    # SO don't get stop timestamp from 
+                    # terminating_line.match line but from 
+                    # _set_stop_timestamp()
+                    if self._set_stop_timestamp():
+                        self._save_switcher()
+            # Check we get something
             if self.collect:
                 logger.debug2("Stop running, collect have been successfull.")
                 keep_running = False
