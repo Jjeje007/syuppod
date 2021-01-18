@@ -549,11 +549,10 @@ class PortageHandler:
         
         # Change name of the logger
         logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
-        logger.debug('Searching for last global update informations.')
+        logger.debug(f'Running with detected={detected}')
+        
         myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
                                    log=self.pathdir['emergelog'])
-        # keep default setting 
-        # TODO : give the choice cf logparser module
         get_world_info = myparser.get()
         
         updated = False
@@ -569,21 +568,23 @@ class PortageHandler:
                         self.pretend['proceed'] = True
                     updated = True
                     if to_print:
-                        logger.info('Global update have been run.') # TODO: give more details
+                        logger.info('Global update have been run.')
                         to_print = False
                             
                     self.world[key] = get_world_info[key]
                     tosave.append([f'world last {key}', self.world[key]])
-            if not updated:
+            ## For now, if incomplete and fragment opts 
+            # from LastWorldUpdate are left to default
+            # then, the only rejected group should be the first
+            # package that failed. And this will not change
+            # how many package to update (so don't need to run
+            # pretend...)
+            if not updated and detected:
+                logger.info("Global update have been aborded or"
+                            "failed to emerge first package")
+            elif not updated:
                 logger.debug("Global update haven't been run," 
                              " keeping last know informations.")
-                # TEST so if detected then global update 
-                # have been aborded TEST WARNING this is not sure
-                # at 100% because it could be incomplete and reject
-                # because it didn't pass limit number 
-                # set in module logparser
-                if detected:
-                    logger.info('Global update have been aborded.')
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
