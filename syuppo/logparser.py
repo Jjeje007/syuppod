@@ -242,8 +242,8 @@ class LastWorldUpdate(EmergeLogParser):
     """
     Extract the last world update informations.
     """
-    def __init__(self,  lastlines=3000, incomplete=30/100,
-                 fragment=30/100, nrange=8, advanced_debug=False,
+    def __init__(self,  lastlines=3000, incomplete=2,
+                 fragment=2, nrange=8, advanced_debug=False,
                  debug_show_all_lines=False, timestamp=False, **kwargs):
         """
         :param lastlines:  
@@ -260,7 +260,7 @@ class LastWorldUpdate(EmergeLogParser):
             number the limit where it will save failed update world or not.
             So, for exemple, if emerge have to update 150 packages but failed
             at 50 and incomplete=45 then this will be recorded. Float setup,
-            will filter by percentage. Default 30/100.
+            will filter by percentage. Default 2.
         :param fragment:
             Enable or disable the search for start, autorestart and end to 
             failed update world.
@@ -271,7 +271,7 @@ class LastWorldUpdate(EmergeLogParser):
             So, for exemple, if emerge have to update 150 packages but failed
             at 30, restart and definetly failed at 20 and fragment=45 then 
             this will be recorded. Float setup, will filter by percentage. 
-            Default 30/100.
+            Default 2.
         :nrange: 
             List length for numpy to build an exponantial list. Default 8. 
         :advanced_debug:
@@ -1356,8 +1356,9 @@ class LastWorldUpdate(EmergeLogParser):
     def _save_switcher(self):
         """
         Call _save_* depending on condition.
-        This is only for specific failed match: 'finished'
-        because it could be 'incomplete' or 'fragment'.
+        This is only for specifics failed match: 
+        'finished' or 'terminating' because it 
+        could be 'incomplete' or 'fragment'.
         """
         
         logger = logging.getLogger(f'{self.__nlogger}_pkg_terminate::')
