@@ -244,7 +244,7 @@ class LastWorldUpdate(EmergeLogParser):
     """
     def __init__(self,  lastlines=3000, incomplete=2,
                  fragment=2, nrange=8, advanced_debug=False,
-                 debug_show_all_lines=False, timestamp=False, **kwargs):
+                 debug_show_all_lines=False, **kwargs):
         """
         :param lastlines:  
             Read last n lines from emerge log file (as we don't have
@@ -281,7 +281,7 @@ class LastWorldUpdate(EmergeLogParser):
             set to False.
         :debug_show_all_lines:
             Only if advanced_debug=True, print all emerge.log lines. 
-            Default False.
+            True for enable else False. Default False.
         :return: 
             If detected, a dictionary:
             'start'     :   start timestamp.
@@ -305,7 +305,6 @@ class LastWorldUpdate(EmergeLogParser):
         self.fragment = fragment
         self.advanced_debug = advanced_debug
         self.debug_show_all_lines = debug_show_all_lines
-        self.detected_timestamp = timestamp
         
         # construct exponantial list
         self._range['world'] = numpy.geomspace(self.lastlines, 
@@ -327,9 +326,6 @@ class LastWorldUpdate(EmergeLogParser):
         
         # Load default parser keys/values
         self._load_default_cfg(init=True)
-        
-        # For rejected, save only the last one
-        self.rejected = False
         
         ## RE setup ##
         self.start_emerge = re.compile(r'^(\d+):\s{1}Started.emerge.on:.*$')
@@ -426,7 +422,7 @@ class LastWorldUpdate(EmergeLogParser):
                          f" from {self.emergelog}.")
             logger.debug(f"Extracting list of complete{incomplete_msg}"
                          f"{fragment_msg} group for global"
-                         " update informations.")
+                         "update informations.")
             for self.line in self.getlog(self.lastlines):
                 # Show all logparser line for extra debugging
                 if self.debug_show_all_lines:
@@ -477,7 +473,7 @@ class LastWorldUpdate(EmergeLogParser):
                 count += 1
             else:
                 logger.debug("FAILED to collect last world update informations.")
-                return False, self.rejected
+                return False
           
         # So now compare and get the highest 'start' timestamp from each list
         logger.debug2("Extracting lastest world update informations from "
@@ -503,10 +499,10 @@ class LastWorldUpdate(EmergeLogParser):
                          f" stop: {latest_sublist['stop']}"
                          f" total packages: {latest_sublist['total']}"
                          f"{failed}")
-            return latest_sublist, self.rejected
+            return latest_sublist
         else:
             logger.error('FAILED to found latest global update informations.')
-            return False, self.rejected
+            return False
         
     def _load_default_cfg(self, include=(), exclude=(),
                           init=False, verbose=False):
@@ -1220,33 +1216,6 @@ class LastWorldUpdate(EmergeLogParser):
                 logger.debug("Rejecting because packages count"
                             f" ({self.parser['count']}) < {msg}.")
                 self.parser['count'] = 1
-                
-                # TEST try to detect if this 'rejected group'
-                # could be the group which have failed when
-                # program have finished to monitor running process
-                # See module 'daemon', class 'DynamicDaemon', method
-                # 'filewatch' and 'world', attr: 'timestamp'
-                # So, 'detected_timestamp' is from attr 'timestamp'
-                # and could match ± stop timestamp.
-                if self.detected_timestamp:
-                    logger.debug2("Detected timestamp is: "
-                                  f"{self.detected_timestamp}")
-                    # In seconds WARNING for the moment
-                    # after some TEST the most gap was 6s
-                    # so keep limit at 10 and keep TEST.ing
-                    limit = 10
-                    low_limit = self.detected_timestamp - limit
-                    high_limit = self.detected_timestamp + limit
-                    msg = 'NOT reassign'
-                    if low_limit <= self.parser['group']['stop'] <= high_limit:
-                        msg = 'Reassign'
-                        # Save only failed informations
-                        self.rejected = self.parser['group']['failed']
-                    logger.debug(f"{msg} current {arg} group as 'latest"
-                                 " rejected', stop match limit: "
-                                 f"{self.parser['group']['stop']}, "
-                                 " failed: "
-                                 f"{self.parser['group']['failed']}.")
                 return
         else:
             logger.debug("Limiter is deactived.")
@@ -1380,9 +1349,7 @@ class LastWorldUpdate(EmergeLogParser):
             self._save_partial_fragment('fragment')
         else:
             # same here add failed package_name
-            # TEST add total also : 'at count/total (...)'
-            self.parser['group']['failed'] = (f"at {self.parser['count']}/"
-                                              f"{self.parser['group']['total']}"
+            self.parser['group']['failed'] = (f"at {self.parser['count']}"
                                               f" ({self.parser['name']})")
             logger.debug2("Calling _save_incomplete_fragment('incomplete')")
             self._save_incomplete_fragment('incomplete')

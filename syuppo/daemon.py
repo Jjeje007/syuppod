@@ -353,12 +353,7 @@ class DynamicDaemon(threading.Thread):
         self.prun = CheckProcRunning()
         self.pstate = False
         
-        # Load default logflow attrs
         self.logflow = self.__load_def()        
-        
-        # Save current end timestamp of
-        # a running process (filewatch)
-        self.timestamp = False
     
     def __load_def(self):
         """
@@ -426,11 +421,6 @@ class DynamicDaemon(threading.Thread):
         logger.debug(f"Started monitoring: '{self.caller['path']}'"
                     + f" using pathlib.Path().exists()")
         
-        # Reset saved timestamp:
-        logger.debug("Resetting saved timestamp to False;"
-                     f" current: {self.timestamp}")
-        self.timestamp = False
-        
         # For world update, make sure pretend is NOT running
         # TODO pretend could be left running when detecting
         # portage package process ?? TODO ?
@@ -455,9 +445,6 @@ class DynamicDaemon(threading.Thread):
             # skip calls if we are behind schedule:
             next_time += (time.time() - next_time) // delay * delay + delay
             time.sleep(max(0, next_time - time.time()))
-        
-        # TEST loop terminate, get current timestamp
-        self.timestamp = time.time()
         
         # Loop terminate, we have to reset self.logflow
         self.logflow = self.__load_def()
@@ -617,8 +604,7 @@ class DynamicDaemon(threading.Thread):
         logger.debug("Running get_last_world_update()")
         # TEST now get_last_world_update return True if
         # world update have run else False.
-        # TEST send saved stop timestamp
-        if self.manager.get_last_world_update(detected=self.timestamp):
+        if self.manager.get_last_world_update(detected=True):
             # let pretend_world() be run by RegularDaemon
             # And manage directly by get_last_world_update()
             # Also, call portage to update portage package update
@@ -839,7 +825,6 @@ def main():
     failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
                                r'.own.the.service.*due.to.security'
                                r'.policies.in.the.configuration.file.*$')
-    busconfig = False
     if not args.nodbus:
         busconfig = True
         # Adding dbus publisher
@@ -856,7 +841,9 @@ def main():
                 logger.error(f"Unexcept error: {error}")
             logger.error("Dbus bindings have been DISABLED !")
             busconfig = False
-        
+    else:
+        busconfig = False
+    
     # Init daemon thread
     regular_daemon = RegularDaemon(manager, dbus_daemon, dynamic_daemon, 
                                    name='Regular Daemon Thread', daemon=True)
