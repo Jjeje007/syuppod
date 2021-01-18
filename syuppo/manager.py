@@ -537,7 +537,7 @@ class PortageHandler:
         if tosave:
             self.stateinfo.save(*tosave)
         # At the end
-        with self.locks['sync_remain']:
+        with self.locks['sync_elapsed']:
             self.sync['elapsed'] = 0
         self.sync['status'] = 'ready'
         return                 
