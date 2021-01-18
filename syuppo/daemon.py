@@ -825,6 +825,8 @@ def main():
     failed_access = re.compile(r'^.*AccessDenied.*is.not.allowed.to' 
                                r'.own.the.service.*due.to.security'
                                r'.policies.in.the.configuration.file.*$')
+    
+    busconfig = False
     if not args.nodbus:
         busconfig = True
         # Adding dbus publisher
@@ -841,9 +843,7 @@ def main():
                 logger.error(f"Unexcept error: {error}")
             logger.error("Dbus bindings have been DISABLED !")
             busconfig = False
-    else:
-        busconfig = False
-    
+      
     # Init daemon thread
     regular_daemon = RegularDaemon(manager, dbus_daemon, dynamic_daemon, 
                                    name='Regular Daemon Thread', daemon=True)

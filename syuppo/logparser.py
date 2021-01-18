@@ -422,7 +422,7 @@ class LastWorldUpdate(EmergeLogParser):
                          f" from {self.emergelog}.")
             logger.debug(f"Extracting list of complete{incomplete_msg}"
                          f"{fragment_msg} group for global"
-                         "update informations.")
+                         " update informations.")
             for self.line in self.getlog(self.lastlines):
                 # Show all logparser line for extra debugging
                 if self.debug_show_all_lines:
@@ -1349,8 +1349,9 @@ class LastWorldUpdate(EmergeLogParser):
             self._save_partial_fragment('fragment')
         else:
             # same here add failed package_name
-            self.parser['group']['failed'] = (f"at {self.parser['count']}"
-                                              f" ({self.parser['name']})")
+            self.parser['group']['failed'] = (f"at {self.parser['count']}/"
+                                             f"{self.parser['group']['total']}"
+                                             f" ({self.parser['name']})")
             logger.debug2("Calling _save_incomplete_fragment('incomplete')")
             self._save_incomplete_fragment('incomplete')
         # Then reset everything
