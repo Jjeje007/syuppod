@@ -36,7 +36,6 @@ except Exception as exc:
     print(f'Got unexcept error while loading module: {exc}')
     sys.exit(1)
 
-# TODO TODO TODO stablize API
 # TODO get news ?
 
 class PortageHandler:
@@ -159,9 +158,15 @@ class PortageHandler:
             'interval'      :   kwargs['interval'],
             'elapsed'       :   0,
             'remain'        :   0,
-            'session_count' :   0,   # Counting sync count since running (current session)
-            'repos'         :   get_repo_info()  # Repo's dict to sync with key: 'names', 'formatted' 
-                                                          # 'count' and 'msg'. 'names' is a list
+            # Counting sync count since running (current session)
+            'session_count' :   0,   
+            # Repo's dict to sync with key: 'names', 'formatted'
+            # 'count' and 'msg'. 'names' is a list
+            # And also after first sync:
+            #   'failed': repos which failed last sync
+            #   'success': repos which successfully sync
+            'repos'         :   get_repo_info()  
+                                                 
             }
         
         # Print warning if interval 'too big'
@@ -267,7 +272,7 @@ class PortageHandler:
                         f" {self.sync['repos']['formatted']}")        
         
         # For logging in debug / info
-        for key in 'elapsed', 'remain', 'interval':
+        for key in 'interval', 'elapsed', 'remain':
             # For logging in: INFO
             if init:
                 # TEST keep default granularity for info
