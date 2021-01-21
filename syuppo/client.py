@@ -24,7 +24,7 @@ from syuppo.utils import FormatTimestamp
 try:
     from pydbus import SystemBus
 except Exception as exc:
-    print(f'Error: got unexcept error while loading dbus module: {exc}')
+    print(f'Error: unexpected while loading dbus module: {exc}')
     print('Error: exiting with status \'1\'.')
     sys.exit(1)
 
@@ -32,7 +32,7 @@ try:
     from babel.dates import format_datetime
     from babel.dates import LOCALTZ
 except Exception as exc:
-    print(f'Error: got unexcept error while loading babel modules: {exc}')
+    print(f'Error: unexpected while loading babel modules: {exc}')
     print('Error: exiting with status \'1\'.')
     sys.exit(1)
 
