@@ -285,9 +285,9 @@ class RegularDaemon(threading.Thread):
                 start_time = timing_exit()
                 logger.debug(f"Sending exit request for running {msg}.")
                 
-                self.manager.exit_now[proc] = True
+                method['exit'] = True
                 # Wait for reply
-                while not self.manager.exit_now[proc] == 'Done':
+                while not method['exit'] == 'Done':
                     # So if we don't have reply but if
                     # status change to False then process have been done
                     # just break

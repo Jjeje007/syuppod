@@ -51,7 +51,6 @@ class SyncHandler:
         self.__logger_name = f'::{__name__}::SyncHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
-        self.exit_now['sync'] = False
         self.sync = {
             # values: ready | running
             'status'        :   'ready',    
@@ -72,6 +71,7 @@ class SyncHandler:
             #   'success': repos which successfully sync
             'repos'         :   get_repo_info(),
             'cancel'        :   False,
+            'exit'          :   False,
             # locks for shared method/attr accross daemon threads
             'locks'         :   {
                 'check'     :   Lock(),
@@ -425,7 +425,6 @@ class PretendHandler:
         self.__logger_name = f'::{__name__}::PretendHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
-        self.exit_now['pretend'] = False
         # Manage pretend available packages updates 
         self.pretend = {
             # True when pretend_world() should be run
@@ -443,6 +442,8 @@ class PretendHandler:
             # cancelling pretend_world pexpect when it 
             # detect world update in progress
             'cancel'    :   False,
+            # For exiting 
+            'exit'      :   False,
             # same here so we know it has been cancelled if True
             'cancelled' :   False,
             # locks for shared method/attr accross daemon threads
@@ -826,11 +827,6 @@ class BaseHandler(SyncHandler, PretendHandler,
         self.dryrun = kwargs['dryrun']
         self.vdebug = kwargs['vdebug']
         
-        # Implent this for pretend_world() and dosync()
-        # Because they are run in a dedicated thread (asyncio) 
-        # And they won't exit until finished
-        self.exit_now = { }
-        
         # Init timestamp converter/formatter 
         self.format_timestamp = FormatTimestamp(advanced_debug=self.vdebug['formattimestamp'])
         
@@ -919,11 +915,11 @@ class BaseHandler(SyncHandler, PretendHandler,
         :cmd:
             The command to run.
         :args:
-            The arguments as an iterable.
+            The arguments as a list.
         :return:
-            An iterable with, first element is the logfile if
-            success, else False. The second element is the return
-            code of the command.
+            An iterable with, first element is the return
+            code of the command or 'exit' if aborded/cancelled. 
+            The second element is the logfile if success, else False.
         """
         logger = logging.getLogger(f'{self.__logger_name}_pexpect::')
         
@@ -941,15 +937,10 @@ class BaseHandler(SyncHandler, PretendHandler,
         child = pexpect.spawn(cmd, args=args, encoding='utf-8', 
                               preexec_fn=on_parent_exit(),
                               timeout=None)
-        
-        
         # We capture log
         mycapture = io.StringIO()
         child.logfile = mycapture
         # Wait non blocking 
-        # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
-        # but this will not block every TEST push to 60s ... 
-        # 30s got two TIMEOUT back-to-back
         pexpect_timeout = 0
         while not child.closed and child.isalive():
             if myattr['cancel']:
@@ -958,7 +949,7 @@ class BaseHandler(SyncHandler, PretendHandler,
                 # child still alive
                 logger.debug(f"Received cancel order: {myattr['cancel']}")
                 break
-            if self.exit_now[proc]:
+            if myattr['exit']:
                 # Same here: child still alive
                 logger.debug('Received exit order.')
                 break
@@ -973,14 +964,12 @@ class BaseHandler(SyncHandler, PretendHandler,
                 break
             except pexpect.TIMEOUT:
                 # Just continue until EOF
-                #logger.error("Got unexcept timeout while running:"
-                             #f" command: '{cmd}'"
-                             #f" and args: '{' '.join(args)}'"
-                             #f" (timeout: {pexpect_timeout}) "
-                             #"(please report this).")
+                # Setting a timeout > 0, will
+                # just made more lantency when 
+                # calling cancel/exit ...
                 continue
         
-        if self.exit_now[proc] or myattr['cancel']:
+        if myattr['exit'] or myattr['cancel']:
             logger.debug("Shutting down pexpect process running"
                          f" command: '{cmd}' and args: "
                          f"'{' '.join(args)}'")
@@ -988,15 +977,15 @@ class BaseHandler(SyncHandler, PretendHandler,
             child.terminate(force=True)
             child.close(force=True)
             
-            if self.exit_now[proc]:
+            if myattr['exit']:
                 logger.debug('...exiting now, ...bye.')
-                self.exit_now[proc] = 'Done'
+                myattr['exit'] = 'Done'
                 return 'exit', False
             
             # Log specific message
             logger.warning(f"{msg}: {__msg[myattr['cancel']]} {generic_msg}")
-            # Don't return log because 
-            # it's have been cancelled (log is only partial)
+            # Don't return process log because 
+            # it's have been cancelled (process log is only partial)
             if proc == 'pretend':
                 with myattr['locks']['cancelled']:
                     myattr['cancelled'] = True
@@ -1006,8 +995,7 @@ class BaseHandler(SyncHandler, PretendHandler,
                 myattr['status'] = 'ready'
             # skip everything else
             return 'exit', False
-        
-        
+                
         # Process finished
         mylog = mycapture.getvalue()
         mycapture.close()
