@@ -932,7 +932,7 @@ class CatchExitSignal:
     def __init__(self):
         self.logger_name = f'::{__name__}::CatchExitSignal::'
         logger = logging.getLogger(f'{self.logger_name}init::')
-        self.exit_now = False
+        self.exit = False
         logger.debug('Watching signal SIGINT.')
         signal.signal(signal.SIGINT, self.exit_gracefully)
         logger.debug('Watching signal SIGTERM.')
@@ -942,7 +942,7 @@ class CatchExitSignal:
         logger = logging.getLogger(f'{self.logger_name}exit_gracefully::')
         logger.debug(f'Got signal: \'{signum}\' on stack frame: \'{frame}\'.')
         logger.info(f'Received signal \'{signum}\'...')
-        self.exit_now = True
+        self.exit = True
 
 
 class CheckProcRunning:

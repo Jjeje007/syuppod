@@ -172,7 +172,7 @@ class RegularDaemon(threading.Thread):
         # THX!: https://stackoverflow.com/a/49801719/11869956
         delay = 1
         next_time = time.time() + delay
-        while not self.mysignal.exit_now:
+        while not self.mysignal.exit:
             
             # Regular sync
             if (self.manager.sync['remain'] <= 0
@@ -326,7 +326,7 @@ class DynamicDaemon(threading.Thread):
         self.logger_name = f'::{__name__}::DynamicDaemon::'
         logger = logging.getLogger(f'{self.logger_name}init::')
         # For exiting
-        self.exit_now = False
+        self.exit = False
         # Wait for this thread exiting
         self.exiting = threading.Event()
         self.manager = manager
@@ -438,7 +438,7 @@ class DynamicDaemon(threading.Thread):
         delay = 1
         next_time = time.time() + delay
         while (pathlib.Path(self.caller['path']).exists() 
-                and not self.exit_now):
+                and not self.exit):
             if self.display_log('debug'):
                 logger.debug(f"{msg[self.pstate['proc']]} is in progress"
                              f" on pid: {self.pstate['path'].stem}")
@@ -451,7 +451,7 @@ class DynamicDaemon(threading.Thread):
         # Loop terminate, we have to reset self.logflow
         self.logflow = self.__load_def()
         
-        if self.exit_now:
+        if self.exit:
             logger.debug("Stop waiting, receive exit order.")
             return
         logger.debug(f"{self.caller['path']} have been deleted.")
@@ -473,10 +473,10 @@ class DynamicDaemon(threading.Thread):
         # For exit order also
         # But should be self.timeout != 0 / None
         # Otherwise it will be stuck until new data is available
-        while not reader and not self.exit_now:
+        while not reader and not self.exit:
             reader = self.inotify.read(timeout=self.timeout)
     
-        if self.exit_now:
+        if self.exit:
             logger.debug("Stop waiting, receive exit order.")
             return 
         
@@ -649,11 +649,11 @@ class DynamicDaemon(threading.Thread):
         
         # Before entering the loop, select the appropriate caller
         self.checking()                
-        while not self.exit_now:
+        while not self.exit:
             # wait on watching specified file/dir with specific caller
             self.caller['call']()
             
-            if self.exit_now:
+            if self.exit:
                 break            
             # state has changed
             # there is two choices depending on caller
@@ -682,7 +682,7 @@ class DynamicDaemon(threading.Thread):
         
         logger.debug("...exiting now, bye.")
         # Send reply to main
-        self.exit_now = 'Done'
+        self.exit = 'Done'
         # Test: set event
         self.exiting.set()
 
@@ -864,7 +864,7 @@ def main():
     
     logger.debug('Sending exit request to Dynamic Daemon thread.')
     start_time = timing_exit()
-    dynamic_daemon.exit_now = True
+    dynamic_daemon.exit = True
     # Wait for the event
     dynamic_daemon.exiting.wait()
     end_time = timing_exit()
