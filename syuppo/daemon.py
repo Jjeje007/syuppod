@@ -275,23 +275,23 @@ class RegularDaemon(threading.Thread):
         # dosync() if running through self.scheduler (asyncio)
         # pretend_world() if running through self.scheduler (asyncio)
         for proc in 'sync', 'pretend':
-            method = self.manager.sync
+            myattr = self.manager.sync
             msg = 'dosync()'
             if proc == 'pretend':
-                method = self.manager.pretend
+                myattr = self.manager.pretend
                 msg = 'pretend_world()'
             
-            if method['status'] == 'running':
+            if myattr['status'] == 'running':
                 start_time = timing_exit()
                 logger.debug(f"Sending exit request for running {msg}.")
                 
-                method['exit'] = True
+                myattr['exit'] = True
                 # Wait for reply
-                while not method['exit'] == 'Done':
+                while not myattr['exit'] == 'Done':
                     # So if we don't have reply but if
                     # status change to False then process have been done
                     # just break
-                    if method['status'] in ('completed', 'ready'):
+                    if myattr['status'] in ('completed', 'ready'):
                         logger.debug(f"{msg} process have been completed.")
                         break
                 end_time = timing_exit()
