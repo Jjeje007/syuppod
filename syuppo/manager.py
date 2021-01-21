@@ -33,128 +33,33 @@ try:
     import numpy
     import pexpect
 except Exception as exc:
-    print(f'Got unexcept error while loading module: {exc}')
+    print(f'Error: unexpected while loading module: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 # TODO get news ?
 
-class PortageHandler:
+
+        
+class SyncHandler:
     """
-    Portage tracking class
+    Manage informations related to 'sync'.
     """
+    
     def __init__(self, **kwargs):
-        for key in 'interval', 'pathdir', 'dryrun', 'vdebug':
-            if not key in kwargs:
-                # Print to stderr :
-                # when running in init mode stderr is redirect to a log file
-                # logger is not yet initialized 
-                print(f'Crit: missing argument: {key}, calling module: {__name__}.', file=sys.stderr)
-                print('Crit: exiting with status \'1\'.', file=sys.stderr)
-                sys.exit(1)
-                
-        self.pathdir = kwargs['pathdir']
-        self.dryrun = kwargs['dryrun']
-        self.vdebug = kwargs['vdebug']
-        # Implent this for pretend_world() and dosync()
-        # Because they are run in a dedicated thread (asyncio) 
-        # And they won't exit until finished
-        self.exit_now = { }
+        super().__init__()
+        self.__logger_name = f'::{__name__}::SyncHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
+        
         self.exit_now['sync'] = False
-        self.exit_now['pretend'] = False
-        # Init timestamp converter/formatter 
-        self.format_timestamp = FormatTimestamp(advanced_debug=self.vdebug['formattimestamp'])
-        # Init logger
-        self.logger_name = f'::{__name__}::PortageHandler::'
-        logger = logging.getLogger(f'{self.logger_name}init::')
-        
-        # compatibility for python < 3.7 (dict is not ordered)
-        if sys.version_info[:2] < (3, 7):
-            from collections import OrderedDict 
-            default_stateopts = OrderedDict(
-            ('# Wrote by {0}'.format(self.pathdir['prog_name']) 
-             + ' version: {0}'.format(self.pathdir['prog_version']), ''),
-            ('# Please don\'t edit this file.',   ''),
-            ('# Sync Opts'                    ,   ''),
-            ('sync count'                     ,   0), 
-            ('sync state'                     ,   'never sync'),
-            ('sync network_error'             ,   0),
-            ('sync retry'                     ,   0),
-            ('sync timestamp'                 ,   0),
-            ('# World Opts'                   ,   ''),
-            ('world packages'                 ,   0),
-            ('world last start'               ,   0),
-            ('world last stop'                ,   0),
-            ('world last state'               ,   'unknow'),
-            ('world last total'               ,   0),
-            ('world last failed'              ,   'none'),
-            ('# Portage Opts'                 ,   ''),
-            ('portage available'              ,   False),
-            ('portage current'                ,   '0.0'),
-            ('portage latest'                 ,   '0.0'),
-            )
-        else:
-            # python >= 3.7 preserve dict order 
-            default_stateopts = {
-                '# Wrote by {0}'.format(self.pathdir['prog_name']) 
-                + ' version: {0}'.format(self.pathdir['prog_version']): '',
-                '# Please don\'t edit this file.':   '',
-                '# Sync Opts'                    :   '',
-                'sync count'                     :   0, 
-                'sync state'                     :   'never sync',
-                'sync network_error'             :   0,
-                'sync retry'                     :   0,
-                'sync timestamp'                 :   0,
-                '# World Opts'                   :   '',
-                'world packages'                 :   0,
-                'world last start'               :   0,
-                'world last stop'                :   0,
-                'world last state'               :   'unknow',
-                'world last total'               :   0,
-                'world last failed'              :   'none',
-                '# Portage Opts'                 :   '',
-                'portage available'              :   False,
-                'portage current'                :   '0.0',
-                'portage latest'                 :   '0.0',
-                }
-        
-        # Init save/load info file 
-        self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
-        # Retrieve status of saving from stateinfo
-        # WARNING We have to be really carefull about this:
-        # As of 2020/11/15 stateinfo can't be call twice in the same time.
-        # But for the future better to leave comment and WARNING
-        self.saving_status = self.stateinfo.saving
-        loaded_stateopts = False
-        if self.stateinfo.newfile or self.dryrun:
-            # Don't need to load from StateInfo as it just create file 
-            # or we don't want to write anything:
-            # add default_stateopts from here
-            loaded_stateopts = default_stateopts
-        else:
-            # Ok load from StateInfo in one time
-            # We don't need to convert from str() to another type
-            # it's done auto by class StateInfo
-            loaded_stateopts = self.stateinfo.load()
-        
-        # locks for shared method/attr accross daemon threads
-        self.locks = {
-            'check_sync'        :   Lock(),
-            'proceed'           :   Lock(),
-            'cancel'            :   Lock(),
-            'cancelled'         :   Lock(),
-            'pretend_status'    :   Lock(),
-            'sync_remain'       :   Lock(),
-            'sync_elapsed'      :   Lock()
-            }
-        
-        # Sync attributes TODO clean up ?
         self.sync = {
-            'status'        :   'ready',    # values: ready | running
-            'state'         :   loaded_stateopts.get('sync state'),
-            'network_error' :   loaded_stateopts.get('sync network_error'),
-            'retry'         :   loaded_stateopts.get('sync retry'),
-            'global_count'  :   loaded_stateopts.get('sync count'),
-            'timestamp'     :   loaded_stateopts.get('sync timestamp'),
+            # values: ready | running
+            'status'        :   'ready',    
+            'state'         :   self.loaded_stateopts.get('sync state'),
+            'network_error' :   self.loaded_stateopts.get('sync network_error'),
+            'retry'         :   self.loaded_stateopts.get('sync retry'),
+            'global_count'  :   self.loaded_stateopts.get('sync count'),
+            'timestamp'     :   self.loaded_stateopts.get('sync timestamp'),
             'interval'      :   kwargs['interval'],
             'elapsed'       :   0,
             'remain'        :   0,
@@ -165,8 +70,16 @@ class PortageHandler:
             # And also after first sync:
             #   'failed': repos which failed last sync
             #   'success': repos which successfully sync
-            'repos'         :   get_repo_info()  
-                                                 
+            'repos'         :   get_repo_info(),
+            'cancel'        :   False,
+            # locks for shared method/attr accross daemon threads
+            'locks'         :   {
+                'check'     :   Lock(),
+                'cancel'    :   Lock(),
+                'remain'    :   Lock(),
+                'elapsed'   :   Lock(),
+                'status'    :   Lock()
+                }                                                 
             }
         
         # Print warning if interval 'too big'
@@ -174,34 +87,7 @@ class PortageHandler:
         if self.sync['interval'] > 2592000:
             logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
                              self.format_timestamp.convert(self.sync['interval'], granularity=5)))
-        
-        # Last global update informations
-        # For more details see module logparser
-        self.world = {
-            'state'     :   loaded_stateopts.get('world last state'), 
-            'start'     :   loaded_stateopts.get('world last start'),
-            'stop'      :   loaded_stateopts.get('world last stop'),
-            'total'     :   loaded_stateopts.get('world last total'),
-            'failed'    :   loaded_stateopts.get('world last failed')
-            }
-        # Manage pretend available packages updates 
-        self.pretend = {
-            'proceed'   :   False,      # True when pretend_world() should be run
-            'status'    :   'ready',    # values: ready | running | completed
-            'packages'  :   loaded_stateopts.get('world packages'), # Packages to update
-            'interval'  :   600,        # Interval between two pretend_world() run TODO this could be tweaked !
-            'remain'    :   600,        # TEST this the time between two pretend_world() lauch (avoid spamming)
-            'forced'    :   False,      # (dbus) and for async call implantation.
-            'cancel'    :   False,      # cancelling pretend_world pexpect when it detect world update in progress
-            'cancelled' :   False       # same here so we know it has been cancelled if True
-            }
-        # Portage attributes
-        self.portage = {
-            'current'   :   loaded_stateopts.get('portage current'),
-            'latest'    :   loaded_stateopts.get('portage latest'),
-            'available' :   loaded_stateopts.get('portage available')
-            }
-       
+    
     def check_sync(self, init=False, recompute=False):
         """ 
         Checking sync repo timestamp, recompute time remaining
@@ -216,7 +102,7 @@ class PortageHandler:
             True if allow to sync, else False.        
         """
         
-        logger = logging.getLogger(f'{self.logger_name}check_sync::')
+        logger = logging.getLogger(f'{self.__logger_name}check_sync::')
         
         # Get the last emerge sync timestamp
         myparser = LastSync()
@@ -241,7 +127,7 @@ class PortageHandler:
                        
             logger.debug(f"{msg}, forcing pretend world...")
             # Any way, run pretend world
-            with self.locks['proceed']:
+            with self.pretend['locks']['proceed']:
                 self.pretend['proceed'] = True
             self.sync['timestamp'] = sync_timestamp
             tosave.append(['sync timestamp', self.sync['timestamp']])
@@ -255,13 +141,13 @@ class PortageHandler:
             logger.debug('Recompute is enable.')
             
             current = self.sync['elapsed']
-            with self.locks['sync_remain']:
+            with self.sync['locks']['remain']:
                 self.sync['elapsed'] = round(current_timestamp - sync_timestamp)
             logger.debug(f"Sync elapsed timestamp: Current: {current}"
                          f", recalculate: {self.sync['elapsed']}")
             
             current = self.sync['remain']
-            with self.locks['sync_remain']:
+            with self.sync['locks']['remain']:
                 self.sync['remain'] = self.sync['interval'] - self.sync['elapsed']
             logger.debug(f"Sync remain timestamp: Current: {current}"
                          f", recalculate: {self.sync['remain']}")
@@ -294,111 +180,96 @@ class PortageHandler:
         return False
     
     def dosync(self):
-        """ Updating repo(s) """
-        # Change name of the logger
-        logger = logging.getLogger(f'{self.logger_name}dosync::')
+        """ 
+        Updating repo(s) 
+        """
         
+        logger = logging.getLogger(f'{self.__logger_name}dosync::')
         tosave = [ ]
         
         # This is for asyncio: don't run twice
-        self.sync['status'] = 'running'
+        with self.sync['locks']['status']:
+            self.sync['status'] = 'running'
         
         # Refresh repositories infos
         self.sync['repos'] = get_repo_info()
         
-        # This debug we display all the repositories
-        logger.debug('Will sync {0} {1}: {2}.'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
-                                                                  ', '.join(self.sync['repos']['names'])))
-        logger.info('Start syncing {0} {1}: {2}'.format(self.sync['repos']['count'], self.sync['repos']['msg'],
-                                                                  self.sync['repos']['formatted']))
-        
+        # For debug: display all the repositories
+        logger.debug(f"Start syncing {self.sync['repos']['count']}" 
+                     f" {self.sync['repos']['msg']}:" 
+                     f" {', '.join(self.sync['repos']['names'])}")
+        logger.info(f"Start syncing {self.sync['repos']['count']}" 
+                     f" {self.sync['repos']['msg']}:" 
+                     f" {self.sync['repos']['formatted']}")
+               
         if not self.dryrun:
             # Init logging
             logger.debug('Initializing logging handler:')
             logger.debug('Name: synclog')
             processlog = ProcessLoggingHandler(name='synclog')
             logger.debug('Writing to: {0}'.format(self.pathdir['synclog']))
-            mylogfile = processlog.dolog(self.pathdir['synclog'])
+            log_writer = processlog.dolog(self.pathdir['synclog'])
             logger.debug('Log level: info')
-            mylogfile.setLevel(processlog.logging.INFO)
+            log_writer.setLevel(processlog.logging.INFO)
         else:
-            mylogfile = logging.getLogger(f'{self.logger_name}write_sync_log::')
+            log_writer = logging.getLogger(f'{self.__logger_name}write_sync_log::')
         
         # Network failure related
         # main gentoo repo
-        manifest_failure = re.compile(r'^!!!.Manifest.verification.impossible.due.to.keyring.problem:$')
+        manifest_failure = re.compile(r'^!!!.Manifest.verification.impossible'
+                                      '.due.to.keyring.problem:$')
         found_manifest_failure = False
-        gpg_network_unreachable = re.compile(r'^gpg:.keyserver.refresh.failed:.Network.is.unreachable$')
+        gpg_network_unreachable = re.compile(r'^gpg:.keyserver.refresh.failed:'
+                                             '.Network.is.unreachable$')
         repo_gentoo_network_unreachable = False
         # Get return code for each repo
-        failed_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),.returned.code.=.1$')
-        success_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),.returned.code.=.0$')
+        failed_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),'
+                                 '.returned.code.=.1$')
+        success_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),'
+                                  '.returned.code.=.0$')
         self.sync['repos']['failed'] = [ ]
         self.sync['repos']['success'] = [ ]
         # Set default values
         self.network_error = self.sync['network_error']
         self.retry = self.sync['retry']
         self.state = self.sync['state']
-        
         # Running sync command using sudo (as root)
-        myargs = ['/usr/bin/sudo', '/usr/bin/emerge', '--sync']
-        myprocess = subprocess.Popen(myargs, preexec_fn=on_parent_exit(), 
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-        mylogfile.info('##########################################\n')
+        mycommand = '/usr/bin/sudo'
+        myargs = [ '/usr/bin/emerge', '--sync' ]
+        msg = f"Stop syncing {self.sync['repos']['msg']}"
         
-        # TEST exit on demand
-        # TODO move this to pexpect ??
-        while not self.exit_now['sync']:
-            for line in iter(myprocess.stdout.readline, ""):
-                rstrip_line = line.rstrip()
-                # write log             
-                mylogfile.info(rstrip_line)
-                # detected network failure for main gentoo repo 
-                if found_manifest_failure:
-                    # So make sure it's network related 
-                    if gpg_network_unreachable.match(rstrip_line):
-                        repo_gentoo_network_unreachable = True
-                if manifest_failure.match(rstrip_line):
-                    found_manifest_failure = True
-                # get return code for each repo
-                if failed_sync.match(rstrip_line):
-                    self.sync['repos']['failed'].append(failed_sync.match(rstrip_line).group(1))
-                if success_sync.match(rstrip_line):
-                    self.sync['repos']['success'].append(success_sync.match(rstrip_line).group(1))
-            # Ok so we have finished to read all line
-            break
-        # Close first
-        myprocess.stdout.close()
-        # Exit on demand
-        if self.exit_now['sync']:
-            logger.debug('Received exit order.')
-            logger.debug('Shutting down subprocess.Popen running'
-                         + ' command: \'{0}\''.format(' '.join(myargs[0:2]))
-                         + ' and args: \'{0}\'.'.format(myargs[2]))
-            logger.debug('Sending SIGTERM with timeout=3...')
-            # First try to send SIGTERM...
-            myprocess.terminate()
-            # ... and wait 3s
-            try:
-                myprocess.wait(timeout=3)
-            except TimeoutExpired:
-                logger.debug('Got timeout while waiting for subprocess.Popen to terminate.')
-                # Send SIGKILL
-                logger.debug('Sending SIGKILL...')
-                myprocess.kill()
-                # wait forever... TEST
-                myprocess.wait()
-            finally:
-                logger.debug('...exiting now, bye.')
-                self.exit_now['sync'] = 'Done'
-                return
-        # Get return code
-        return_code = myprocess.poll()
+        # Running using pexpect
+        return_code, logfile = self._pexpect('sync', mycommand, myargs, msg)
+        
+        if return_code == 'exit':
+            return
+        
+        # Write and in the same time analysis logfile
+        log_writer.info('##########################################\n')
+        for line in logfile:
+            # Write
+            log_writer.info(line)
+             # detected network failure for main gentoo repo 
+            if found_manifest_failure:
+                # So make sure it's network related 
+                if gpg_network_unreachable.match(line):
+                    repo_gentoo_network_unreachable = True
+            if manifest_failure.match(line):
+                found_manifest_failure = True
+            # get return code for each repo
+            if failed_sync.match(line):
+                name = failed_sync.match(line).group(1)
+                self.sync['repos']['failed'].append(name)
+            if success_sync.match(line):
+                name = success_sync.match(line).group(1)
+                self.sync['repos']['success'].append(name)
         
         if self.sync['repos']['success']:
-            logger.debug('Repo sync completed: {0}'.format(', '.join(self.sync['repos']['success'])))
+            logger.debug("Repo sync completed: "
+                         f"{', '.join(self.sync['repos']['success'])}")
         if self.sync['repos']['failed']:
-            logger.debug('Repo sync failed: {0}'.format(', '.join(self.sync['repos']['failed'])))
+            logger.debug("Repo sync failed: "
+                         f"{', '.join(self.sync['repos']['failed'])}")
         
         if return_code:
             list_len = len(self.sync['repos']['failed'])
@@ -419,7 +290,7 @@ class PortageHandler:
                 # after 5 times @ 3600s (1h) - real is : 1h30
                 # then reset to interval (so mini is 24H)
                 msg_on_retry = ''
-                with self.locks['sync_remain']:
+                with self.sync['locks']['remain']:
                     self.sync['remain'] = 600
                 if self.retry == 1:
                     msg_on_retry = ' (1 time already)'
@@ -427,11 +298,11 @@ class PortageHandler:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
                 elif 6 <= self.retry <= 10:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    with self.locks['sync_remain']:
+                    with self.sync['locks']['remain']:
                         self.sync['remain'] = 3600
                 elif self.retry > 10:
                     msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    with self.locks['sync_remain']:
+                    with self.sync['locks']['remain']:
                         self.sync['remain'] = self.sync['interval']
                 
                 if not self.sync['repos']['success']:
@@ -479,7 +350,7 @@ class PortageHandler:
                 
                 logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
                 # Any way reset remain to interval
-                with self.locks['sync_remain']:
+                with self.sync['locks']['remain']:
                     self.sync['remain'] = self.sync['interval']
         else:
             # Ok good :p
@@ -516,11 +387,11 @@ class PortageHandler:
                     self.sync['timestamp'] = sync_timestamp
                     tosave.append(['sync timestamp', self.sync['timestamp']])
             # At the end of successfully sync, run pretend_world()
-            with self.locks['proceed']:
+            with self.pretend['locks']['proceed']:
                 self.pretend['proceed'] = True
             logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
             # Reset remain to interval
-            with self.locks['sync_remain']:
+            with self.sync['locks']['remain']:
                 self.sync['remain'] = self.sync['interval']
             logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
                     
@@ -537,72 +408,63 @@ class PortageHandler:
         if tosave:
             self.stateinfo.save(*tosave)
         # At the end
-        with self.locks['sync_elapsed']:
+        with self.sync['locks']['elapsed']:
             self.sync['elapsed'] = 0
-        self.sync['status'] = 'ready'
-        return                 
-           
-    def get_last_world_update(self, detected=False):
-        """
-        Getting last world update timestamp
-        """
+        with self.sync['locks']['status']:
+            self.sync['status'] = 'ready'
+        return      
+    
+
+
+class PretendHandler:
+    """
+    Manage informations related to 'pretend'.
+    """
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__logger_name = f'::{__name__}::PretendHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
         
-        # Change name of the logger
-        logger = logging.getLogger(f'{self.logger_name}get_last_world_update::')
-        logger.debug(f'Running with detected={detected}')
-        
-        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
-                                   log=self.pathdir['emergelog'])
-        get_world_info = myparser.get()
-        
-        updated = False
-        tosave = [ ]
-        if get_world_info:
-            to_print = True
-            # Write only if change
-            for key in 'start', 'stop', 'state', 'total', 'failed':
-                if not self.world[key] == get_world_info[key]:
-                    # Ok this mean world update has been run
-                    # So run pretend_world()
-                    with self.locks['proceed']:
-                        self.pretend['proceed'] = True
-                    updated = True
-                    if to_print:
-                        logger.info('Global update have been run.')
-                        to_print = False
-                            
-                    self.world[key] = get_world_info[key]
-                    tosave.append([f'world last {key}', self.world[key]])
-            ## For now, if incomplete and fragment opts 
-            # from LastWorldUpdate are left to default
-            # then, the only rejected group should be the first
-            # package that failed. And this will not change
-            # how many package to update (so don't need to run
-            # pretend...)
-            if not updated and detected:
-                logger.info("Global update have been aborded or"
-                            "failed to emerge first package")
-            elif not updated:
-                logger.debug("Global update haven't been run," 
-                             " keeping last know informations.")
-        # Saving in one shot
-        if tosave:
-            self.stateinfo.save(*tosave)
-        if updated:
-            return True
-        return False
-       
+        self.exit_now['pretend'] = False
+        # Manage pretend available packages updates 
+        self.pretend = {
+            # True when pretend_world() should be run
+            'proceed'   :   False,
+            # values: ready | running | completed
+            'status'    :   'ready',
+            # Packages to update
+            'packages'  :   self.loaded_stateopts.get('world packages'),
+            # Interval between two pretend_world() TODO could be tweaked
+            'interval'  :   600,
+            # Time between two pretend_world() lauch (avoid spamming)
+            'remain'    :   600,
+            # (dbus) and for async call implantation.
+            'forced'    :   False,
+            # cancelling pretend_world pexpect when it 
+            # detect world update in progress
+            'cancel'    :   False,
+            # same here so we know it has been cancelled if True
+            'cancelled' :   False,
+            # locks for shared method/attr accross daemon threads
+            'locks'     :   {
+                'proceed'   :   Lock(),
+                'cancel'    :   Lock(),
+                'cancelled' :   Lock(),
+                'status'    :   Lock()
+                }
+            }
+    
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
-        logger = logging.getLogger(f'{self.logger_name}pretend_world::')
+        logger = logging.getLogger(f'{self.__logger_name}pretend_world::')
         
         tosave = [ ]
         
         # Disable pretend authorization
-        with self.locks['proceed']:
+        with self.pretend['locks']['proceed']:
             self.pretend['proceed'] = False
-        with self.locks['pretend_status']:
+        with self.pretend['locks']['status']:
             self.pretend['status'] = 'running'
         
         logger.debug('Start searching available package(s) update.')
@@ -617,104 +479,37 @@ class PortageHandler:
             logger.debug('Name: pretendlog')
             processlog = ProcessLoggingHandler(name='pretendlog')
             logger.debug('Writing to: {0}'.format(self.pathdir['pretendlog']))
-            mylogfile = processlog.dolog(self.pathdir['pretendlog'])
+            log_writer = processlog.dolog(self.pathdir['pretendlog'])
             logger.debug('Log level: info')
-            mylogfile.setLevel(processlog.logging.INFO)
+            log_writer.setLevel(processlog.logging.INFO)
         else:
-            mylogfile = logging.getLogger(f'{self.logger_name}write_pretend_world_log::')
+            log_writer = logging.getLogger(f'{self.__logger_name}write_pretend_world_log::')
             
         mycommand = '/usr/bin/emerge'
         myargs = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
+        msg = ('Stop searching for available package(s) update')
         
         while retry < 2:
             logger.debug('Running {0} {1}'.format(mycommand, ' '.join(myargs)))
             
-            child = pexpect.spawn(mycommand, args=myargs, encoding='utf-8', preexec_fn=on_parent_exit(),
-                                    timeout=None)
-            # We capture log
-            mycapture = io.StringIO()
-            child.logfile = mycapture
-            # Wait non blocking 
-            # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
-            # but this will not block every TEST push to 60s ... 30s got two TIMEOUT back-to-back
-            pexpect_timeout = 60
-            while not child.closed and child.isalive():
-                if self.pretend['cancel']:
-                    # So we want to cancel
-                    # Just break 
-                    # child still alive
-                    break
-                # TEST exit on demand
-                if self.exit_now['pretend']:
-                    logger.debug('Received exit order.')
-                    break
-                try:
-                    child.read_nonblocking(size=1, timeout=pexpect_timeout)
-                    # We don't care about recording what ever since we recording from child.logfile 
-                    # We wait until reach EOF
-                except pexpect.EOF:
-                    # Don't close here
-                    break
-                except pexpect.TIMEOUT:
-                    # This shouldn't arrived
-                    # TODO This should be retried ?
-                    logger.error('Got unexcept timeout while running:' 
-                                 + f' command: \'{mycommand}\''
-                                 + ' and args: \'{0}\''.format(' '.join(myargs))
-                                 + f' (timeout: {pexpect_timeout}) (please report this).')
-                    break
-                
-                
-            if self.exit_now['pretend']:
-                logger.debug('Shutting down pexpect process running'
-                             + f' command: \'{mycommand}\''
-                             + ' and args: \'{0}\'.'.format(' '.join(myargs)))
-                mycapture.close()
-                child.terminate(force=True)
-                child.close(force=True)
-                logger.debug('...exiting now, ...bye.')
-                self.exit_now['pretend'] = 'Done'
+            return_code, logfile = self._pexpect('pretend', mycommand, myargs, msg)
+            
+            if return_code == 'exit':
                 return
             
-            # Keep TEST-ing 
-            if self.pretend['cancel']:                
-                logger.warning('Stop searching available package(s) update as global update have been detected.')
-                mycapture.close()
-                child.terminate(force=True)
-                # Don't really know but to make sure :)
-                child.close(force=True)
-                # Don't write log because it's have been cancelled (log is only partial)
-                if self.pretend['cancelled']:
-                    logger.warning('The previously task was already cancelled, check and report if False.')
-                with self.locks['cancelled']:
-                    self.pretend['cancelled'] = True
-                with self.locks['cancel']:
-                    self.pretend['cancel'] = False
-                with self.locks['pretend_status']:
-                    self.pretend['status'] = 'ready'
-                # skip every thing else
-                return
-            
-            # Ok it's not cancelled
-            # First get log and close
-            mylog = mycapture.getvalue()
-            mycapture.close()
-            child.close()
-            # get return code
-            return_code = child.wait()
             # Get package number and write log in the same time
-            mylogfile.info('##### START ####')
-            mylogfile.info('Command: {0} {1}'.format(mycommand, ' '.join(myargs)))
-            for line in mylog.splitlines():
-                mylogfile.info(line)
+            log_writer.info('##### START ####')
+            log_writer.info('Command: {0} {1}'.format(mycommand, ' '.join(myargs)))
+            for line in logfile:
+                log_writer.info(line)
                 if find_build_packages.match(line):
                     update_packages = int(find_build_packages.match(line).group(1))
                     # don't retry we got packages
                     retry = 2
             
-            mylogfile.info(f'Terminate process: exit with status {return_code}')
-            mylogfile.info('##### END ####')
+            log_writer.info(f'Terminate process: exit with status {return_code}')
+            log_writer.info('##### END ####')
             
             # We can have return_code > 0 and matching packages to update.
             # This can arrived when there is, for exemple, packages conflict (solved by skipping).
@@ -764,21 +559,39 @@ class PortageHandler:
         if self.pretend['cancelled']:
             logger.debug('The previously task have been cancelled,' 
                              + ' resetting state to False (as this one is completed).')
-        with self.locks['cancelled']:
+        with self.pretend['locks']['cancelled']:
             self.pretend['cancelled'] = False
         # Save
         if tosave:
             self.stateinfo.save(*tosave)
-        with self.locks['pretend_status']:
+        with self.pretend['locks']['status']:
             self.pretend['status'] = 'completed'
-
+    
+    
+    
+class PortageHandler:
+    """
+    Manage informations related to 'portage'.
+    """
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__logger_name = f'::{__name__}::PortageHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
+        
+        # Portage attributes
+        self.portage = {
+            'current'   :   self.loaded_stateopts.get('portage current'),
+            'latest'    :   self.loaded_stateopts.get('portage latest'),
+            'available' :   self.loaded_stateopts.get('portage available')
+            }
+    
     def available_portage_update(self, detected=False, init=False):
         """
         Check if an update to portage is available.
         """
         
         # TODO: be more verbose for debug !
-        logger = logging.getLogger(f'{self.logger_name}available_portage_update::')
+        logger = logging.getLogger(f'{self.__logger_name}available_portage_update::')
         
         logger.debug(f"Running with detected={detected}, init={init}")
                 
@@ -918,9 +731,291 @@ class PortageHandler:
                 tosave.append([f'portage {key}', self.portage[key]])
         
         if tosave:
-            self.stateinfo.save(*tosave)    
-            
+            self.stateinfo.save(*tosave)
+        
     
+    
+class WorldHandler:
+    """
+    Manage informations related to 'world'
+    """
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__logger_name = f'::{__name__}::WorldHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
+        
+        # Last global update informations
+        # For more details see module logparser
+        self.world = {
+            'state'     :   self.loaded_stateopts.get('world last state'), 
+            'start'     :   self.loaded_stateopts.get('world last start'),
+            'stop'      :   self.loaded_stateopts.get('world last stop'),
+            'total'     :   self.loaded_stateopts.get('world last total'),
+            'failed'    :   self.loaded_stateopts.get('world last failed')
+            }
+    
+    def get_last_world_update(self, detected=False):
+        """
+        Getting last world update timestamp
+        """
+        
+        # Change name of the logger
+        logger = logging.getLogger(f'{self.__logger_name}get_last_world_update::')
+        logger.debug(f'Running with detected={detected}')
+        
+        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
+                                   log=self.pathdir['emergelog'])
+        get_world_info = myparser.get()
+        
+        updated = False
+        tosave = [ ]
+        if get_world_info:
+            to_print = True
+            # Write only if change
+            for key in 'start', 'stop', 'state', 'total', 'failed':
+                if not self.world[key] == get_world_info[key]:
+                    # Ok this mean world update has been run
+                    # So run pretend_world()
+                    with self.pretend['locks']['proceed']:
+                        self.pretend['proceed'] = True
+                    updated = True
+                    if to_print:
+                        logger.info('Global update have been run.')
+                        to_print = False
+                            
+                    self.world[key] = get_world_info[key]
+                    tosave.append([f'world last {key}', self.world[key]])
+            ## For now, if incomplete and fragment opts 
+            # from LastWorldUpdate are left to default
+            # then, the only rejected group should be the first
+            # package that failed. And this will not change
+            # how many package to update (so don't need to run
+            # pretend...)
+            if not updated and detected:
+                logger.info("Global update have been aborded or"
+                            "failed to emerge first package")
+            elif not updated:
+                logger.debug("Global update haven't been run," 
+                             " keeping last know informations.")
+        # Saving in one shot
+        if tosave:
+            self.stateinfo.save(*tosave)
+        if updated:
+            return True
+        return False
+
+
+
+class BaseHandler(SyncHandler, PretendHandler, 
+                     PortageHandler, WorldHandler):
+    """
+    Base class for all Handler
+    """
+    def __init__(self, **kwargs):
+        for key in 'interval', 'pathdir', 'dryrun', 'vdebug':
+            if not key in kwargs:
+                # Print to stderr :
+                # when running in init mode stderr is redirect to a log file
+                # logger is not yet initialized 
+                print(f"Crit: missing argument: {key}," 
+                      f"calling module: {__name__}.", file=sys.stderr)
+                print('Crit: exiting with status \'1\'.', file=sys.stderr)
+                sys.exit(1)
+                
+        self.pathdir = kwargs['pathdir']
+        self.dryrun = kwargs['dryrun']
+        self.vdebug = kwargs['vdebug']
+        
+        # Implent this for pretend_world() and dosync()
+        # Because they are run in a dedicated thread (asyncio) 
+        # And they won't exit until finished
+        self.exit_now = { }
+        
+        # Init timestamp converter/formatter 
+        self.format_timestamp = FormatTimestamp(advanced_debug=self.vdebug['formattimestamp'])
+        
+        # Init logger
+        self.__logger_name = f'::{__name__}::BaseHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
+        
+        # compatibility for python < 3.7 (dict is not ordered)
+        if sys.version_info[:2] < (3, 7):
+            from collections import OrderedDict 
+            default_stateopts = OrderedDict(
+            ('# Wrote by {0}'.format(self.pathdir['prog_name']) 
+             + ' version: {0}'.format(self.pathdir['prog_version']), ''),
+            ('# Please don\'t edit this file.',   ''),
+            ('# Sync Opts'                    ,   ''),
+            ('sync count'                     ,   0), 
+            ('sync state'                     ,   'never sync'),
+            ('sync network_error'             ,   0),
+            ('sync retry'                     ,   0),
+            ('sync timestamp'                 ,   0),
+            ('# World Opts'                   ,   ''),
+            ('world packages'                 ,   0),
+            ('world last start'               ,   0),
+            ('world last stop'                ,   0),
+            ('world last state'               ,   'unknow'),
+            ('world last total'               ,   0),
+            ('world last failed'              ,   'none'),
+            ('# Portage Opts'                 ,   ''),
+            ('portage available'              ,   False),
+            ('portage current'                ,   '0.0'),
+            ('portage latest'                 ,   '0.0'),
+            )
+        else:
+            # python >= 3.7 preserve dict order 
+            default_stateopts = {
+                '# Wrote by {0}'.format(self.pathdir['prog_name']) 
+                + ' version: {0}'.format(self.pathdir['prog_version']): '',
+                '# Please don\'t edit this file.':   '',
+                '# Sync Opts'                    :   '',
+                'sync count'                     :   0, 
+                'sync state'                     :   'never sync',
+                'sync network_error'             :   0,
+                'sync retry'                     :   0,
+                'sync timestamp'                 :   0,
+                '# World Opts'                   :   '',
+                'world packages'                 :   0,
+                'world last start'               :   0,
+                'world last stop'                :   0,
+                'world last state'               :   'unknow',
+                'world last total'               :   0,
+                'world last failed'              :   'none',
+                '# Portage Opts'                 :   '',
+                'portage available'              :   False,
+                'portage current'                :   '0.0',
+                'portage latest'                 :   '0.0',
+                }
+        
+        # Init save/load info file 
+        self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
+        # Retrieve status of saving from stateinfo
+        # WARNING We have to be really carefull about this:
+        # As of 2020/11/15 stateinfo can't be call twice in the same time.
+        # But for the future better to leave comment and WARNING
+        self.saving_status = self.stateinfo.saving
+        self.loaded_stateopts = False
+        if self.stateinfo.newfile or self.dryrun:
+            # Don't need to load from StateInfo as it just create file 
+            # or we don't want to write anything:
+            # add default_stateopts from here
+            self.loaded_stateopts = default_stateopts
+        else:
+            # Ok load from StateInfo in one time
+            # We don't need to convert from str() to another type
+            # it's done auto by class StateInfo
+            self.loaded_stateopts = self.stateinfo.load()
+        
+        # Init all other class
+        super().__init__(**kwargs)
+        
+    def _pexpect(self, proc, cmd, args, msg):
+        """
+        Run specific process using pexpect
+        
+        :proc:
+            This should be call with 'sync' or 'pretend'
+        :cmd:
+            The command to run.
+        :args:
+            The arguments as an iterable.
+        :return:
+            An iterable with, first element is the logfile if
+            success, else False. The second element is the return
+            code of the command.
+        """
+        logger = logging.getLogger(f'{self.__logger_name}_pexpect::')
+        
+        myattr = getattr(self, proc)
+        # This keys match keys from module 'utils'
+        # class 'CheckProcRunning', method 'check':
+        # 'world', 'system', 'sync', 'portage'
+        generic_msg = 'has been detected.'
+        __msg = {
+            'sync'      :   'an synchronization',
+            'world'     :   'a global update',
+            'system'    :   'a system update'
+            }
+        
+        child = pexpect.spawn(cmd, args=args, encoding='utf-8', 
+                              preexec_fn=on_parent_exit(),
+                              timeout=None)
+        
+        
+        # We capture log
+        mycapture = io.StringIO()
+        child.logfile = mycapture
+        # Wait non blocking 
+        # timeout is 30s because 10s sometimes raise pexpect.TIMEOUT 
+        # but this will not block every TEST push to 60s ... 
+        # 30s got two TIMEOUT back-to-back
+        pexpect_timeout = 0
+        while not child.closed and child.isalive():
+            if myattr['cancel']:
+                # So we want to cancel
+                # Just break 
+                # child still alive
+                logger.debug(f"Received cancel order: {myattr['cancel']}")
+                break
+            if self.exit_now[proc]:
+                # Same here: child still alive
+                logger.debug('Received exit order.')
+                break
+            try:
+                child.read_nonblocking(size=1, timeout=pexpect_timeout)
+                # We don't care about recording what ever since we 
+                # recording from child.logfile, 
+                # just wait until reach EOF.
+            except pexpect.EOF:
+                # Process have finish
+                # Don't close here
+                break
+            except pexpect.TIMEOUT:
+                # Just continue until EOF
+                #logger.error("Got unexcept timeout while running:"
+                             #f" command: '{cmd}'"
+                             #f" and args: '{' '.join(args)}'"
+                             #f" (timeout: {pexpect_timeout}) "
+                             #"(please report this).")
+                continue
+        
+        if self.exit_now[proc] or myattr['cancel']:
+            logger.debug("Shutting down pexpect process running"
+                         f" command: '{cmd}' and args: "
+                         f"'{' '.join(args)}'")
+            mycapture.close()
+            child.terminate(force=True)
+            child.close(force=True)
+            
+            if self.exit_now[proc]:
+                logger.debug('...exiting now, ...bye.')
+                self.exit_now[proc] = 'Done'
+                return 'exit', False
+            
+            # Log specific message
+            logger.warning(f"{msg}: {__msg[myattr['cancel']]} {generic_msg}")
+            # Don't return log because 
+            # it's have been cancelled (log is only partial)
+            if proc == 'pretend':
+                with myattr['locks']['cancelled']:
+                    myattr['cancelled'] = True
+            with myattr['locks']['cancel']:
+                myattr['cancel'] = False
+            with myattr['locks']['status']:
+                myattr['status'] = 'ready'
+            # skip everything else
+            return 'exit', False
+        
+        
+        # Process finished
+        mylog = mycapture.getvalue()
+        mycapture.close()
+        child.close()
+        status = child.wait()
+        return status, mylog.splitlines()
+  
+
 
 def get_repo_info():
     """
