@@ -5,11 +5,11 @@
 # Distributed under the terms of the GNU General Public License v3
 
 import logging 
-from syuppo.manager import PortageHandler
+from syuppo.manager import BaseHandler
 
 # TODO TODO TODO This have to be rewrite after we move to dbus-next
 
-class PortageDbus(PortageHandler):
+class PortageDbus(BaseHandler):
     """
         <node>
             <interface name='net.syuppod.Manager.Portage'>
@@ -46,7 +46,7 @@ class PortageDbus(PortageHandler):
         </node>
     """
     def __init__(self, **kwargs):
-        # Delegate arguments checking in portagemanager -> PortageHandler
+        # Delegate arguments checking in portagemanager -> BaseHandler
         super().__init__(**kwargs)
         # add specific logger
         self.named_logger = f'::{__name__}::PortageDbus::'
@@ -133,7 +133,7 @@ class PortageDbus(PortageHandler):
             return 'too_early {0} {1}'.format(self.pretend['interval'], self.pretend['remain'])
         
         # Every thing is ok :p pioufff ! ;)
-        with self.locks['proceed']:
+        with self.pretend['locks']['proceed']:
             self.pretend['proceed'] = True
         self.pretend['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])

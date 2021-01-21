@@ -31,15 +31,16 @@ try:
     from gi.repository import GLib
     from pydbus import SystemBus
 except Exception as exc:
-    print(f'Error: unexcept error while loading dbus bindings: {exc}',
-                                                       file=sys.stderr)
+    print(f'Error: unexpected while loading module: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 try:
     import inotify_simple
 except Exception as exc:
-    print(f'Got unexcept error while loading module: {exc}')
+    print(f'Got unexcept error while loading inotify_simple module: {exc}',
+                                                            file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 __version__ = 'dev'
@@ -131,7 +132,7 @@ class RegularDaemon(threading.Thread):
             
             if tocall == 'sync':
                 # For sync there is an another step
-                with self.manager.locks['check_sync']:
+                with self.manager.sync['locks']['check']:
                     if self.manager.check_sync(recompute=True):
                         logger.debug(f"Allow running dosync(){msg}")
                         allowed = True
@@ -184,9 +185,9 @@ class RegularDaemon(threading.Thread):
             # TEST now it should be 1s 
             # WARNING it's not true every time
             # if all calls in this loop take more than 1s WARNING
-            with self.manager.locks['sync_remain']:
+            with self.manager.sync['locks']['remain']:
                 self.manager.sync['remain'] -= 1
-            with self.manager.locks['sync_elapsed']:
+            with self.manager.sync['locks']['elapsed']:
                 self.manager.sync['elapsed'] += 1
             
             # This is the case where we want to call pretend,
@@ -197,9 +198,9 @@ class RegularDaemon(threading.Thread):
                and not self.dynamic_daemon.pstate):
                 logger.warning("Recalling available packages updates"
                                " search as it was cancelled.")
-                with self.manager.locks['proceed']:
+                with self.manager.pretend['locks']['proceed']:
                     self.manager.pretend['proceed'] = True
-                with self.manager.locks['cancelled']:
+                with self.manager.pretend['locks']['cancelled']:
                     self.manager.pretend['cancelled'] = False
             
             # Every thing is OK: pretend was wanted, 
@@ -212,7 +213,7 @@ class RegularDaemon(threading.Thread):
                     logger.debug("pretend_world() can be call again.")
                     interval = self.manager.pretend['interval']
                     self.manager.pretend['remain'] = interval
-                    with self.manager.locks['pretend_status']:
+                    with self.manager.pretend['locks']['status']:
                         self.manager.pretend['status'] = 'ready'
                 self.manager.pretend['remain'] -= 1
             
@@ -295,7 +296,7 @@ class RegularDaemon(threading.Thread):
                         break
                 end_time = timing_exit()
                 logger.debug(f"{msg} have been shut down in "
-                             f"{end_time - start_time} second(s).")
+                             f"{end_time - start_time} second(s).")    
     
     def wait_on_saving(self):
         """
@@ -427,8 +428,9 @@ class DynamicDaemon(threading.Thread):
         if (pathlib.Path(self.caller['path']).exists() 
                 and self.manager.pretend['status'] == 'running'):
             logger.debug("Found pretend process running, shutting down.")
-            with self.manager.locks['cancel']:
-                self.manager.pretend['cancel'] = True
+            with self.manager.pretend['locks']['cancel']:
+                # Send proc id for specific msg 
+                self.manager.pretend['cancel'] = self.pstate['proc']
             # Leave the recall to RegularDaemon
         
         # Make sure we sleep exactly 1s 
@@ -584,7 +586,7 @@ class DynamicDaemon(threading.Thread):
         
         # This is for external sync only
         # Make sure to lock the method
-        with self.manager.locks['check_sync']:
+        with self.manager.sync['locks']['check']:
             logger.debug("Running check_sync()")
             # Don't automatically recompute, let check_sync()
             # make the decision
