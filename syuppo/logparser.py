@@ -13,7 +13,8 @@ from syuppo.utils import on_parent_exit
 try:
     import numpy
 except Exception as exc:
-    print(f'Got unexcept error while loading module: {exc}')
+    print(f'Error: unexpected while loading module: {exc}', file=sys.stderr)
+    print('Error: exiting with status \'1\'.', file=sys.stderr)
     sys.exit(1)
 
 
