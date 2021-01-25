@@ -26,7 +26,7 @@ class EmergeLogParser:
         self.__nlogger =  f'::{__name__}::EmergeLogParser::' 
         logger = logging.getLogger(f'{self.__nlogger}init::')
         
-        self.aborded = 5
+        self.aborted = 5
         self.emergelog = kwargs.get('log',
                                     '/var/log/emerge.log')
         
@@ -654,9 +654,9 @@ class LastWorldUpdate(EmergeLogParser):
             # we are already 'compiling' the first package
             self.parser['current'] = True
         else:
-            # This has been aborded OR it's not the right
+            # This has been aborted OR it's not the right
             # start opt match ....
-            logger.debug2("Look like it has been aborded or something"
+            logger.debug2("Look like it has been aborted or something"
                           f" is wrong at line: '{self.line}'.")
             # reload default but not key line
             self._load_default_cfg(exclude=('line',))            
@@ -717,7 +717,7 @@ class LastWorldUpdate(EmergeLogParser):
                 self.parser['finished'] = False
                 self.parser['current'] = True
                 self.parser['saved'] =  True
-                logger.debug2(f"finished_line aborded at line: {self.line}")
+                logger.debug2(f"finished_line aborted at line: {self.line}")
                 if self.parser['parallel']['total']:
                     # For the moment go ahead and if this was not
                     # the current world update that failed then
@@ -872,7 +872,7 @@ class LastWorldUpdate(EmergeLogParser):
         # restart !! WARNING
         elif self.parser['parallel']['start']:
             # After 10 lines don't bother try to match
-            # this have been aborded and this could generate
+            # this have been aborted and this could generate
             # some false positive if searching again and
             # again... (ie: keepgoing restart). TEST
             if (self.parser['line'] < 11 and
@@ -898,7 +898,7 @@ class LastWorldUpdate(EmergeLogParser):
                                  f" at line: {self.line}")
                     # Just restart so we can check next line
                 else:
-                    logger.debug2(f"start_resume aborded at line: {self.line}")
+                    logger.debug2(f"start_resume aborted at line: {self.line}")
                     self.parser['resume'] = False
                     # This have to be TEST to know what to do in this
                     # situation...
@@ -912,12 +912,12 @@ class LastWorldUpdate(EmergeLogParser):
                                  "like keepgoing restart.")
                     self._pkg_keepgoing()
                 else:
-                    logger.debug2("start_compiling (start_resume) aborded"
+                    logger.debug2("start_compiling (start_resume) aborted"
                                  f" at line: {self.line}")
                     self.parser['resume'] = False
                     # TEST same as above
             else:
-                logger.debug2(f"resume_opt aborded at line: {self.line}")
+                logger.debug2(f"resume_opt aborted at line: {self.line}")
                 self.parser['resume'] = False
                 
         # WARNING ALL the rest could generate false positive WARNING
@@ -944,7 +944,7 @@ class LastWorldUpdate(EmergeLogParser):
                 logger.debug2(f"keepgoing enable: {msg}")
                 self._pkg_keepgoing()
             else:
-                logger.debug2("start_compiling (keepgoing) aborded"
+                logger.debug2("start_compiling (keepgoing) aborted"
                              f" at line: {msg}")
             
         # Fourth False: we can match an finished line if

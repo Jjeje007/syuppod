@@ -725,8 +725,8 @@ class PortageHandler:
                        f"{add_msg}{self.portage['current']} to "
                        f"{self.current}).")
             elif compare == 0:
-                # This have been aborded
-                msg = ("The portage package process has been aborded.")
+                # This have been aborted
+                msg = ("The portage package process has been aborted.")
             
             # Just skipp if msg = False
             # so that mean compare == None
@@ -810,7 +810,7 @@ class WorldHandler:
             # how many package to update (so don't need to run
             # pretend...)
             if not updated and detected:
-                logger.info("Global update have been aborded or"
+                logger.info("Global update have been aborted or"
                             "failed to emerge first package")
             elif not updated:
                 logger.debug("Global update haven't been run," 
@@ -935,7 +935,7 @@ class BaseHandler(SyncHandler, PretendHandler,
             The arguments as a list.
         :return:
             An iterable with, first element is the return
-            code of the command or 'exit' if aborded/cancelled. 
+            code of the command or 'exit' if aborted/cancelled. 
             The second element is the logfile if success, else False.
         """
         logger = logging.getLogger(f'{self.__logger_name}_pexpect::')

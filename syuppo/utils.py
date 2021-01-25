@@ -1004,7 +1004,7 @@ class CheckProcRunning:
                         yield name
                     else:
                         logger.debug2(f"Reject: {name}: Not pid only or"
-                                      "pid < 300 (kernel RESERVED_PIDS).")
+                                      " pid < 300 (kernel RESERVED_PIDS).")
                 else:
                     logger.debug2(f"Reject: {name}: Not dir, doesn't exist,"
                               + " broken symlink, permission errors.")
