@@ -88,18 +88,22 @@ class SyncHandler:
             logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
                              self.format_timestamp.convert(self.sync['interval'], granularity=5)))
     
-    def check_sync(self, init=False, recompute=False):
+    def check_sync(self, init=False, recompute=False, external=False):
         """ 
         Checking sync repo timestamp, recompute time remaining
          and, or elapsed if requested, allow or deny sync.
         :init:
-            This is for print informations on init program. 
+            Display informations on program init. 
             Default False.
         :recompute:
-            Requested to recalculate time remaining/elapsed. 
+            Recalculate time remaining and elapsed. 
+            Default False.
+        :external:
+            Display external sync process status:
+            failed/aborted or success.
             Default False.
         :return:
-            True if allow to sync, else False.        
+            True if sync allowed, else False.        
         """
         
         logger = logging.getLogger(f'{self.__logger_name}check_sync::')
@@ -116,15 +120,20 @@ class SyncHandler:
         current_timestamp = time.time()
         tosave = [ ]
         
-        msg_repo = f"{self.sync['repos']['msg'].capitalize()}"
+        msg_repo = f"{self.sync['repos']['msg']}"
         
         if not sync_timestamp == self.sync['timestamp']:
-            msg = (f"{msg_repo} have been sync outside the program")
+            msg = (f"{msg_repo.capitalize()} have been sync"
+                   " outside the program")
             # For first run / resetted statefile
             if not self.sync['timestamp']:
                 msg = ("Setting sync timestamp from factory (0) to:"
                        f" {sync_timestamp}")
-                       
+            # For external sync
+            elif external:
+                logger.info(f"Manual {msg_repo} synchronization"
+                            " is successful.")
+            
             logger.debug(f"{msg}, forcing pretend world...")
             # Any way, run pretend world
             with self.pretend['locks']['proceed']:
@@ -132,6 +141,9 @@ class SyncHandler:
             self.sync['timestamp'] = sync_timestamp
             tosave.append(['sync timestamp', self.sync['timestamp']])
             recompute = True
+        elif external:
+            logger.info(f"Manual {msg_repo} synchronization failed"
+                        " or aborted.")
         
         # Compute / recompute time remain
         # This shouldn't be done every time method check_sync()
@@ -163,14 +175,16 @@ class SyncHandler:
             if init:
                 # TEST keep default granularity for info
                 timestamp = self.format_timestamp.convert(self.sync[key])
-                logger.info(f"{msg_repo} sync {key} time: {timestamp}")
+                logger.info(f"{msg_repo.capitalize()} sync {key}"
+                            f" time: {timestamp}")
             # For logging in: DEBUG
             if recompute and key in ('elapsed', 'remain'):
                 continue
             # For debug, full ouput (granularity=5)
             timestamp = self.format_timestamp.convert(self.sync[key],
                                                       granularity=5)
-            logger.debug(f"{msg_repo} sync {key} time: {timestamp}")
+            logger.debug(f"{msg_repo.capitalize()} sync {key}"
+                         f" time: {timestamp}")
     
         if tosave:
             self.stateinfo.save(*tosave)

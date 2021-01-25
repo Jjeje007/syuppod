@@ -609,11 +609,11 @@ class DynamicDaemon(threading.Thread):
         
         # This is for external sync only
         # Make sure to lock the method
+        logger.debug("Running check_sync()")
         with self.manager.sync['locks']['check']:
-            logger.debug("Running check_sync()")
             # Don't automatically recompute, let check_sync()
             # make the decision
-            self.manager.check_sync()
+            self.manager.check_sync(external=True)
             # If pretend_world() should be run 
             # then let RegularDaemon handle it
         
