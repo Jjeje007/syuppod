@@ -249,7 +249,8 @@ class RegularDaemon(threading.Thread):
             # Don't run pretend if world / sync in progress or 
             # if not status == 'ready'
             if (self.manager.pretend['proceed']
-               and self.manager.pretend['status'] == 'ready'):
+                    and self.manager.pretend['status'] == 'ready'
+                    and not self.manager.sync['status'] == 'running'):
                 if self.allow('pretend'):
                     if self.manager.pretend['forced']:
                         logger.warning('Recompute available packages updates'
