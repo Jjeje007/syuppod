@@ -52,7 +52,7 @@ class SyncHandler:
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
         self.sync = {
-            # values: ready | running
+            # values: ready | running | completed
             'status'        :   'ready',    
             'state'         :   self.loaded_stateopts.get('sync state'),
             'network_error' :   self.loaded_stateopts.get('sync network_error'),
@@ -352,6 +352,11 @@ class SyncHandler:
                 # Any way reset remain to interval
                 with self.sync['locks']['remain']:
                     self.sync['remain'] = self.sync['interval']
+            # Any way, don't set status to completed
+            with self.sync['locks']['status']:
+                self.sync['status'] = 'ready'
+            
+            
         else:
             # Ok good :p
             self.state = 'Success'
@@ -394,24 +399,22 @@ class SyncHandler:
             with self.sync['locks']['remain']:
                 self.sync['remain'] = self.sync['interval']
             logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
+            # For successfull sync set status to completed 
+            # so daemon can manage related actions
+            with self.sync['locks']['status']:
+                self.sync['status'] = 'completed'
                     
         # Write / mod value only if change
         for value in 'state', 'retry', 'network_error':
             if not self.sync[value] == getattr(self, value):
                 self.sync[value] = getattr(self, value)
                 tosave.append([f'sync {value}', self.sync[value]])
-        if not self.sync['status'] == 'running':
-            logger.error('We are about to leave syncing process, but just found status already to False,'.format(
-                                                                                        self.sync['repos']['msg']))
-            logger.error('which mean syncing is/was NOT in progress, please check and report if True')
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
         # At the end
         with self.sync['locks']['elapsed']:
             self.sync['elapsed'] = 0
-        with self.sync['locks']['status']:
-            self.sync['status'] = 'ready'
         return      
     
 
@@ -927,11 +930,13 @@ class BaseHandler(SyncHandler, PretendHandler,
         # This keys match keys from module 'utils'
         # class 'CheckProcRunning', method 'check':
         # 'world', 'system', 'sync', 'portage'
+        # Added: distinction between internal and external sync
         generic_msg = 'has been detected.'
         __msg = {
-            'sync'      :   'an synchronization',
-            'world'     :   'a global update',
-            'system'    :   'a system update'
+            'sync internal' :   'an automatic synchronization',
+            'sync external' :   'a manual synchronization',
+            'world'         :   'a global update',
+            'system'        :   'a system update'
             }
         
         child = pexpect.spawn(cmd, args=args, encoding='utf-8', 

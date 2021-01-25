@@ -189,13 +189,36 @@ class RegularDaemon(threading.Thread):
                 self.manager.sync['remain'] -= 1
             with self.manager.sync['locks']['elapsed']:
                 self.manager.sync['elapsed'] += 1
+                
+            # At the end of a successfull internal sync 
+            # run specific actions 
+            if self.manager.sync['status'] == 'completed':
+                logger.debug("Sync is completed, calling sync() with"
+                            f" internal=True")
+                # Reset status to ready
+                with self.manager.sync['locks']['status']:
+                    self.manager.sync['status'] = 'ready'
+                # TEST: make sure this will not be > 1s TODO
+                self.dynamic_daemon.sync(internal=True)
+            
+            # Make sure to shutdown pretend if internal sync 
+            # is running. This is only for internal, external
+            # is manage by dynamic_daemon
+            if (self.manager.sync['status'] == 'running' 
+                    and self.manager.pretend['status'] == 'running'):
+                logger.debug("Found pretend process running, shutting down.")
+                with self.manager.pretend['locks']['cancel']:
+                    # Send proc id for specific msg 
+                    self.manager.pretend['cancel'] = 'sync internal'
             
             # This is the case where we want to call pretend,
-            # there is not process running
+            # there is no process running
             # and pretend is waiting and 
             # it was cancelled so recall pretend :p
+            # Now, dynamic_daemon will NOT track internal sync
             if (self.manager.pretend['cancelled'] 
-               and not self.dynamic_daemon.pstate):
+               and not self.dynamic_daemon.pstate
+               and not self.manager.sync['status'] == 'running'):
                 logger.warning("Recalling available packages updates"
                                " search as it was cancelled.")
                 with self.manager.pretend['locks']['proceed']:
@@ -413,7 +436,7 @@ class DynamicDaemon(threading.Thread):
         
         msg = {
             'world'     :   'Global update',
-            'sync'      :   'Synchronization',
+            'sync'      :   'Manual synchronization',
             'system'    :   'System update',
             # We don't know if will be update or downgrade...
             'portage'   :   'The portage package process'
@@ -422,16 +445,19 @@ class DynamicDaemon(threading.Thread):
         logger.debug(f"Started monitoring: '{self.caller['path']}'"
                     + f" using pathlib.Path().exists()")
         
-        # For world update, make sure pretend is NOT running
-        # TODO pretend could be left running when detecting
-        # portage package process ?? TODO ?
+        # This is for pretend only because internal sync 
+        # is NOT detected by DynamicDaemon. 
+        # Internal sync is manage by RegularDaemon
         if (pathlib.Path(self.caller['path']).exists() 
                 and self.manager.pretend['status'] == 'running'):
             logger.debug("Found pretend process running, shutting down.")
+            msg_id = self.pstate['proc']
+            if self.pstate['proc'] == 'sync':
+                msg_id += ' external'
             with self.manager.pretend['locks']['cancel']:
                 # Send proc id for specific msg 
-                self.manager.pretend['cancel'] = self.pstate['proc']
-            # Leave the recall to RegularDaemon
+                self.manager.pretend['cancel'] = msg_id
+                # Leave the recall to RegularDaemon
         
         # Make sure we sleep exactly 1s 
         # THX!: https://stackoverflow.com/a/49801719/11869956
@@ -513,25 +539,19 @@ class DynamicDaemon(threading.Thread):
         """
         logger = logging.getLogger(f'{self.logger_name}checking::')
         # Get current processes state
+        # CheckProcRunning() DONT track internal sync
         self.pstate = self.prun.check()
-        # Found process
+        # Found process 
         if self.pstate:
             logger.debug("Found running process:"
                         + f" {self.pstate}")
-            # For sync detect internal/external
+            # For sync external only
             if self.pstate['proc'] == 'sync':
-                # Just get the status from manager: True if internal else False
-                if self.manager.sync['status'] == 'running':
-                    self.pstate['internal'] = True
-                    self.manager.external_sync = False
-                else:
-                    self.pstate['internal'] = False
-                    # So advise dbus sync is external
-                    # And set its pid. 'path' is a PosixPath object
-                    self.manager.external_sync = self.pstate['path'].stem
-                    logger.debug("Setting dbus external_sync to:"
-                                f" {self.manager.external_sync}")
-                logger.debug(f"Sync is internal: {self.pstate['internal']}")
+                # So advise dbus sync is external
+                # And set its pid. 'path' is a PosixPath object
+                self.manager.external_sync = self.pstate['path'].stem
+                logger.debug("Setting dbus external_sync to:"
+                            f" {self.manager.external_sync}")
             # For world advise also dbus and set its pid
             if self.pstate['proc'] == 'world':
                 self.manager.world_state = self.pstate['path'].stem
@@ -568,7 +588,7 @@ class DynamicDaemon(threading.Thread):
             else:
                 logger.debug(f"Keeping default caller: {self.caller}")
        
-    def sync(self):
+    def sync(self, internal=False):
         """
         Update all attributes and methods
         related to a sync status changed
@@ -579,8 +599,10 @@ class DynamicDaemon(threading.Thread):
         logger.debug("Running .portage()")
         self.portage(detected=False)
         # pretend_world() should also be run
-        # but only if it's an external sync 
-        if self.pstate['internal']:
+        # but only if it's an external sync
+        # This method is shared across RegularDaemon
+        # and DynamicDaemon
+        if internal:
             logger.debug("Skip the rest of the processes: sync was internal.")
             return
         

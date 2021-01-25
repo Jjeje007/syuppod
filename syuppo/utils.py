@@ -13,6 +13,7 @@ import time
 import signal
 import gettext
 import logging
+import pwd
 
 from collections import deque
 from distutils.version import StrictVersion
@@ -1017,15 +1018,30 @@ class CheckProcRunning:
         if self.advanced_debug:
             logger.setLevel(logging.DEBUG2)
             
+        uid = re.compile(r'^Uid:\s+(\d+)\s+.*$')
+            
         for dirname in self.__get_pid_dirs():
             logger.debug2(f"Extract content from: {dirname}")
             try:
-                with pathlib.Path(f'{dirname}/cmdline').open('rb') as myfd:
-                    content = myfd.read().decode().split('\x00')
+                # BUG https://stackoverflow.com/a/50958431/11869956
+                # BUG https://bugs.python.org/issue12782
+                # So for now use backslashes over parentheses
+                # Should be fix in 3.9/3.10 WARNING
+                # Parsing also 'status' file added ~0.02s
+                with pathlib.Path(f'{dirname}/cmdline').open('rb') as cmdline,\
+                        pathlib.Path(f'{dirname}/status').open('r') as status:
+                    content = cmdline.read().decode().split('\x00')
                     content = ' '.join(content)
                     if content:
-                        logger.debug2("Extract successfully.")
-                        yield (content, dirname)
+                        # Get uid from 'status' file
+                        # From https://stackoverflow.com/a/5327812/11869956
+                        for line in status:
+                            if uid.match(line):
+                                current = int(uid.match(line).group(1))
+                                # Get the derive username
+                                name = pwd.getpwuid(current).pw_name
+                                logger.debug2("Extract successfully.")
+                                yield (content, name, dirname)
                     else:
                         logger.debug2(f"Skip current content: {content}"
                                   " no data.")
@@ -1049,7 +1065,8 @@ class CheckProcRunning:
             logger.setLevel(logging.DEBUG2)
         
         found = False
-        for cmdline, dirname in self.__get_content():
+        internal_sync = 0
+        for cmdline, name, dirname in self.__get_content():
             logger.debug2(f"Search from: '{cmdline}'.")
             for proc in 'world', 'system', 'sync', 'portage':
                 attr = getattr(self, proc)
@@ -1062,16 +1079,42 @@ class CheckProcRunning:
                             found = False
                             logger.debug2("NOT validate the match:"
                                           + "pretend_opt.")
+                    # For sync DONT match internal sync
+                    # One process is run using syuppod user (uid)
+                    if (proc == 'sync' and name == 'syuppod'
+                            and internal_sync == 0):
+                        found = False
+                        internal_sync = 1
+                        logger.debug("Skipping internal sync running from"
+                                    f" cmdline: '{cmdline}' as user: {name}"
+                                    f" and using: {dirname}")
+                    # Then, emerge --sync spread two process
+                    # So if internal_sync have been founded
+                    # and an another sync process is found:
+                    elif proc == 'sync' and internal_sync == 1:
+                        found = False
+                        internal_sync = 2
+                        logger.debug("Skipping second internal sync running"
+                                    f" from cmdline: '{cmdline}' as user: "
+                                    f"{name} and using: {dirname}")
+                    # Then third process...
+                    elif proc == 'sync' and internal_sync == 2:
+                        found = False
+                        internal_sync = 3
+                        logger.debug("Skipping third internal sync running"
+                                    f" from cmdline: '{cmdline}' as user: "
+                                    f"{name} and using: {dirname}")
                 
                 if found:
                     logger.debug2("Validate the match.")
                     logger.debug(f"{proc} process running from cmdline:"
-                                + f" '{cmdline}' and using: {dirname}")
+                                 f" '{cmdline}' as user: "
+                                 f"{name} and using: {dirname}")
                     return { 'proc'  : proc, 
                     # dirname: will return an PosixPath object
                              'path'  : dirname } 
                 logger.debug2("No positive match.")
-        logger.debug("No processes running.")
+        logger.debug("No specific process running.")
         return False
 
 
