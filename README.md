@@ -18,7 +18,7 @@ to you to do whatever you want to do with these informations and from whatever p
 
 ## Dependencies
 
-* [python](https://www.python.org/) >= 3.8 
+* [python](https://www.python.org/) 3.8 
 * [pydbus](https://github.com/LEW21/pydbus)
 * [numpy](https://numpy.org/)
 * [pexpect](https://github.com/pexpect/pexpect)
