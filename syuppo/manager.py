@@ -103,7 +103,7 @@ class SyncHandler:
         if self.sync['interval'] > 2592000:
             interval = self.sync['interval']
             logger.warning("The selected synchronization interval is large: "
-                           f"{self.format_timestamp.convert(interval, granularity=5)}.")
+                           f"{self.format_timestamp(interval, granularity=5)}.")
     
     
     def stateopts(self):
@@ -249,14 +249,14 @@ class SyncHandler:
             # For logging in: INFO
             if init:
                 # TEST keep default granularity for info
-                timestamp = self.format_timestamp.convert(self.sync[key])
+                timestamp = self.format_timestamp(self.sync[key])
                 logger.info(f"{msg_repo.capitalize()} sync {key}"
                             f" time: {timestamp}")
             # For logging in: DEBUG
             if recompute and key in ('elapsed', 'remain'):
                 continue
             # For debug, full ouput (granularity=5)
-            timestamp = self.format_timestamp.convert(self.sync[key],
+            timestamp = self.format_timestamp(self.sync[key],
                                                       granularity=5)
             logger.debug(f"{msg_repo.capitalize()} sync {key}"
                          f" time: {timestamp}")
@@ -457,7 +457,7 @@ class SyncHandler:
         elif retry > 1:
             msg_on_retry = f" ({retry} times already)"
                 
-        delay =  self.format_timestamp.convert(remain, granularity=5)
+        delay =  self.format_timestamp(remain, granularity=5)
         logger.error(f"Synchronization of {msg_count} failed due to {msg_error}"
                      f" {error} error: {repos}, will retry in {delay}"
                      f"{msg_on_retry}.")
@@ -506,7 +506,7 @@ class SyncHandler:
                 
         logger.debug(f"Resetting remain interval to {self.sync['interval']}")
         
-        delay = self.format_timestamp.convert(self.sync['interval'], granularity=5)
+        delay = self.format_timestamp(self.sync['interval'], granularity=5)
         logger.info(f"Next synchronization in: {delay}")
         
         # At the end of successfully sync, run pretend_world()

@@ -313,8 +313,8 @@ def forced(myobject, machine):
         # and remain is third
         # Ok so we have to calculate
         elapsed = int(split_reply[1]) - int(split_reply[2])
-        additionnal_msg[0] = formatter.convert(elapsed, granularity=5, rounded=False, translate=True)
-        additionnal_msg[1] = formatter.convert(int(split_reply[2]), granularity=5, rounded=False, translate=True)
+        additionnal_msg[0] = formatter(elapsed, granularity=5, rounded=False, translate=True)
+        additionnal_msg[1] = formatter(int(split_reply[2]), granularity=5, rounded=False, translate=True)
         reply = 'too_early'
         if machine:
             tab = ''

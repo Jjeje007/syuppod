@@ -625,10 +625,9 @@ class FormatTimestamp:
             1   :   'minutes',
             0   :   'seconds' 
             }
-        
-        
-    def convert(self, seconds, granularity=2, rounded=True, translate=False,
-                nuanced=False):
+                
+    def __call__(self, seconds, granularity=2, rounded=True, 
+                 translate=False, nuanced=False):
         """
         Proceed the conversion
         """
@@ -1158,7 +1157,7 @@ def _format_timestamp(seconds, opt):
             granularity = int(granularity[1:])
     myformatter = FormatTimestamp()
     # Translate is True for syuppoc part 
-    msg = myformatter.convert(seconds, granularity=granularity, rounded=rounded, 
+    msg = myformatter(seconds, granularity=granularity, rounded=rounded, 
                               translate=True, nuanced=nuanced)
     return msg 
 
