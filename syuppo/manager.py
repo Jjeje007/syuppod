@@ -543,8 +543,9 @@ class PretendHandler:
             # values: ready | running | completed
             'status'    :   'ready',
             # Packages to update
-            'packages'  :   self.loaded_stateopts.get('world packages'),
-            # Interval between two pretend_world() TODO could be tweaked
+            'packages'  :   self.loaded_stateopts.get('pretend packages'),
+            # Interval between two pretend_world() 
+            # TODO could be tweaked
             'interval'  :   600,
             # Time between two pretend_world() lauch (avoid spamming)
             'remain'    :   600,
@@ -573,7 +574,7 @@ class PretendHandler:
         super().stateopts()
         self.default_stateopts.update({
             '# Pretend Opts'                 :   '',
-            'world packages'                 :   0
+            'pretend packages'               :   0
             })
         
     def pretend_world(self):
@@ -671,11 +672,11 @@ class PretendHandler:
         if update_packages:
             if not self.pretend['packages'] == update_packages:
                 self.pretend['packages'] = update_packages
-                tosave.append(['world packages', self.pretend['packages']])
+                tosave.append(['pretend packages', self.pretend['packages']])
         else:
             if not self.pretend['packages'] == 0:
                 self.pretend['packages'] = 0
-                tosave.append(['world packages', self.pretend['packages']])
+                tosave.append(['pretend packages', self.pretend['packages']])
                 
         # At the end
         if self.pretend['cancelled']:
