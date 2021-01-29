@@ -39,7 +39,15 @@ except Exception as exc:
 
 # TODO get news ?
 
+class GenericHandler:
+    """
+    Generic handler
+    """
+    
+    def stateopts(self):
+        pass
 
+        
         
 class SyncHandler:
     """
@@ -52,24 +60,32 @@ class SyncHandler:
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
         self.sync = {
-            # values: ready | running | completed
-            'status'        :   'ready',    
+            # Values: ready | running | completed
+            'status'        :   'ready',
+            # Values: never sync | success | failed
             'state'         :   self.loaded_stateopts.get('sync state'),
-            'network_error' :   self.loaded_stateopts.get('sync network_error'),
+            # Values: See sync_failed() layout keys
+            'error'         :   self.loaded_stateopts.get('sync error'),
+            # Values: >= 0
             'retry'         :   self.loaded_stateopts.get('sync retry'),
-            'global_count'  :   self.loaded_stateopts.get('sync count'),
+            # Values: >= 0
+            'count'         :   self.loaded_stateopts.get('sync count'),
+            # Values: int
             'timestamp'     :   self.loaded_stateopts.get('sync timestamp'),
+            # Values: >= 86400
             'interval'      :   kwargs['interval'],
+            # Values: int 
             'elapsed'       :   0,
+            # Values: int 
             'remain'        :   0,
-            # Counting sync count since running (current session)
-            'session_count' :   0,   
+            # Values: >= 0
+            'session'       :   0,   
             # Repo's dict to sync with key: 'names', 'formatted'
             # 'count' and 'msg'. 'names' is a list
             # And also after first sync:
-            #   'failed': repos which failed last sync
-            #   'success': repos which successfully sync
-            'repos'         :   get_repo_info(),
+            #   'failed': repos that failed during last sync
+            #   'success': repos that successed during last sync
+            'repos'         :   self.get_repo_info(),
             'cancel'        :   False,
             'exit'          :   False,
             # locks for shared method/attr accross daemon threads
@@ -85,8 +101,67 @@ class SyncHandler:
         # Print warning if interval 'too big'
         # If interval > 30 days (2592000 seconds)
         if self.sync['interval'] > 2592000:
-            logger.warning('{0} sync interval looks too big (\'{1}\').'.format(self.sync['repos']['msg'].capitalize(),
-                             self.format_timestamp.convert(self.sync['interval'], granularity=5)))
+            interval = self.sync['interval']
+            logger.warning("The selected synchronization interval is large: "
+                           f"{self.format_timestamp.convert(interval, granularity=5)}.")
+    
+    
+    def stateopts(self):
+        """
+        Specific stateopts dict
+        """
+        super().stateopts()
+        self.default_stateopts.update({
+            '# Sync Opts'                    :   '',
+            'sync count'                     :   0, 
+            'sync state'                     :   'never sync',
+            'sync error'                     :   0,
+            'sync retry'                     :   0,
+            'sync timestamp'                 :   0
+            })
+            
+    def get_repo_info(self):
+        """
+        Get portage repos informations and return formatted
+        """
+        logger = logging.getLogger(f'::{self.__logger_name}::get_repo_info::')
+        
+        # Generic infos
+        infos = { 
+            'names'     :   [ ], 
+            'formatted' :   'unknow',
+            'count'     :   '(?)',
+            'msg'       :   'repo',
+            'failed'    :   [ ],
+            'success'   :   [ ]
+            }
+        
+        names = portdbapi().getRepositories()
+        
+        if names:
+            names = sorted(names)
+            count = len(names)
+            msg = 'repositories'
+            # get only first 6 elements if names > 6
+            if count > 6:
+                formatted = ', '.join(names[:6]) + ' (+' + str(count - 6) + ')'
+            elif count == 1:
+                msg = 'repository'
+                formatted = ''.join(names)
+            else:
+                formatted = ', '.join(names)
+            logger.debug(f"Informations extracted for {count} {msg}: "
+                         f"{','.join(names)}")
+            
+            infos['names'] = names
+            infos['formatted'] = formatted
+            infos['count'] = count
+            infos['msg'] = msg
+            return infos
+        
+        logger.error("Failed to extract repositories informations"
+                     " from portdbapi().getRepositories()")
+        return infos
     
     def check_sync(self, init=False, recompute=False, external=False):
         """ 
@@ -199,14 +274,13 @@ class SyncHandler:
         """
         
         logger = logging.getLogger(f'{self.__logger_name}dosync::')
-        tosave = [ ]
-        
+               
         # This is for asyncio: don't run twice
         with self.sync['locks']['status']:
             self.sync['status'] = 'running'
         
         # Refresh repositories infos
-        self.sync['repos'] = get_repo_info()
+        self.sync['repos'] = self.get_repo_info()
         
         # For debug: display all the repositories
         logger.debug(f"Start syncing {self.sync['repos']['count']}" 
@@ -228,25 +302,23 @@ class SyncHandler:
         else:
             log_writer = logging.getLogger(f'{self.__logger_name}write_sync_log::')
         
-        # Network failure related
-        # main gentoo repo
+        # Errors related
+        error = 'unexcepted'
+        # Network failure # TODO
         manifest_failure = re.compile(r'^!!!.Manifest.verification.impossible'
                                       '.due.to.keyring.problem:$')
         found_manifest_failure = False
         gpg_network_unreachable = re.compile(r'^gpg:.keyserver.refresh.failed:'
                                              '.Network.is.unreachable$')
-        repo_gentoo_network_unreachable = False
+               
         # Get return code for each repo
-        failed_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),'
+        repo_failed = re.compile(r'^Action:.sync.for.repo:\s(.*),'
                                  '.returned.code.=.1$')
-        success_sync = re.compile(r'^Action:.sync.for.repo:\s(.*),'
+        repo_success = re.compile(r'^Action:.sync.for.repo:\s(.*),'
                                   '.returned.code.=.0$')
         self.sync['repos']['failed'] = [ ]
         self.sync['repos']['success'] = [ ]
-        # Set default values
-        self.network_error = self.sync['network_error']
-        self.retry = self.sync['retry']
-        self.state = self.sync['state']
+        
         # Running sync command using sudo (as root)
         mycommand = '/usr/bin/sudo'
         myargs = [ '/usr/bin/emerge', '--sync' ]
@@ -267,15 +339,15 @@ class SyncHandler:
             if found_manifest_failure:
                 # So make sure it's network related 
                 if gpg_network_unreachable.match(line):
-                    repo_gentoo_network_unreachable = True
+                    error = 'network'
             if manifest_failure.match(line):
                 found_manifest_failure = True
             # get return code for each repo
-            if failed_sync.match(line):
-                name = failed_sync.match(line).group(1)
+            if repo_failed.match(line):
+                name = repo_failed.match(line).group(1)
                 self.sync['repos']['failed'].append(name)
-            if success_sync.match(line):
-                name = success_sync.match(line).group(1)
+            if repo_success.match(line):
+                name = repo_success.match(line).group(1)
                 self.sync['repos']['success'].append(name)
         
         if self.sync['repos']['success']:
@@ -286,143 +358,43 @@ class SyncHandler:
                          f"{', '.join(self.sync['repos']['failed'])}")
         
         if return_code:
-            list_len = len(self.sync['repos']['failed'])
-            msg = 'This repository'
-            additionnal_msg = ''
-            if list_len - 1 > 1:
-                msg = 'These repositories'
-            # Check out if we have an network failure for repo gentoo
-            if repo_gentoo_network_unreachable:
-                self.network_error = 1
-                self.state = 'Failed'
-                # sync will make ALOT of time to fail.
-                # See : /etc/portage/repos.conf/gentoo.conf 
-                # @2020-23-01 (~30min): 
-                # sync-openpgp-key-refresh-retry-count = 40
-                # sync-openpgp-key-refresh-retry-overall-timeout = 1200
-                # first 5 times @ 600s (10min) - real is : 40min
-                # after 5 times @ 3600s (1h) - real is : 1h30
-                # then reset to interval (so mini is 24H)
-                msg_on_retry = ''
-                with self.sync['locks']['remain']:
-                    self.sync['remain'] = 600
-                if self.retry == 1:
-                    msg_on_retry = ' (1 time already)'
-                elif 2 <= self.retry <= 5:
-                    msg_on_retry = ' ({0} times already)'.format(self.retry)
-                elif 6 <= self.retry <= 10:
-                    msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    with self.sync['locks']['remain']:
-                        self.sync['remain'] = 3600
-                elif self.retry > 10:
-                    msg_on_retry = ' ({0} times already)'.format(self.retry)
-                    with self.sync['locks']['remain']:
-                        self.sync['remain'] = self.sync['interval']
-                
-                if not self.sync['repos']['success']:
-                    # All the repos failed
-                    logger.error('{0} sync failed: network is unreachable.'.format(
-                                                    self.sync['repos']['msg'].capitalize()))
-                else:
-                    logger.error('Main gentoo repository failed to sync: network is unreachable.')
-                    additionnal_msg = ' also'
-                    if list_len - 1 > 0:
-                        logger.error('{0} {1} failed to sync: {2}.'.format(msg, additionnal_msg, 
-                            ', '.join([name for name in self.sync['repos']['failed'] if not name == 'gentoo'])))
-                # Increment retry
-                old_sync_retry = self.retry
-                self.retry += 1
-                logger.debug('Incrementing sync retry from {0} to {1}.'.format(old_sync_retry,
-                                                                                 self.retry))
-                # If granularity=5 then rounded=False
-                logger.error('Anyway will retry{0} sync in {1}.'.format(msg_on_retry,
-                                                                      self.format_timestamp.convert(
-                                                                          self.sync['remain'], granularity=5)))
-            else:
-                # Ok so this is not an network problem for main gentoo repo
-                # DONT disable sync just keep syncing every 'interval'
-                if 'gentoo' in self.sync['repos']['failed']:
-                    logger.error('Main gentoo repository failed to sync with an unexcepted error !!')
-                    # There is also other failed repo
-                    if list_len - 1 > 0:
-                        logger.error('{0} also failed to sync: {1}.'.format(msg, ', '.join(name for repos_failed \
-                                                      in self.sync['repos']['failed'] if not name == 'gentoo')))
-                    # State is Failed only if main gentoo repo failed
-                    self.state = 'Failed'
-                    # reset values
-                    self.network_error = 0
-                    self.retry = 0
-                # Other repo
-                else:
-                    logger.error(f'{msg} failed to sync:' 
-                                 + ' {0}.'.format(', '.join(self.sync['repos']['failed'])))
-                # At the end 
-                logger.error('You can retrieve log from: {0}.'.format(self.pathdir['synclog']))
-                logger.error('Anyway will retry sync in {0}.'.format(self.format_timestamp.convert(
-                                                                            self.sync['interval'], granularity=5
-                                                                                                  )))
-                
-                logger.debug('Resetting remain interval to {0}.'.format(self.sync['interval']))
-                # Any way reset remain to interval
-                with self.sync['locks']['remain']:
-                    self.sync['remain'] = self.sync['interval']
-            # Any way, don't set status to completed
-            with self.sync['locks']['status']:
-                self.sync['status'] = 'ready'
-            
-            
+            keywords = self.failed_sync(self.sync['retry'], error)
         else:
-            # Ok good :p
-            self.state = 'Success'
+            keywords = self.success_sync()
             
-            # Reset values
-            self.retry = 0
-            self.network_error = 0
-            logger.info('Successfully syncing {0}.'.format(self.sync['repos']['msg']))
-            # Count only success sync
-            old_count_global = self.sync['global_count']
-            old_count = self.sync['session_count']
-            self.sync['global_count'] += 1
-            logger.debug('Incrementing global sync count from \'{0}\' to \'{1}\''.format(old_count_global,
-                                                                                           self.sync['global_count']))
-            self.sync['session_count'] += 1
-            logger.debug('Incrementing current sync count from \'{0}\' to \'{1}\''.format(old_count,
-                                                                                    self.sync['session_count']))
-            # group save to save in one shot
-            tosave.append(['sync count', self.sync['global_count']])
-            
-            # Get sync timestamp from emerge.log
-            logger.debug('Initializing emerge log parser:')
-            myparser = LastSync(log=self.pathdir['emergelog'])
-            logger.debug('Parsing file: {0}'.format(self.pathdir['emergelog']))
-            logger.debug('Searching last sync timestamp.')
-            sync_timestamp = myparser.get()
-            
-            if sync_timestamp:
-                if sync_timestamp == self.sync['timestamp']:
-                    logger.warning(f'Bug in class \'{self.__class__.__name__}\', method: dosync(): sync timestamp are equal...')
+        tosave = [ ]
+        for key, value in keywords.items():
+            # Make sure key exists
+            if key in self.sync:
+                if not self.sync[key] == value:
+                    current = self.sync[key]
+                    logger.debug(f"Changing value for sync['{key}'] from"
+                                 f" {current} to {value}")
+                    # Make sure to use locks if exists
+                    if key in self.sync['locks']:
+                        logger.debug("Using locks() for changing "
+                                     f"sync['{key}']")
+                        with self.sync['locks'][key]:
+                            self.sync[key] = value
+                    else:
+                        logger.debug("Not using locks() for changing "
+                                     f"sync['{key}']")
+                        self.sync[key] = value
+                    # Save key only if exists from loaded_stateopts
+                    if f"sync {key}" in self.loaded_stateopts:
+                        logger.debug(f"Append for saving: 'sync {key} : "
+                                     f"{value}'")
+                        tosave.append([f"sync {key}", self.sync[key]])
+                    else:
+                        logger.debug(f"Not append for saving: 'sync {key} : "
+                                     f"{value}'")
                 else:
-                    logger.debug('Updating sync timestamp from \'{0}\' to \'{1}\'.'.format(self.sync['timestamp'], sync_timestamp))
-                    self.sync['timestamp'] = sync_timestamp
-                    tosave.append(['sync timestamp', self.sync['timestamp']])
-            # At the end of successfully sync, run pretend_world()
-            with self.pretend['locks']['proceed']:
-                self.pretend['proceed'] = True
-            logger.debug('Resetting remain interval to {0}'.format(self.sync['interval']))
-            # Reset remain to interval
-            with self.sync['locks']['remain']:
-                self.sync['remain'] = self.sync['interval']
-            logger.info('Next syncing in {0}.'.format(self.format_timestamp.convert(self.sync['interval'], granularity=5)))
-            # For successfull sync set status to completed 
-            # so daemon can manage related actions
-            with self.sync['locks']['status']:
-                self.sync['status'] = 'completed'
-                    
-        # Write / mod value only if change
-        for value in 'state', 'retry', 'network_error':
-            if not self.sync[value] == getattr(self, value):
-                self.sync[value] = getattr(self, value)
-                tosave.append([f'sync {value}', self.sync[value]])
+                    logger.debug(f"Keeping same value of sync['{key}']:"
+                                 f" {value}")
+            else:
+                logger.warning(f"Missing key '{key}' in sync dictionnary"
+                               " (please report this)")
+            
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
@@ -431,6 +403,128 @@ class SyncHandler:
             self.sync['elapsed'] = 0
         return      
     
+    def failed_sync(self, retry, error):
+        """
+        Proceed when sync process failed.
+        :error:
+            Error type, to choose between 'network' and
+            'unexcepted'.
+        :retry:
+            How many retry have been already run.
+        """
+        logger = logging.getLogger(f'{self.__logger_name}failed_sync::')
+        
+        layout = {
+            # TODO: this could be tweaked ?
+            # sync will make ALOT of time to fail.
+            # See : /etc/portage/repos.conf/gentoo.conf 
+            # @2020-23-01 (~30min): 
+            # sync-openpgp-key-refresh-retry-count = 40
+            # sync-openpgp-key-refresh-retry-overall-timeout = 1200
+            # first 5 times @ 600s (10min) - real is : 40min
+            # after 5 times @ 3600s (1h) - real is : 1h30
+            # then reset to interval (so mini is 24H)
+            # For Network error: 
+            #   retry 5 times @ 600s
+            #   retry 5 times @ 3600s
+            #   then retry forever @ selected interval
+            'network'    : ((0, 600), (4, 3600), (9, self.sync['interval'])),
+            # For Other errors:
+            #   retry 1 time @ 600s
+            #   retry 1 time @ 3600s
+            #   then retry forever @ selected interval
+            'unexcepted' : ((0, 600), (1, 3600), (2, self.sync['interval']))
+            }
+        
+        repos = f"{', '.join(self.sync['repos']['failed'])}"
+        msg_count = 'this repository'
+        if len(self.sync['repos']['failed']) > 1:
+            msg_count = 'these repositories'
+        msg_error = 'an'
+        # Check out if we have an network failure for repo gentoo
+        if error == 'network':
+            msg_error = 'a'
+        
+        # Select the remain interval
+        # depending on error type
+        for item in layout[error]:
+            if item[0] <= retry:
+                remain = item[1]
+        
+        msg_on_retry = ''
+        if retry > 0:
+            msg_on_retry = ' (1 time already)'
+        elif retry > 1:
+            msg_on_retry = f" ({retry} times already)"
+                
+        delay =  self.format_timestamp.convert(remain, granularity=5)
+        logger.error(f"Synchronization of {msg_count} failed due to {msg_error}"
+                     f" {error} error: {repos}, will retry in {delay}"
+                     f"{msg_on_retry}.")
+            
+        logger.debug(f"Incrementing sync retry from {retry} to {retry+1}")
+                       
+        return { 
+            'error'     :   error, 
+            'state'     :   'failed', 
+            'retry'     :   retry+1, 
+            'remain'    :   remain, 
+            'status'    :   'ready' 
+            }
+                
+    def success_sync(self):
+        """
+        Proceed when sync process is successful.
+        """
+        
+        logger = logging.getLogger(f'{self.__logger_name}success_sync::')
+        
+        msg_repo = f"{self.sync['repos']['msg']}"
+        logger.info(f"{msg_repo} synchronization is successful.")
+        
+        for count in 'count', 'session':
+            logger.debug(f"Incrementing {count} count from "
+                         f"{self.sync[count]} to "
+                         f"{self.sync[count]+1}")
+        
+        # Get sync timestamp from emerge.log
+        logger.debug('Initializing emerge log parser:')
+        myparser = LastSync(log=self.pathdir['emergelog'])
+        logger.debug(f"Parsing file: {self.pathdir['emergelog']}")
+        logger.debug('Searching last sync timestamp.')
+        sync_timestamp = myparser.get()
+        
+        if sync_timestamp:
+            if sync_timestamp == self.sync['timestamp']:
+                logger.warning(f"Bug in class {self.__class__.__name__}, "
+                               "method: success_sync(): sync timestamp are "
+                               "equal...")
+            else:
+                logger.debug("Updating sync timestamp from "
+                             f"{self.sync['timestamp']} to "
+                             f"{sync_timestamp}")
+                
+        logger.debug(f"Resetting remain interval to {self.sync['interval']}")
+        
+        delay = self.format_timestamp.convert(self.sync['interval'], granularity=5)
+        logger.info(f"Next synchronization in: {delay}")
+        
+        # At the end of successfully sync, run pretend_world()
+        with self.pretend['locks']['proceed']:
+            self.pretend['proceed'] = True
+        
+        return { 
+            'error'         :   0, 
+            'state'         :   'success', 
+            'retry'         :   0, 
+            'remain'        :   self.sync['interval'],
+            'elapsed'       :   0,
+            'status'        :   'completed',
+            'session'       :   self.sync['session']+1, 
+            'count'         :   self.sync['count']+1,
+            'timestamp'     :   sync_timestamp 
+            }
+
 
 
 class PretendHandler:
@@ -438,7 +532,7 @@ class PretendHandler:
     Manage informations related to 'pretend'.
     """
     def __init__(self, **kwargs):
-        super().__init__()
+        super().__init__(**kwargs)
         self.__logger_name = f'::{__name__}::PretendHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
@@ -472,6 +566,16 @@ class PretendHandler:
                 }
             }
     
+    def stateopts(self):
+        """
+        Specific stateopts dict
+        """
+        super().stateopts()
+        self.default_stateopts.update({
+            '# Pretend Opts'                 :   '',
+            'world packages'                 :   0
+            })
+        
     def pretend_world(self):
         """Check how many package to update"""
         # TODO more verbose for debug
@@ -592,7 +696,7 @@ class PortageHandler:
     Manage informations related to 'portage'.
     """
     def __init__(self, **kwargs):
-        super().__init__()
+        super().__init__(**kwargs)
         self.__logger_name = f'::{__name__}::PortageHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
@@ -602,6 +706,18 @@ class PortageHandler:
             'latest'    :   self.loaded_stateopts.get('portage latest'),
             'available' :   self.loaded_stateopts.get('portage available')
             }
+    
+    def stateopts(self):
+        """
+        Specific stateopts dict
+        """
+        super().stateopts()
+        self.default_stateopts.update({
+            '# Portage Opts'                 :   '',
+            'portage available'              :   False,
+            'portage current'                :   '0.0',
+            'portage latest'                 :   '0.0',
+            })
     
     def available_portage_update(self, detected=False, init=False):
         """
@@ -758,7 +874,7 @@ class WorldHandler:
     Manage informations related to 'world'
     """
     def __init__(self, **kwargs):
-        super().__init__()
+        super().__init__(**kwargs)
         self.__logger_name = f'::{__name__}::WorldHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
@@ -771,6 +887,20 @@ class WorldHandler:
             'total'     :   self.loaded_stateopts.get('world last total'),
             'failed'    :   self.loaded_stateopts.get('world last failed')
             }
+    
+    def stateopts(self):
+        """
+        Specific stateopts dict
+        """
+        super().stateopts()
+        self.default_stateopts.update({
+            '# World Opts'                   :   '',
+            'world last start'               :   0,
+            'world last stop'                :   0,
+            'world last state'               :   'unknow',
+            'world last total'               :   0,
+            'world last failed'              :   'none'
+            })
     
     def get_last_world_update(self, detected=False):
         """
@@ -824,8 +954,8 @@ class WorldHandler:
 
 
 
-class BaseHandler(SyncHandler, PretendHandler, 
-                     PortageHandler, WorldHandler):
+class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
+                  SyncHandler, GenericHandler):
     """
     Base class for all Handler
     """
@@ -851,58 +981,21 @@ class BaseHandler(SyncHandler, PretendHandler,
         self.__logger_name = f'::{__name__}::BaseHandler::'
         logger = logging.getLogger(f'{self.__logger_name}init::')
         
-        # compatibility for python < 3.7 (dict is not ordered)
-        if sys.version_info[:2] < (3, 7):
-            from collections import OrderedDict 
-            default_stateopts = OrderedDict(
-            ('# Wrote by {0}'.format(self.pathdir['prog_name']) 
-             + ' version: {0}'.format(self.pathdir['prog_version']), ''),
-            ('# Please don\'t edit this file.',   ''),
-            ('# Sync Opts'                    ,   ''),
-            ('sync count'                     ,   0), 
-            ('sync state'                     ,   'never sync'),
-            ('sync network_error'             ,   0),
-            ('sync retry'                     ,   0),
-            ('sync timestamp'                 ,   0),
-            ('# World Opts'                   ,   ''),
-            ('world packages'                 ,   0),
-            ('world last start'               ,   0),
-            ('world last stop'                ,   0),
-            ('world last state'               ,   'unknow'),
-            ('world last total'               ,   0),
-            ('world last failed'              ,   'none'),
-            ('# Portage Opts'                 ,   ''),
-            ('portage available'              ,   False),
-            ('portage current'                ,   '0.0'),
-            ('portage latest'                 ,   '0.0'),
-            )
-        else:
-            # python >= 3.7 preserve dict order 
-            default_stateopts = {
-                '# Wrote by {0}'.format(self.pathdir['prog_name']) 
-                + ' version: {0}'.format(self.pathdir['prog_version']): '',
-                '# Please don\'t edit this file.':   '',
-                '# Sync Opts'                    :   '',
-                'sync count'                     :   0, 
-                'sync state'                     :   'never sync',
-                'sync network_error'             :   0,
-                'sync retry'                     :   0,
-                'sync timestamp'                 :   0,
-                '# World Opts'                   :   '',
-                'world packages'                 :   0,
-                'world last start'               :   0,
-                'world last stop'                :   0,
-                'world last state'               :   'unknow',
-                'world last total'               :   0,
-                'world last failed'              :   'none',
-                '# Portage Opts'                 :   '',
-                'portage available'              :   False,
-                'portage current'                :   '0.0',
-                'portage latest'                 :   '0.0',
-                }
+        # python >= 3.7 preserve dict order 
+        # Now each inheritance class provide
+        # is own stateopts
+        self.default_stateopts = {
+            f"# Wrote by {self.pathdir['prog_name']}" 
+            + f" version: {self.pathdir['prog_version']}"   :   '',
+            '# Please don\'t edit this file.'               :   '',
+            }
+        # Load stateopts from all other class
+        super().stateopts()
         
         # Init save/load info file 
-        self.stateinfo = StateInfo(pathdir=self.pathdir, stateopts=default_stateopts, dryrun=self.dryrun)
+        self.stateinfo = StateInfo(pathdir=self.pathdir, 
+                                   stateopts=self.default_stateopts, 
+                                   dryrun=self.dryrun)
         # Retrieve status of saving from stateinfo
         # WARNING We have to be really carefull about this:
         # As of 2020/11/15 stateinfo can't be call twice in the same time.
@@ -913,7 +1006,7 @@ class BaseHandler(SyncHandler, PretendHandler,
             # Don't need to load from StateInfo as it just create file 
             # or we don't want to write anything:
             # add default_stateopts from here
-            self.loaded_stateopts = default_stateopts
+            self.loaded_stateopts = self.default_stateopts
         else:
             # Ok load from StateInfo in one time
             # We don't need to convert from str() to another type
@@ -959,8 +1052,12 @@ class BaseHandler(SyncHandler, PretendHandler,
         # We capture log
         mycapture = io.StringIO()
         child.logfile = mycapture
-        # Wait non blocking 
-        pexpect_timeout = 0
+        # Wait non blocking
+        # WARNING DONT set this to 0 or it will
+        # eat a LOT of cpu: specially when there is
+        # no data to read (ex: sync and network problem)
+        # WARNING
+        pexpect_timeout = 1
         while not child.closed and child.isalive():
             if myattr['cancel']:
                 # So we want to cancel
@@ -983,9 +1080,11 @@ class BaseHandler(SyncHandler, PretendHandler,
                 break
             except pexpect.TIMEOUT:
                 # Just continue until EOF
-                # Setting a timeout > 0, will
+                # Setting a timeout > 1, will
                 # just made more lantency when 
                 # calling cancel/exit ...
+                # BUT timeout = 0 will eat A LOT
+                # of cpu doing nothing...
                 continue
         
         if myattr['exit'] or myattr['cancel']:
@@ -1024,28 +1123,3 @@ class BaseHandler(SyncHandler, PretendHandler,
   
 
 
-def get_repo_info():
-    """
-    Get portage repos informations and return formatted
-    """
-    logger = logging.getLogger(f'::{__name__}::get_repo_info::')
-    names = portdbapi().getRepositories()
-    if names:
-        names = sorted(names)
-        repo_count = len(names)
-        repo_msg = 'repositories'
-        # get only first 6 elements if names > 6
-        if repo_count > 6:
-            repo_name = ', '.join(names[:6]) + ' (+' + str(repo_count - 6) + ')'
-        elif repo_count == 1:
-            repo_msg = 'repository'
-            repo_name = ''.join(names)
-        else:
-            repo_name = ', '.join(names)
-        logger.debug('Found {0} {1} to sync: {2}'.format(repo_count, repo_msg, ', '.join(names)))
-        # return dict
-        return { 'names' :   names, 'formatted' : repo_name, 'count' : repo_count, 'msg' : repo_msg }
-    # This is debug message as it's not fatal for the program
-    logger.debug('Could\'nt found sync repositories name(s) and count...')
-    # We don't know so just return generic
-    return { 'names' : [ ], 'formatted' : 'unknow', 'count' : '(?)', 'msg' : 'repo' }

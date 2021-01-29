@@ -64,8 +64,8 @@ def state(myobject, opt, machine):
     reply = myobject.get_sync_attribute(opt)
     # For translation
     msg = {
-        'Success'       :   _('Success'),
-        'Failed'        :   _('Failed'),
+        'success'       :   _('Success'),
+        'failed'        :   _('Failed'),
         'never sync'    :   _('Program never sync'),
         'state'         :   _('Last state of the repositories syncronizer:')
         }
@@ -83,14 +83,14 @@ def count(myobject, count, machine):
         count = 'both'
     # Value is from module portagemanager (portagedbus)
     opt = {
-        'session'   :   [ 'session_count' ],
-        'overall'   :   [ 'global_count' ],
-        'both'      :   [ 'global_count', 'session_count' ]
+        'session'   :   [ 'session' ],
+        'overall'   :   [ 'count' ],
+        'both'      :   [ 'count', 'session' ]
         }
     # For translation
     key_opt = { 
-        'session_count' :   _('Session'),
-        'global_count'         :   _('Overall')
+        'session'   :    _('Session'),
+        'count'     :   _('Overall')
         }
     if not machine:
         print('[*]', _('The repositories syncronizer run successfully:'))
