@@ -503,7 +503,7 @@ class StateInfo:
                                         logger.debug(f'Selecting arbitrarily: \'{value}\'' 
                                                 + f' (over: default_value=\'{self.stateopts[item[0]]}\' and' 
                                                 + ' list=\'{0}\')'.format('|'.join(tomerge[item[0]]))
-                                                + f' for option: \'{option}\'.')
+                                                + f' for option: \'{item[0]}\'.')
                                         item[1] = value
                                         found = True
                                         break
