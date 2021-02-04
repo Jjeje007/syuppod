@@ -631,7 +631,7 @@ class FormatTimestamp:
         """
         Proceed the conversion
         """
-        logger = logging.getLogger(f'{self.logger_name}convert::')
+        logger = logging.getLogger(f'{self.logger_name}__call__::')
         
         if self.advanced_debug:
             logger.setLevel(logging.DEBUG2)

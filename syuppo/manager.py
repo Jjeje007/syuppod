@@ -24,10 +24,11 @@ from portage.dbapi.vartree import vardbapi
 
 from syuppo.utils import FormatTimestamp
 from syuppo.utils import StateInfo
+from syuppo.utils import on_parent_exit
 from syuppo.logger import ProcessLoggingHandler
 from syuppo.logparser import LastSync
 from syuppo.logparser import LastWorldUpdate 
-from syuppo.utils import on_parent_exit
+
 
 try:
     import numpy
@@ -80,17 +81,23 @@ class SyncHandler:
             'remain'        :   0,
             # Values: >= 0
             'session'       :   0,   
-            # Repo's dict to sync with key: 'names', 'formatted'
-            # 'count' and 'msg'. 'names' is a list
-            # And also after first sync:
-            #   'failed': repos that failed during last sync
-            #   'success': repos that successed during last sync
+            # Repos informations: 
+            #   'names'     :   list of repos names
+            #   'formatted' :   (str) list of repos names formatted
+            #   'count'     :   (int) number of repos
+            #   'msg'       :   repository / repositories
+            #   'failed'    :   list that fail last sync
+            #   'success'   :   list that successed last sync
             'repos'         :   self.get_repo_info(),
+            # Values: True | False
             'cancel'        :   False,
+            # Values: True | False
             'exit'          :   False,
             # locks for shared method/attr accross daemon threads
             'locks'         :   {
+                # For running check_sync()
                 'check'     :   Lock(),
+                # Others are attrs
                 'cancel'    :   Lock(),
                 'remain'    :   Lock(),
                 'elapsed'   :   Lock(),
@@ -103,7 +110,7 @@ class SyncHandler:
         if self.sync['interval'] > 2592000:
             interval = self.sync['interval']
             logger.warning("The selected synchronization interval is large: "
-                           f"{self.format_timestamp(interval, granularity=5)}.")
+                          f"{self.format_timestamp(interval, granularity=5)}.")
     
     
     def stateopts(self):
@@ -303,6 +310,7 @@ class SyncHandler:
             log_writer = logging.getLogger(f'{self.__logger_name}write_sync_log::')
         
         # Errors related
+        # See failed_sync()
         error = 'unexcepted'
         # Network failure # TODO
         manifest_failure = re.compile(r'^!!!.Manifest.verification.impossible'
@@ -320,12 +328,12 @@ class SyncHandler:
         self.sync['repos']['success'] = [ ]
         
         # Running sync command using sudo (as root)
-        mycommand = '/usr/bin/sudo'
-        myargs = [ '/usr/bin/emerge', '--sync' ]
-        msg = f"Stop syncing {self.sync['repos']['msg']}"
+        cmd = '/usr/bin/sudo'
+        args = [ '/usr/bin/emerge', '--sync' ]
+        msg = f"Stop {self.sync['repos']['msg']} synchronization"
         
         # Running using pexpect
-        return_code, logfile = self._pexpect('sync', mycommand, myargs, msg)
+        return_code, logfile = self._pexpect('sync', cmd, args, msg)
         
         if return_code == 'exit':
             return
@@ -358,18 +366,17 @@ class SyncHandler:
                          f"{', '.join(self.sync['repos']['failed'])}")
         
         if return_code:
-            keywords = self.failed_sync(self.sync['retry'], error)
+            attributes = self.failed_sync(self.sync['retry'], error)
         else:
-            keywords = self.success_sync()
+            attributes = self.success_sync()
             
         tosave = [ ]
-        for key, value in keywords.items():
+        for key, value in attributes.items():
             # Make sure key exists
             if key in self.sync:
                 if not self.sync[key] == value:
-                    current = self.sync[key]
                     logger.debug(f"Changing value for sync['{key}'] from"
-                                 f" {current} to {value}")
+                                 f" {self.sync[key]} to {value}")
                     # Make sure to use locks if exists
                     if key in self.sync['locks']:
                         logger.debug("Using locks() for changing "
@@ -458,9 +465,9 @@ class SyncHandler:
             msg_on_retry = f" ({retry} times already)"
                 
         delay =  self.format_timestamp(remain, granularity=5)
-        logger.error(f"Synchronization of {msg_count} failed due to {msg_error}"
-                     f" {error} error: {repos}, will retry in {delay}"
-                     f"{msg_on_retry}.")
+        logger.error(f"Synchronization of {msg_count} failed due to "
+                     f"{msg_error} {error} error: {repos}, will "
+                     f"retry in {delay}{msg_on_retry}.")
             
         logger.debug(f"Incrementing sync retry from {retry} to {retry+1}")
                        
@@ -480,7 +487,7 @@ class SyncHandler:
         logger = logging.getLogger(f'{self.__logger_name}success_sync::')
         
         msg_repo = f"{self.sync['repos']['msg']}"
-        logger.info(f"{msg_repo} synchronization is successful.")
+        logger.info(f"{msg_repo.capitalize()} synchronization is successful.")
         
         for count in 'count', 'session':
             logger.debug(f"Incrementing {count} count from "
@@ -507,7 +514,7 @@ class SyncHandler:
         logger.debug(f"Resetting remain interval to {self.sync['interval']}")
         
         delay = self.format_timestamp(self.sync['interval'], granularity=5)
-        logger.info(f"Next synchronization in: {delay}")
+        logger.info(f"Next synchronization in {delay}.")
         
         # At the end of successfully sync, run pretend_world()
         with self.pretend['locks']['proceed']:
@@ -560,7 +567,9 @@ class PretendHandler:
             'cancelled' :   False,
             # locks for shared method/attr accross daemon threads
             'locks'     :   {
+                # For calling pretend_world()
                 'proceed'   :   Lock(),
+                # Others are attrs
                 'cancel'    :   Lock(),
                 'cancelled' :   Lock(),
                 'status'    :   Lock()
@@ -578,7 +587,9 @@ class PretendHandler:
             })
         
     def pretend_world(self):
-        """Check how many package to update"""
+        """
+        Get how many package to update
+        """
         # TODO more verbose for debug
         logger = logging.getLogger(f'{self.__logger_name}pretend_world::')
         
@@ -592,9 +603,9 @@ class PretendHandler:
         
         logger.debug('Start searching available package(s) update.')
                 
-        update_packages = False
+        packages = False
         retry = 0
-        find_build_packages = re.compile(r'^Total:.(\d+).package.*$')        
+        extract_packages = re.compile(r'^Total:.(\d+).package.*$')        
         
         if not self.dryrun:
             # Init logger
@@ -606,52 +617,61 @@ class PretendHandler:
             logger.debug('Log level: info')
             log_writer.setLevel(processlog.logging.INFO)
         else:
-            log_writer = logging.getLogger(f'{self.__logger_name}write_pretend_world_log::')
+            name = f'{self.__logger_name}write_pretend_world_log::'
+            log_writer = logging.getLogger(name)
             
-        mycommand = '/usr/bin/emerge'
-        myargs = [ '--verbose', '--pretend', '--deep', 
+        cmd = '/usr/bin/emerge'
+        args = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
-        msg = ('Stop searching for available package(s) update')
+        cmd_line = f"{cmd} {' '.join(args)}"
+        msg = ('Stop checking for available updates')
         
         while retry < 2:
-            logger.debug('Running {0} {1}'.format(mycommand, ' '.join(myargs)))
+            logger.debug(f"Running {cmd_line}")
             
-            return_code, logfile = self._pexpect('pretend', mycommand, myargs, msg)
+            return_code, logfile = self._pexpect('pretend', cmd, 
+                                                 args, msg)
             
             if return_code == 'exit':
                 return
             
             # Get package number and write log in the same time
-            log_writer.info('##### START ####')
-            log_writer.info('Command: {0} {1}'.format(mycommand, ' '.join(myargs)))
+            log_writer.info("##### START ####")
+            log_writer.info(f"Command: {cmd_line}")
             for line in logfile:
                 log_writer.info(line)
-                if find_build_packages.match(line):
-                    update_packages = int(find_build_packages.match(line).group(1))
+                if extract_packages.match(line):
+                    packages = int(extract_packages.match(line).group(1))
                     # don't retry we got packages
                     retry = 2
             
-            log_writer.info(f'Terminate process: exit with status {return_code}')
-            log_writer.info('##### END ####')
+            log_writer.info("Terminate process: exit with status "
+                            "f{return_code}")
+            log_writer.info("##### END ####")
             
-            # We can have return_code > 0 and matching packages to update.
-            # This can arrived when there is, for exemple, packages conflict (solved by skipping).
+            # We can have return_code > 0 and 
+            # matching packages to update.
+            # This can arrived when there is, for exemple,
+            # packages conflict (solved by skipping).
             # if this is the case, continue anyway.
             msg_on_return_code = 'Found'
             if return_code:
                 msg_on_return_code = 'Anyway found'
-                logger.error('Got error while searching for available package(s) update.')
-                logger.error('Command: {0} {1}, return code: {2}'.format(mycommand,
-                                                                           ' '.join(myargs), return_code))
-                logger.error('You can retrieve log from: {0}.'.format(self.pathdir['pretendlog'])) 
+                logger.error("Got error while searching for available "
+                             "package(s) update.")
+                logger.error(f"Command: {cmd_line}, return code: "
+                             f"{return_code}")
+                logger.error("You can retrieve log from: "
+                             f"{self.pathdir['pretendlog']}")
                 if retry < 1:
                     logger.error('Retrying without opts \'--with-bdeps\'...')
         
             # Ok so do we got update package ?
             if retry == 2:
-                if update_packages > 1:
-                    msg = f'{msg_on_return_code} {update_packages} packages to update.'
-                elif update_packages == 1:
+                if packages > 1:
+                    msg = (f'{msg_on_return_code} {packages} '
+                           'packages to update.')
+                elif packages == 1:
                     msg = f'{msg_on_return_code} only one package to update.'
                 # no package found
                 else:
@@ -659,29 +679,27 @@ class PretendHandler:
                         msg = f'Anyway system is up to date.'
                     else:
                         msg = f'System is up to date.'
-                logger.debug(f'Successfully search for packages update ({update_packages})')
+                logger.debug("Successfully search for packages update:"
+                             f" {packages}")
                 logger.info(msg)
             else:
                 # Remove --with-bdeps and retry one more time.
                 retry += 1
                 if retry < 2:
-                    myargs.pop()
-                    logger.debug('Couldn\'t found how many package to update, retrying without opt \'--with bdeps\'.')
+                    args.pop()
+                    logger.debug("Couldn't found how many package to update,"
+                                 " retrying without opt '--with bdeps'.")
 
-        # Make sure we have some update_packages
-        if update_packages:
-            if not self.pretend['packages'] == update_packages:
-                self.pretend['packages'] = update_packages
+        # Make sure we have some packages
+        if packages:
+            if not self.pretend['packages'] == packages:
+                self.pretend['packages'] = packages
                 tosave.append(['pretend packages', self.pretend['packages']])
         else:
             if not self.pretend['packages'] == 0:
                 self.pretend['packages'] = 0
                 tosave.append(['pretend packages', self.pretend['packages']])
                 
-        # At the end
-        if self.pretend['cancelled']:
-            logger.debug('The previously task have been cancelled,' 
-                             + ' resetting state to False (as this one is completed).')
         with self.pretend['locks']['cancelled']:
             self.pretend['cancelled'] = False
         # Save
@@ -726,7 +744,8 @@ class PortageHandler:
         """
         
         # TODO: be more verbose for debug !
-        logger = logging.getLogger(f'{self.__logger_name}available_portage_update::')
+        name = 'available_portage_update'
+        logger = logging.getLogger(f'{self.__logger_name}{name}::')
         
         logger.debug(f"Running with detected={detected}, init={init}")
                 
@@ -748,8 +767,10 @@ class PortageHandler:
         result = pkgcmp(pkgsplit(latest),pkgsplit(current))
         # From site-packages/portage/versions.py
         # Parameters:
-        # pkg1 (list (example: ['test', '1.0', 'r1'])) - package to compare with
-        # pkg2 (list (example: ['test', '1.0', 'r1'])) - package to compare againts
+        # pkg1 (list (example: ['test', '1.0', 'r1'])) - 
+        #                           package to compare with
+        # pkg2 (list (example: ['test', '1.0', 'r1'])) - 
+        #                           package to compare againts
         # Returns: None or integer
         # None if package names are not the same
         # 1 if pkg1 is greater than pkg2
@@ -810,16 +831,19 @@ class PortageHandler:
             #       positive number
             #       >>> vercmp('1.0_p3','1.0_p3')
             #       0
-            #   @param pkg1: version to compare with (see ver_regexp in portage.versions.py)
+            #   @param pkg1: version to compare with 
+            #       (see ver_regexp in portage.versions.py)
             #   @type pkg1: string (example: "2.1.2-r3")
-            #   @param pkg2: version to compare againts (see ver_regexp in portage.versions.py)
+            #   @param pkg2: version to compare againts 
+            #       (see ver_regexp in portage.versions.py)
             #   @type pkg2: string (example: "2.1.2_rc5")
             #   @rtype: None or float
             #   @return:
             #   1. positive if ver1 is greater than ver2
             #   2. negative if ver1 is less than ver2
             #   3. 0 if ver1 equals ver2
-            #   4. None if ver1 or ver2 are invalid (see ver_regexp in portage.versions.py)
+            #   4. None if ver1 or ver2 are invalid 
+            #       (see ver_regexp in portage.versions.py)
             compare = vercmp(self.portage['current'], self.current)
             msg = False
             add_msg = ''
@@ -909,7 +933,8 @@ class WorldHandler:
         """
         
         # Change name of the logger
-        logger = logging.getLogger(f'{self.__logger_name}get_last_world_update::')
+        name = 'get_last_world_update'
+        logger = logging.getLogger(f'{self.__logger_name}{name}::')
         logger.debug(f'Running with detected={detected}')
         
         myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
@@ -952,6 +977,12 @@ class WorldHandler:
         if updated:
             return True
         return False
+    
+    def allow_pretend(self):
+        """
+        Allow or deny running pretend_world()
+        """
+        pass
 
 
 

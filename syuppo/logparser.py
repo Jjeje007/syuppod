@@ -391,7 +391,7 @@ class LastWorldUpdate(EmergeLogParser):
         #   23296316 function calls (22688021 primitive calls)
         #                                    in 10.764 seconds
         
-        # With default settings 3000lines:
+        # With default settings (3000 lines):
         #   OLD version: Elapsed Time: 0.40 seconds. Collected 118 
         #                                  stack frames (82 unique)
         #   NEW version: 508617 function calls (495529 primitive calls)
