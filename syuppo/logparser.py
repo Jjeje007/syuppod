@@ -289,9 +289,9 @@ class LastWorldUpdate(EmergeLogParser):
             'stop'      :   stop timestamp.
             'total'     :   total packages which have been update.
             'state'     :   'complete', 'partial', 'incomplete' or 'fragment'
-            'failed'    :   if 'complete': 'none', if 'partial', 'incomplete'
-                            or 'fragment':
-                                package number which failed. 
+            'failed'    :   if 'complete': 'none' (str), 
+                            if 'partial', 'incomplete' or 'fragment': package
+                            number which failed. 
             Else False.
         """
         
@@ -511,11 +511,11 @@ class LastWorldUpdate(EmergeLogParser):
         Load or reload default attrs.
         
         :include:
-            For partial reload, set keys(s) that should
+            For partial reload, set key(s) that should
             be reload. Default '()'.
         :exclude:
-            For partial reload, set keys(s) that should
-            not be reload. Default '()'.
+            For partial reload, set key(s) that should
+            NOT be reload. Default '()'.
         :init:
             Initial load. Default False.
         :verbose:
@@ -547,8 +547,8 @@ class LastWorldUpdate(EmergeLogParser):
             # Trying to match status end: complete/failed
             'current'       :   False,
             # If keepgoing_opt match then keepgoing = True,
-            # else False. keepgoing True activated partial 
-            # fragment group status (for fragment if enable).
+            # else False. keepgoing True activated partial and
+            # fragment group status (for fragment, if enable).
             'keepgoing'     :   False,
             # The internal line number from within a new match found.
             # This is almost dedicated to match something at a 
@@ -595,20 +595,21 @@ class LastWorldUpdate(EmergeLogParser):
         
         for key, value in __defaults.items():
             if include and not key in include:
-                parser_value = self.parser[key]
                 if verbose:
                     logger.debug2("Skip reload for not included key:"
-                                 f" {key}, current value: {parser_value}")
+                                 f" {key}, current value: {self.parser[key]}")
                 continue
-            if exclude and key in exclude:
-                parser_value = self.parser[key]
+            elif exclude and key in exclude:
                 if verbose:
                     logger.debug2("Skip reload for excluded key:"
-                                 f" {key}, current value: {parser_value}")
+                                 f" {key}, current value: {self.parser[key]}")
                 continue
-            if verbose:
+            if verbose and not init:
                 logger.debug2(f"Reloading key: {key}, value: current:"
-                              f" {parser_value}, default: {__defaults[key]}")
+                              f" {self.parser[key]}, default: "
+                              f"{__defaults[key]}")
+            elif verbose and init:
+                logger.debug2(f"Init key: {key}, default: {__defaults[key]}")
             self.parser[key] = __defaults[key]
             
     def _config_detected(self):
@@ -1030,7 +1031,8 @@ class LastWorldUpdate(EmergeLogParser):
         # to be sure which one that ended and make 
         # a decision if we stop or not.
         # TODO TODO
-        logger.warning("_analyze_finished_match have been called!")
+        logger.warning("_analyze_finished_match have been called at line:"
+                       f" '{self.line}' (please report this)")
         # For now, just print the record list
         for item in self.parser['record']:
             # print to debug because we need this 
