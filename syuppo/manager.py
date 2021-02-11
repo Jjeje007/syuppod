@@ -399,7 +399,7 @@ class SyncHandler:
                     logger.debug(f"Keeping same value of sync['{key}']:"
                                  f" {value}")
             else:
-                logger.warning(f"Missing key '{key}' in sync dictionnary"
+                logger.error(f"Missing key '{key}' in sync dictionnary"
                                " (please report this)")
             
         # Then save every thing in one shot
@@ -459,7 +459,7 @@ class SyncHandler:
                 remain = item[1]
         
         msg_on_retry = ''
-        if retry > 0:
+        if retry == 1:
             msg_on_retry = ' (1 time already)'
         elif retry > 1:
             msg_on_retry = f" ({retry} times already)"
@@ -646,7 +646,7 @@ class PretendHandler:
                     retry = 2
             
             log_writer.info("Terminate process: exit with status "
-                            "f{return_code}")
+                            f"'{return_code}'")
             log_writer.info("##### END ####")
             
             # We can have return_code > 0 and 
