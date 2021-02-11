@@ -174,13 +174,13 @@ class SyncHandler:
         """ 
         Checking sync repo timestamp, recompute time remaining
          and, or elapsed if requested, allow or deny sync.
-        :init:
+        :param init:
             Display informations on program init. 
             Default False.
-        :recompute:
+        :param recompute:
             Recalculate time remaining and elapsed. 
             Default False.
-        :external:
+        :param external:
             Display external sync process status:
             failed/aborted or success.
             Default False.
@@ -413,10 +413,10 @@ class SyncHandler:
     def failed_sync(self, retry, error):
         """
         Proceed when sync process failed.
-        :error:
+        :param error:
             Error type, to choose between 'network' and
             'unexcepted'.
-        :retry:
+        :param retry:
             How many retry have been already run.
         """
         logger = logging.getLogger(f'{self.__logger_name}failed_sync::')
@@ -1052,11 +1052,11 @@ class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
         """
         Run specific process using pexpect
         
-        :proc:
+        :param proc:
             This should be call with 'sync' or 'pretend'
-        :cmd:
+        :param cmd:
             The command to run.
-        :args:
+        :param args:
             The arguments as a list.
         :return:
             An iterable with, first element is the return

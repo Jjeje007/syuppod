@@ -398,7 +398,7 @@ class DynamicDaemon(threading.Thread):
     def display_log(self, level):
         """
         Control the logflow.
-        :level:
+        :param level:
             The level of logging to apply.
         :return:
             True if authorized else False.
@@ -650,7 +650,7 @@ class DynamicDaemon(threading.Thread):
         """
         Update all attributes and methods
         related to a portage status changed
-        :detected:
+        :param detected:
             If process running have been detected.
             Defaut: True (because it's a generic call
             in 'run' using getattr. So that mean,

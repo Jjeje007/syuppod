@@ -273,14 +273,14 @@ class LastWorldUpdate(EmergeLogParser):
             at 30, restart and definetly failed at 20 and fragment=45 then 
             this will be recorded. Float setup, will filter by percentage. 
             Default 2.
-        :nrange: 
+        :param nrange: 
             List length for numpy to build an exponantial list. Default 8. 
-        :advanced_debug:
+        :param advanced_debug:
             Enable or disable advanced debugging. This will make A LOT of log.
             True for enable else False. Default False. Note: if logging level
             is set to DEBUG2 then it will enable advanced debug even this is
             set to False.
-        :debug_show_all_lines:
+        :param debug_show_all_lines:
             Only if advanced_debug=True, print all emerge.log lines. 
             True for enable else False. Default False.
         :return: 
@@ -510,15 +510,15 @@ class LastWorldUpdate(EmergeLogParser):
         """
         Load or reload default attrs.
         
-        :include:
+        :param include:
             For partial reload, set key(s) that should
             be reload. Default '()'.
-        :exclude:
+        :param exclude:
             For partial reload, set key(s) that should
             NOT be reload. Default '()'.
-        :init:
+        :param init:
             Initial load. Default False.
-        :verbose:
+        :param verbose:
             Toggle verbose for logging, only with 
             advanced_debug=True. Default False.
         """
@@ -1122,7 +1122,7 @@ class LastWorldUpdate(EmergeLogParser):
     def _save(self, target):
         """
         Common saving process.
-        :target:
+        :param target:
             Targeted group from complete, partial, incomplete
             or fragment.
         """
@@ -1173,7 +1173,7 @@ class LastWorldUpdate(EmergeLogParser):
         This is handle not complete process without keepgoing set or
         fragment process which is a 'mix' between incomplete and
         partial.
-        :arg:
+        :param arg:
             Targeted saving process: incomplete or fragment.
         """
         
@@ -1231,7 +1231,7 @@ class LastWorldUpdate(EmergeLogParser):
         Specific saving process for the partial and fragment group.
         This is handle process keepgoing which end to a complete 
         (partial) and incomplete (fragment) state.
-        :arg:
+        :param arg:
             Targeted saving process: incomplete or fragment.
         """
         
