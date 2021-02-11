@@ -541,7 +541,7 @@ class DynamicDaemon(threading.Thread):
         logger = logging.getLogger(f'{self.logger_name}checking::')
         # Get current processes state
         # CheckProcRunning() DONT track internal sync
-        self.pstate = self.prun.check()
+        self.pstate = self.prun()
         # Found process 
         if self.pstate:
             logger.debug("Found running process:"

@@ -1054,7 +1054,7 @@ class CheckProcRunning:
                                 + "skipping...")
                 continue 
     
-    def check(self):
+    def __call__(self):
         """
         Check if specific process is running 
         using content from __get_content()
