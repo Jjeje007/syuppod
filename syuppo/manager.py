@@ -192,7 +192,7 @@ class SyncHandler:
         
         # Get the last emerge sync timestamp
         myparser = LastSync()
-        sync_timestamp = myparser.get()
+        sync_timestamp = myparser()
         
         if not sync_timestamp:
             # Don't need to logging anything it's 
@@ -499,7 +499,7 @@ class SyncHandler:
         myparser = LastSync(log=self.pathdir['emergelog'])
         logger.debug(f"Parsing file: {self.pathdir['emergelog']}")
         logger.debug('Searching last sync timestamp.')
-        sync_timestamp = myparser.get()
+        sync_timestamp = myparser()
         
         if sync_timestamp:
             if sync_timestamp == self.sync['timestamp']:
@@ -939,7 +939,7 @@ class WorldHandler:
         
         myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
                                    log=self.pathdir['emergelog'])
-        get_world_info = myparser.get()
+        get_world_info = myparser()
         
         updated = False
         tosave = [ ]

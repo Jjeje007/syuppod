@@ -154,7 +154,7 @@ class LastSync(EmergeLogParser):
                                               num=nrange, endpoint=True, dtype=int)
         self.__nlogger = f'::{__name__}::LastSync::' 
         
-    def get(self):
+    def __call__(self):
         """
         Return last sync timestamp
         :return: 
@@ -397,7 +397,7 @@ class LastWorldUpdate(EmergeLogParser):
         #   NEW version: 508617 function calls (495529 primitive calls)
         #                                              in 0.316 seconds
     
-    def get(self):
+    def __call__(self):
         """
         Collect and return the informations.
         """
