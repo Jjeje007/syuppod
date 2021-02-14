@@ -984,12 +984,21 @@ class LastWorldUpdate(EmergeLogParser):
         if not self.parser['record']:
             logger.error("When extracting world update informations,"
                          " found 'record' list empty.")
-            logger.error("Skip current process but please report it.")
+            logger.error("Skip current process (_set_stop_timestamp) "
+                         "but please report this.")
             # Reset everything
             self._load_default_cfg()
             return False
-        
-        stop = re.compile(r'^(\d+):\s{2}===\s\('
+        # We can found something like :
+        #   1613240952:  >>> emerge (8 of 273) {...CUT...}
+        #   1613240952:  === (8 of 273) {...CUT...}
+        #   1613240953:  === (8 of 273) {...CUT...}
+        #   1613240959:  === (8 of 273) {...CUT...}
+        #   1613240960:  >>> AUTOCLEAN: media-libs/opusfile:0
+        #   1613240962:  === (8 of 273) {...CUT...}
+        # So better to match against:
+        #   '(8 of 273)' only
+        stop = re.compile(r'^(\d+):\s{2}.*\s\('
                           + str(self.parser['count'])
                           + r'\s*of\s*'
                           + str(self.parser['group']['total'])
