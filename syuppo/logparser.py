@@ -402,7 +402,7 @@ class LastWorldUpdate(EmergeLogParser):
         Collect and return the informations.
         """
         
-        logger = logging.getLogger(f'{self.__nlogger}get::')
+        logger = logging.getLogger(f'{self.__nlogger}__call__::')
         
         if self.advanced_debug:
             logger.setLevel(logging.DEBUG2)
@@ -491,15 +491,17 @@ class LastWorldUpdate(EmergeLogParser):
                 latest_sublist = sublist
         
         if latest_sublist:
-            failed = f" failed: {latest_sublist['failed']}"
+            failed = f" failed: {latest_sublist['failed']},"
+            nfailed = f" nfailed: {latest_sublist['nfailed']}"
             if latest_sublist['state'] == 'complete':
                 failed = ''
+                nfailed = ''
                 
             logger.debug(f"Selecting {latest_sublist['state']},"
                          f" start: {latest_sublist['start']}" 
                          f" stop: {latest_sublist['stop']}"
                          f" total packages: {latest_sublist['total']}"
-                         f"{failed}")
+                         f"{failed}{nfailed}")
             return latest_sublist
         else:
             logger.error('FAILED to found latest global update informations.')
@@ -1163,7 +1165,8 @@ class LastWorldUpdate(EmergeLogParser):
                          f" start: {self.parser['group']['start']},"
                          f" stop: {self.parser['group']['stop']},"
                          f" total packages: {self.parser['group']['total']},"
-                         f" failed: {self.parser['group']['failed']}.")
+                         f" failed: {self.parser['group']['failed']},"
+                         f" nfailed: {self.parser['group']['nfailed']}.")
             logger.debug('BUG, rejecting because stop timestamp <= start timestamp')
             return
         
@@ -1173,7 +1176,8 @@ class LastWorldUpdate(EmergeLogParser):
                     f" start: {self.parser['group']['start']},"
                     f" stop: {self.parser['group']['stop']},"
                     f" total packages: {self.parser['group']['total']},"
-                    f" failed: {self.parser['group']['failed']}.")
+                    f" failed: {self.parser['group']['failed']},"
+                    f" nfailed: {self.parser['group']['nfailed']}.")
         self.parser['count'] = 1
      
     def _save_incomplete_fragment(self, arg):
@@ -1278,6 +1282,9 @@ class LastWorldUpdate(EmergeLogParser):
         dropped = (self.parser['group']['saved']['total'] - 
                    self.parser['group']['saved']['count'] -
                    self.parser['count'])
+        # TEST Setup failed count
+        length = len(self.parser['group']['failed'])
+        self.parser['group']['nfailed'] =  length + dropped
         
         msg = ''
         if dropped > 0:
@@ -1331,6 +1338,8 @@ class LastWorldUpdate(EmergeLogParser):
         
         # For comptability if not 'failed' then 'failed' = 'none'
         self.parser['group']['failed'] = 'none'
+        # Nothing failed so set nfailed to 0
+        self.parser['group']['nfailed'] =  0
         self.parser['group']['state'] = 'complete'
         self._save('complete')    
         
@@ -1364,6 +1373,10 @@ class LastWorldUpdate(EmergeLogParser):
             self.parser['group']['failed'] = (f"at {self.parser['count']}/"
                                              f"{self.parser['group']['total']}"
                                              f" ({self.parser['name']})")
+            # TEST add failed count
+            total = self.parser['group']['total']
+            count = self.parser['count']
+            self.parser['group']['nfailed'] = total - count
             logger.debug2("Calling _save_incomplete_fragment('incomplete')")
             self._save_incomplete_fragment('incomplete')
         # Then reset everything

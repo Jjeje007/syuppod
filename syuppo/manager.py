@@ -405,10 +405,6 @@ class SyncHandler:
         # Then save every thing in one shot
         if tosave:
             self.stateinfo.save(*tosave)
-        # At the end
-        with self.sync['locks']['elapsed']:
-            self.sync['elapsed'] = 0
-        return      
     
     def failed_sync(self, retry, error):
         """
@@ -583,7 +579,8 @@ class PretendHandler:
         super().stateopts()
         self.default_stateopts.update({
             '# Pretend Opts'                 :   '',
-            'pretend packages'               :   0
+            # Default to -1010 so we know it's first run
+            'pretend packages'               :   -1010
             })
         
     def pretend_world(self):
@@ -624,14 +621,12 @@ class PretendHandler:
         args = [ '--verbose', '--pretend', '--deep', 
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
         cmd_line = f"{cmd} {' '.join(args)}"
-        msg = ('Stop checking for available updates')
+        msg = 'Stop checking for available updates'
         
         while retry < 2:
             logger.debug(f"Running {cmd_line}")
-            
             return_code, logfile = self._pexpect('pretend', cmd, 
                                                  args, msg)
-            
             if return_code == 'exit':
                 return
             
@@ -644,7 +639,6 @@ class PretendHandler:
                     packages = int(extract_packages.match(line).group(1))
                     # don't retry we got packages
                     retry = 2
-            
             log_writer.info("Terminate process: exit with status "
                             f"'{return_code}'")
             log_writer.info("##### END ####")
@@ -692,22 +686,60 @@ class PretendHandler:
 
         # Make sure we have some packages
         if packages:
-            if not self.pretend['packages'] == packages:
-                self.pretend['packages'] = packages
-                tosave.append(['pretend packages', self.pretend['packages']])
+            self.change_packages_value(tochange=packages)
         else:
-            if not self.pretend['packages'] == 0:
-                self.pretend['packages'] = 0
-                tosave.append(['pretend packages', self.pretend['packages']])
+            self.change_packages_value(tochange=0)
                 
         with self.pretend['locks']['cancelled']:
             self.pretend['cancelled'] = False
-        # Save
-        if tosave:
-            self.stateinfo.save(*tosave)
         with self.pretend['locks']['status']:
             self.pretend['status'] = 'completed'
-    
+            
+    def change_packages_value(self, toadd=False, tosubtract=False, 
+                              tochange=False):
+        """
+        Add, subtract or change available package update value
+        param toadd:
+            Value to add. Default False.
+        param tosubtract:
+            Value to subtract. Default False
+        param tochange:
+            Change value. Default False
+        """
+        name = 'change_packages_value'
+        logger = logging.getLogger(f'{self.__logger_name}{name}::')
+        
+        logger.debug(f"Running with toadd={toadd}, tosubtract={tosubtract}"
+                     f" and tochange={tochange}")
+        
+        packages = self.pretend['packages']
+        
+        if not toadd and not tosubtract and not tochange:
+            logger.error("change_packages_value called without value...")
+            return
+        
+        if toadd:
+            logger.debug(f"Adding +{toadd} to packages updates: {packages}")
+            packages += toadd
+        elif tosubtract:
+            logger.debug(f"Subtracting -{toadd} to packages updates: "
+                         f"{packages}")
+            packages -= tosubtract
+            if packages < 0:
+                logger.error("Found packages updates < 0 when subtracting"
+                             f" {tosubtract}, previously: "
+                             f"{self.pretend['packages']} "
+                             "(please report this)")
+                packages = 0
+        elif tochange:
+            logger.debug(f"Changing packages updates from {packages} to"
+                         f" {tochange}")
+            packages = tochange
+        
+        if not packages == self.pretend['packages']:
+            self.pretend['packages'] = packages
+            self.stateinfo.save(['pretend packages', self.pretend['packages']])
+                
     
     
 class PortageHandler:
@@ -851,6 +883,10 @@ class PortageHandler:
                 # If not available and it have been updated
                 # than it have been updated to latest one
                 if not self.available:
+                    # TEST If no more update available
+                    # then remove '1' from self.pretend['packages']
+                    logger.debug("Removing 1 to available updates")
+                    self.change_packages_value(tosubtract=1)
                     add_msg = 'latest '
                 msg = (f"The portage package has been updated (from "
                        f"{self.portage['current']} to "
@@ -861,6 +897,10 @@ class PortageHandler:
                 # and now it is (self.available) than
                 # it have been downgraded from latest.
                 if not self.portage['available'] and self.available:
+                    # TEST same here but reversed as well:
+                    # add 1 to available updates
+                    logger.debug("Adding 1 to available updates")
+                    self.change_packages_value(toadd=1)
                     add_msg = 'latest '
                 msg = (f"The portage package has been downgraded (from "
                        f"{add_msg}{self.portage['current']} to "
@@ -875,6 +915,7 @@ class PortageHandler:
                 logger.info(msg)
         
         tosave = [ ]
+        to_print = True
         # Update only if change
         for key in 'current', 'latest', 'available':
             if not self.portage[key] == getattr(self, key):
@@ -882,9 +923,10 @@ class PortageHandler:
                 # even if there is already an older version available
                 # TEST: if checking only for key latest than it could
                 # be == to current so check also result.
-                if key == 'latest' and result:
+                if key == 'latest' and result and to_print:
                     logger.info("Found an update to portage (from "
                                 f"{self.current} to {self.latest}).")
+                    to_print = False
                 
                 self.portage[key] = getattr(self, key)
                 tosave.append([f'portage {key}', self.portage[key]])
@@ -910,7 +952,8 @@ class WorldHandler:
             'start'     :   self.loaded_stateopts.get('world last start'),
             'stop'      :   self.loaded_stateopts.get('world last stop'),
             'total'     :   self.loaded_stateopts.get('world last total'),
-            'failed'    :   self.loaded_stateopts.get('world last failed')
+            'failed'    :   self.loaded_stateopts.get('world last failed'),
+            'nfailed'   :   self.loaded_stateopts.get('world last nfailed')
             }
     
     def stateopts(self):
@@ -919,20 +962,20 @@ class WorldHandler:
         """
         super().stateopts()
         self.default_stateopts.update({
-            '# World Opts'                   :   '',
-            'world last start'               :   0,
-            'world last stop'                :   0,
-            'world last state'               :   'unknow',
-            'world last total'               :   0,
-            'world last failed'              :   'none'
+            '# World Opts'                  :   '',
+            'world last start'              :   0,
+            'world last stop'               :   0,
+            'world last state'              :   'unknow',
+            'world last total'              :   0,
+            'world last failed'             :   'none',
+            'world last nfailed'            :   0
             })
     
     def get_last_world_update(self, detected=False):
         """
-        Getting last world update timestamp
+        Getting last world update informations
         """
         
-        # Change name of the logger
         name = 'get_last_world_update'
         logger = logging.getLogger(f'{self.__logger_name}{name}::')
         logger.debug(f'Running with detected={detected}')
@@ -946,12 +989,12 @@ class WorldHandler:
         if get_world_info:
             to_print = True
             # Write only if change
-            for key in 'start', 'stop', 'state', 'total', 'failed':
+            for key in self.world.keys():
                 if not self.world[key] == get_world_info[key]:
                     # Ok this mean world update has been run
-                    # So run pretend_world()
-                    with self.pretend['locks']['proceed']:
-                        self.pretend['proceed'] = True
+                    # TEST DONT run pretend_world()
+                    #with self.pretend['locks']['proceed']:
+                        #self.pretend['proceed'] = True
                     updated = True
                     if to_print:
                         logger.info('Global update have been run.')
@@ -964,13 +1007,27 @@ class WorldHandler:
             # then, the only rejected group should be the first
             # package that failed. And this will not change
             # how many package to update (so don't need to run
-            # pretend...)
+            # pretend...) TEST pretend is no more run ...
             if not updated and detected:
                 logger.info("Global update have been aborted or"
-                            "failed to emerge first package")
+                            " failed to emerge first package.")
             elif not updated:
                 logger.debug("Global update haven't been run," 
                              " keeping last know informations.")
+            elif updated:
+                # TEST DONT run pretend_world() 
+                # Recalculate how many package left
+                # (if any) using key 'nfailed' and 'total'
+                # And so pretend_world() will be run only
+                # after a successfully sync ;)
+                if not self.world['state'] == 'completed':
+                    self.recompute_packages_left()
+                else:
+                    logger.debug("State is 'completed' setting pretend"
+                                 " packages to 0.")
+                    self.change_packages_value(tochange=0)
+                    #self.pretend['packages'] = 0
+                    #tosave.append(['pretend packages', self.pretend['packages']])
         # Saving in one shot
         if tosave:
             self.stateinfo.save(*tosave)
@@ -978,11 +1035,44 @@ class WorldHandler:
             return True
         return False
     
-    def allow_pretend(self):
+    def recompute_packages_left(self):
         """
-        Allow or deny running pretend_world()
+        Recompute package left only for 
+        state != 'completed'
         """
-        pass
+        name = 'recompute_packages_left'
+        logger = logging.getLogger(f'{self.__logger_name}{name}::')
+        
+        packages = self.pretend['packages']        
+        if not self.world['total'] == self.pretend['packages']:
+            # Make sure it's not first run ever
+            if self.pretend['packages'] == -1010:
+                logger.debug("First run detected, skipping...")
+                # DONT save anything because pretend_world() will be
+                # run (first run ever)
+                return
+            
+            logger.warning("Updated packages extracted from"
+                           f" '{self.pathdir['emergelog']}' and from"
+                           " pretend emerge process are NOT equal...")
+            # So calculate using total from logparser module
+            packages = self.world['total']
+        else:
+            logger.debug("Will use default packages number from pretend emerge"
+                         f" process: {packages}")
+                
+        left = packages - (self.world['total'] - self.world['nfailed'])
+        logger.debug(f"Packages left to update: {left}")
+        if left < 1:
+            logger.warning("The last world update state extracted from"
+                           f" '{self.pathdir['emergelog']}' is NOT 'completed'"
+                           f" BUT found update left < 1: {left}.")
+            logger.warning("Resetting update to '0' but please report this")
+            left = 0
+        
+        self.change_packages_value(tochange=left)
+        #self.pretend['packages'] = left
+        #self.stateinfo.save(['pretend packages', self.pretend['packages']])
 
 
 
@@ -1053,11 +1143,13 @@ class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
         Run specific process using pexpect
         
         :param proc:
-            This should be call with 'sync' or 'pretend'
+            This should be call with 'sync' or 'pretend'.
         :param cmd:
             The command to run.
         :param args:
             The arguments as a list.
+        :param msg:
+            A specific msg when calling exit or cancel.
         :return:
             An iterable with, first element is the return
             code of the command or 'exit' if aborted/cancelled. 
