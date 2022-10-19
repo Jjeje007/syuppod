@@ -364,6 +364,13 @@ class SyncHandler:
         if self.sync['repos']['failed']:
             logger.debug("Repo sync failed: "
                          f"{', '.join(self.sync['repos']['failed'])}")
+        # WARNING TODO THIS has to be rewritten in this way: If repo "gentoo"
+        # (main) is sync successfully, then we have to get his timestamp. 
+        # This have to be tread has a success sync. If other repos failed, then 
+        # its will be skip (and information about which one, how many times and
+        # the error have to be given). If repo sync for gentoo failed, than it will be
+        # retry without other repo which sync successfully (to test).
+        # WARNING TODO
         
         if return_code:
             attributes = self.failed_sync(self.sync['retry'], error)
@@ -695,16 +702,16 @@ class PretendHandler:
         with self.pretend['locks']['status']:
             self.pretend['status'] = 'completed'
             
-    def change_packages_value(self, toadd=False, tosubtract=False, 
-                              tochange=False):
+    def change_packages_value(self, toadd="def", tosubtract="def", 
+                              tochange="def"):
         """
         Add, subtract or change available package update value
         param toadd:
-            Value to add. Default False.
+            Value to add. Default: def.
         param tosubtract:
-            Value to subtract. Default False
+            Value to subtract. Default: def.
         param tochange:
-            Change value. Default False
+            Change value. Default: def.
         """
         name = 'change_packages_value'
         logger = logging.getLogger(f'{self.__logger_name}{name}::')
@@ -714,14 +721,14 @@ class PretendHandler:
         
         packages = self.pretend['packages']
         
-        if not toadd and not tosubtract and not tochange:
+        if toadd == "def" and tosubtract == "def" and tochange == "def":
             logger.error("change_packages_value called without value...")
             return
         
-        if toadd:
+        if not toadd == "def":
             logger.debug(f"Adding +{toadd} to packages updates: {packages}")
             packages += toadd
-        elif tosubtract:
+        elif not tosubtract == "def":
             logger.debug(f"Subtracting -{toadd} to packages updates: "
                          f"{packages}")
             packages -= tosubtract
@@ -731,7 +738,7 @@ class PretendHandler:
                              f"{self.pretend['packages']} "
                              "(please report this)")
                 packages = 0
-        elif tochange:
+        elif not tochange == "def":
             logger.debug(f"Changing packages updates from {packages} to"
                          f" {tochange}")
             packages = tochange
