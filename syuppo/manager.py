@@ -1027,10 +1027,10 @@ class WorldHandler:
                 # (if any) using key 'nfailed' and 'total'
                 # And so pretend_world() will be run only
                 # after a successfully sync ;)
-                if not self.world['state'] == 'completed':
+                if not self.world['state'] == 'complete':
                     self.recompute_packages_left()
                 else:
-                    logger.debug("State is 'completed' setting pretend"
+                    logger.debug("State is 'complete' setting pretend"
                                  " packages to 0.")
                     self.change_packages_value(tochange=0)
                     #self.pretend['packages'] = 0
@@ -1045,7 +1045,7 @@ class WorldHandler:
     def recompute_packages_left(self):
         """
         Recompute package left only for 
-        state != 'completed'
+        state != 'complete'
         """
         name = 'recompute_packages_left'
         logger = logging.getLogger(f'{self.__logger_name}{name}::')
@@ -1072,7 +1072,7 @@ class WorldHandler:
         logger.debug(f"Packages left to update: {left}")
         if left < 1:
             logger.warning("The last world update state extracted from"
-                           f" '{self.pathdir['emergelog']}' is NOT 'completed'"
+                           f" '{self.pathdir['emergelog']}' is NOT 'complete'"
                            f" BUT found update left < 1: {left}.")
             logger.warning("Resetting update to '0' but please report this")
             left = 0
