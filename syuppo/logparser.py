@@ -1274,6 +1274,17 @@ class LastWorldUpdate(EmergeLogParser):
             logger.error("Skip current process but please report it.")
             self.parser['count'] = 1
             return
+        # FIX BUG KeyError: 'failed'
+        # Portage could have process all the update WITHOUT error
+        # but end with a unsuccessfully exit ....
+        except KeyError as error:
+            logger.error(f"When saving '{arg} world update'"
+                        f" informations: {error}.")
+            logger.error("Processing this as 'complete' process, please report"
+                        " this any way.")
+            self.parser['completed'] = True
+            self._save_complete()
+            return
         
         # Get the recorded number of package
         self.parser['group']['total'] = self.parser['group']['saved']['total']
