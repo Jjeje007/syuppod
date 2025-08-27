@@ -992,20 +992,20 @@ class CheckProcRunning:
             logger.setLevel(logging.DEBUG2)
             
         logger.debug2("Get pid only directories from '/proc'.")
-        with pathlib.Path('/proc') as listdir:
-            for name in listdir.iterdir():
-                logger.debug2(f"Inspect: {name}")
-                if name.is_dir():
-                    logger.debug2(f"Validate directory: {name}")
-                    if self.pids_only.match(name.parts[-1]):
-                        logger.debug2("Validate: Pid only and > 300"
-                                      + " (kernel RESERVED_PIDS).")
-                        yield name
-                    else:
-                        logger.debug2(f"Reject: {name}: Not pid only or"
-                                      " pid < 300 (kernel RESERVED_PIDS).")
+        listdir = pathlib.Path('/proc')
+        for name in listdir.iterdir():
+            logger.debug2(f"Inspect: {name}")
+            if name.is_dir():
+                logger.debug2(f"Validate directory: {name}")
+                if self.pids_only.match(name.parts[-1]):
+                    logger.debug2("Validate: Pid only and > 300"
+                                   + " (kernel RESERVED_PIDS).")
+                    yield name
                 else:
-                    logger.debug2(f"Reject: {name}: Not dir, doesn't exist,"
+                    logger.debug2(f"Reject: {name}: Not pid only or"
+                                      " pid < 300 (kernel RESERVED_PIDS).")
+            else:
+                logger.debug2(f"Reject: {name}: Not dir, doesn't exist,"
                               + " broken symlink, permission errors.")
     
     
