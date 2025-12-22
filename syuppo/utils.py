@@ -1042,8 +1042,8 @@ class CheckProcRunning:
                                 logger.debug2("Extract successfully.")
                                 yield (content, name, dirname)
                     else:
-                        logger.debug2(f"Skip current content: {content}"
-                                  " no data.")
+                        logger.debug2(f"Skip current content: '{content}', "
+                                  " no data founded")
             # IOError exception when pid is terminate between getting the 
             # dir list and open each.
             except IOError as error:
@@ -1064,7 +1064,8 @@ class CheckProcRunning:
             logger.setLevel(logging.DEBUG2)
         
         found = False
-        internal_sync = 0
+        internal_sync_syuppod = 0
+        internal_sync_root = 0
         for cmdline, name, dirname in self.__get_content():
             logger.debug2(f"Search from: '{cmdline}'.")
             for proc in 'world', 'system', 'sync', 'portage':
@@ -1078,31 +1079,51 @@ class CheckProcRunning:
                             found = False
                             logger.debug2("NOT validate the match:"
                                           + "pretend_opt.")
-                    # For sync DONT match internal sync
-                    # One process is run using syuppod user (uid)
-                    if (proc == 'sync' and name == 'syuppod'
-                            and internal_sync == 0):
-                        found = False
-                        internal_sync = 1
-                        logger.debug("Skipping internal sync running from"
-                                    f" cmdline: '{cmdline}' as user: {name}"
-                                    f" and using: {dirname}")
-                    # Then, emerge --sync spread two process
-                    # So if internal_sync have been founded
-                    # and an another sync process is found:
-                    elif proc == 'sync' and internal_sync == 1:
-                        found = False
-                        internal_sync = 2
-                        logger.debug("Skipping second internal sync running"
-                                    f" from cmdline: '{cmdline}' as user: "
-                                    f"{name} and using: {dirname}")
-                    # Then third process...
-                    elif proc == 'sync' and internal_sync == 2:
-                        found = False
-                        internal_sync = 3
-                        logger.debug("Skipping third internal sync running"
-                                    f" from cmdline: '{cmdline}' as user: "
-                                    f"{name} and using: {dirname}")
+                    # For sync DONT match internals syncs
+                    if proc == 'sync':
+                        # TWO process is run using syuppod user (uid)
+                        if name == 'syuppod' and internal_sync_syuppod == 0:
+                            found = False
+                            internal_sync_syuppod += 1
+                            logger.debug("Skipping first internal sync running from"
+                                         f" cmdline: '{cmdline}' as user: {name}"
+                                         f" and using: {dirname}")
+                        # The second process running as syuppod user
+                        elif name == 'syuppod' and internal_sync_syuppod == 1:
+                            found = False
+                            internal_sync_syuppod += 1
+                            logger.debug("Skipping Second internal sync running from"
+                                         f" cmdline: '{cmdline}' as user: {name}"
+                                         f" and using: {dirname}")
+                        # Then, emerge --sync spread two process
+                        # So if internal_sync_syuppod have been founded twice
+                        # and this is the normal process 
+                        # then two process running as root shoud be founded
+                        elif ( internal_sync_syuppod > 0 and name == 'root' 
+                              and internal_sync_root == 0 ):
+                            found = False
+                            internal_sync_root += 1
+                            logger.debug("Skipping first internal sync running"
+                                         f" from cmdline: '{cmdline}' as user: "
+                                         f"{name} and using: {dirname}")
+                        # Then third process...
+                        elif ( internal_sync_syuppod > 0 and name == 'root' 
+                              and internal_sync_root == 1 ):
+                            found = False
+                            internal_sync_root += 1
+                            logger.debug("Skipping second internal sync running"
+                                         f" from cmdline: '{cmdline}' as user: "
+                                         f"{name} and using: {dirname}")
+                        # There is a BUG ?
+                        elif internal_sync_root > 2:
+                            logger.warning(f"(Sync proc) When inspecting cmdline : '{cmdline}',"
+                                           f" user: '{name}', dirname: '{dirname}'; "
+                                           "got unexpected internal_sync_root > 2")
+                        # Same here BUG ?
+                        elif internal_sync_syuppod > 2:
+                            logger.warning(f"(Sync proc) When inspecting cmdline : '{cmdline}',"
+                                           f" user: '{name}', dirname: '{dirname}'; "
+                                           "got unexpected internal_sync_syuppod > 2")
                 
                 if found:
                     logger.debug2("Validate the match.")
