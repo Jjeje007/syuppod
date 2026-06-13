@@ -694,6 +694,15 @@ class PretendHandler:
         # Make sure we have some packages
         if packages:
             self.change_packages_value(tochange=packages)
+        # TODO TODO NO NO this HAVE to be rewritten.... 
+        # If we got error on all the retry this shouldn't tochange=0 no no
+        # this has to be maybe "-1" and then client should know there is a problem !
+        # At the moment it like there is no update....
+        # AND we should keep previously number of update if any
+        # Or maybe we should send en list or dict with not only number of update but 
+        # also return code of the process. Best is previoulsy update, update extract from this
+        # process and the return code.... 
+        # TODO TODO TODO 
         else:
             self.change_packages_value(tochange=0)
                 

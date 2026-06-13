@@ -16,8 +16,7 @@ import logging
 import pwd
 
 from collections import deque
-from distutils.version import StrictVersion
-from distutils.util import strtobool
+from syuppo._distutils_compat import StrictVersion, _strtobool
 from ctypes import cdll
 
 try:
@@ -246,7 +245,7 @@ class StateInfo:
         from_type = type(opt)
         converters = {
             'int'   :   int,
-            'bool'  :   [ bool, strtobool ]
+            'bool'  :   [ bool, _strtobool ]
             }
         for key, convert in converters.items():
             try:
