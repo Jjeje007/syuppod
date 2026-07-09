@@ -11,15 +11,13 @@ setup(name = 'syuppo',
       for gentoo portage manager. His client (syuppoc) retrieve these informations over dbus.""",
       classifiers = [
             'Development Status :: 4 - Beta',
-            'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
-            'Programming Language :: Python :: 3.6',
             'Topic :: Utilities'
             ],
       keywords = '',
       url = 'https://github.com/Jjeje007/syuppod',
       author = 'Venturi Jérôme',
       author_email = 'jerome.venturi@gmail.com',
-      license = 'GPLv3+',
+      license = 'GPL-3.0-or-later',
       packages = ['syuppo'],
       scripts = ['syuppod', 'syuppoc'],
       zip_safe=False)
