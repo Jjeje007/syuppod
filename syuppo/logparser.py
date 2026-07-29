@@ -335,7 +335,7 @@ class LastWorldUpdate(EmergeLogParser):
         # sure we match only @world or world 
         # Should we match with '.' or '\s' ??
         self.start_opt = re.compile(r'^(\d+):\s{2}\*\*\*.emerge.*\s'
-                                     '(?:world|@world)\s*.*$')
+                                    r'(?:world|@world)\s*.*$')
         # So match emerge but NOT follow by --depclean 
         # or --sync or --resume
         self.start_parallel = re.compile(r'^\d+:\s{2}\*\*\*.emerge.'
@@ -343,7 +343,7 @@ class LastWorldUpdate(EmergeLogParser):
                                           '.*$)')
         # match emerge --resume
         self.resume_opt = re.compile(r'^\d+:\s{2}\*\*\*.emerge.*'
-                                        '\s--resume\s.*$')
+                                       r'\s--resume\s.*$')
         # Detect package dropped due to unmet dependency
         # for exemple (display in terminal only):
         #   * emerge --keep-going: kde-apps/dolphin-19.08.3 dropped
@@ -356,16 +356,16 @@ class LastWorldUpdate(EmergeLogParser):
         self.keepgoing_opt = re.compile(r'^.*\s--keep-going\s.*$')
         # For --resume make sure its restart
         self.start_resume = re.compile(r'^\d+:\s{2}\*\*\*'
-                                        '.Resuming.merge\.\.\.$')
+                                       r'.Resuming.merge\.\.\.$')
         # So make sure we start to compile the world update 
         # and this should be the first package 
         self.start_compiling = re.compile(r'^\d+:\s{2}>>>.emerge.'
-                                           '\(1.of.(\d+)\)'
-                                           '\s(.*)\sto.*$')
+                                          r'\(1.of.(\d+)\)'
+                                          r'\s(.*)\sto.*$')
         # For finished line:
         #   1569179409:  *** Finished. Cleaning up...
         self.finished_line = re.compile(r'(\d+):\s{2}\*\*\*.Finished'
-                                         '\..Cleaning up\.\.\.$')
+                                        r'\..Cleaning up\.\.\.$')
         # For terminating line:
         #   1563026610:  *** terminating.
         self.terminating_line = re.compile(r'\d+:\s{2}\*\*\*.terminating\.$')
@@ -374,9 +374,9 @@ class LastWorldUpdate(EmergeLogParser):
                                         '(?:successfully|unsuccessfully).*$')
         # Make sure it failed with status == 1
         self.failed_line = re.compile(r'(\d+):\s{2}\*\*\*.exiting.'
-                                       'unsuccessfully.with.status.\'1\'\.$')
+                                      r"unsuccessfully.with.status.'1'\.$")
         self.succeeded_line = re.compile(r'(\d+):\s{2}\*\*\*.exiting.'
-                                          'successfully\.$')
+                                         r'successfully\.$')
         # TODO Give a choice to enable or disable 
         # incomplete/fragment collect
         

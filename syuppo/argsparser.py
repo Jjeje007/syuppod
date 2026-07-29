@@ -21,8 +21,8 @@ class CustomArgsCheck:
     """
     def __init__(self):
         # this is shared across method
-        self.shared_timestamp = '(?:\:r|\:u)?(?:\:[1-5])?'
-        self.shared_date = '(?:\:s|\:m|\:l|\:f)?'
+        self.shared_timestamp = r'(?:\:r|\:u)?(?:\:[1-5])?'
+        self.shared_date = r'(?:\:s|\:m|\:l|\:f)?'
     
     def _check_args_interval(self, interval):
         """
