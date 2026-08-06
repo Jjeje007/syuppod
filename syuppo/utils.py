@@ -1201,5 +1201,8 @@ def _format_date(timestamp, opt):
             display = match.group(1)
             display = trans[display]
     
-    mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display)#, locale=mylocale[0])
+    # No locale= here on purpose: babel picks it up from the environment,
+    # and the daemon has no business carrying one. Only the client
+    # translates -- see the gettext setup at the top of client.py.
+    mydate = format_datetime(int(timestamp), tzinfo=LOCALTZ, format=display)
     return mydate

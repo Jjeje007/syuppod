@@ -135,9 +135,16 @@ def timestamp(myobject, formatting, machine):
         elif 'elapsed' in opt:
             current_timestamp = time.time()
             elapsed = round(current_timestamp - int(reply))
-            msg = _format_timestamp(elapsed, opt)
-            additionnal_msg.append(_('There is '))
-            additionnal_msg.append(_('ago'))
+            # One translatable sentence instead of two fragments around the
+            # value. English reads "There is X ago", French "Il y a X" with
+            # nothing after it -- and gettext cannot translate a string to an
+            # empty one, it returns the original. So 'ago' stayed in English
+            # at the end of the French output.
+            # The full sentence is already translated further down in this
+            # file, and in the catalogues.
+            msg = _('There is {0} ago').format(_format_timestamp(elapsed, opt))
+            additionnal_msg.append(u"\u200B")   # see the note above about ("")
+            additionnal_msg.append(u"\u200B")
     # Now format 
     if not machine:
         print('[*]', _('Last repositories synchronization:'))
