@@ -40,13 +40,17 @@ Homepage = "https://github.com/Jjeje007/syuppod"
 syuppod = "syuppo.daemon:main"
 syuppoc = "syuppo.client:main"
 
-[tool.setuptools.packages.find]
-# The locale directories hold data, not modules, and have no __init__.py.
-# Without this, setuptools reports them as packages missing from the list.
-# They are not meant to ship with the wheel at all: the ebuild installs the
-# catalogues to /usr/share/locale, where every other program's live.
-include = ["syuppo"]
-exclude = ["syuppo.locale*"]
+[tool.setuptools]
+packages = ["syuppo"]
+
+# Off, and it matters. It defaults to true under pyproject.toml, and when
+# setuptools-scm is available -- which it is in the Gentoo build environment
+# -- setuptools then pulls in every git-tracked file as package data. That
+# swept the .mo catalogues into the wheel, and since syuppo/locale/ has no
+# __init__.py, setuptools warned about shipping an importable package as
+# data files. The catalogues belong in /usr/share/locale, installed by the
+# ebuild; nothing under syuppo/locale/ should reach the wheel.
+include-package-data = false
 
 # No package-data for the translations on purpose. They are installed to
 # /usr/share/locale by the ebuild, where every other program's catalogues
