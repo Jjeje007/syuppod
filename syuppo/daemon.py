@@ -29,7 +29,8 @@ from syuppo.utils import CheckProcRunning
 
 try:
     from gi.repository import GLib
-    from pydbus import SystemBus
+    from dbus_fast import BusType
+    from dbus_fast.glib import MessageBus
 except Exception as exc:
     print(f'Error: unexpected while loading module: {exc}', file=sys.stderr)
     print('Error: exiting with status \'1\'.', file=sys.stderr)
@@ -822,8 +823,11 @@ def main():
         logger.warning("Dbus binding is DISABLED.")
     else:
         # Init dbus service
+        # The GLib backend of dbus-fast is used on purpose rather than the
+        # asyncio one: the daemon already runs its threads around a
+        # GLib.MainLoop, and there is nothing to gain from rewriting that.
         dbusloop = GLib.MainLoop()
-        dbus_session = SystemBus()
+        dbus_session = MessageBus(bus_type=BusType.SYSTEM).connect_sync()
     
     # Init manager
     manager = PortageDbus(interval=args.sync, pathdir=pathdir, 
@@ -855,9 +859,13 @@ def main():
     if not args.nodbus:
         busconfig = True
         # Adding dbus publisher
+        # Two steps where pydbus had one: export the object on a path, then
+        # claim the well-known name. Claiming the name is what the security
+        # policy checks, so that is where an AccessDenied shows up.
         try:
-            dbus_session.publish('net.syuppod.Manager.Portage', manager)
-        except GLib.GError as error:
+            dbus_session.export('/net/syuppod/Manager/Portage', manager)
+            dbus_session.request_name_sync('net.syuppod.Manager.Portage')
+        except Exception as error:
             error = str(error)
             if failed_access.match(error):
                 logger.error(f"{error}")

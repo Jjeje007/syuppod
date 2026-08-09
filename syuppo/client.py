@@ -22,7 +22,8 @@ from syuppo.utils import FormatTimestamp
 
 
 try:
-    from pydbus import SystemBus
+    from dbus_fast import BusType
+    from dbus_fast.glib import MessageBus
 except Exception as exc:
     print(f'Error: unexpected while loading dbus module: {exc}')
     print('Error: exiting with status \'1\'.')
@@ -37,7 +38,28 @@ except Exception as exc:
     sys.exit(1)
 
 # Dbus server run as system
-bus = SystemBus()
+BUS_NAME = 'net.syuppod.Manager.Portage'
+BUS_PATH = '/net/syuppod/Manager/Portage'
+
+
+def _connect():
+    """
+    Connect to the daemon and hand back its interface.
+
+    The GLib backend is used rather than asyncio for the same reason as in
+    the daemon: nothing here is asynchronous, and connect_sync keeps the
+    client a plain sequential script.
+
+    Methods on the returned object are named call_<name>_sync: dbus-fast
+    generates one pair per interface method, the plain form taking a
+    callback and the _sync one blocking until the reply arrives. The names
+    are spelled out at the call sites rather than hidden behind a wrapper,
+    so that static analysis sees them and the blocking nature stays visible.
+    """
+    bus = MessageBus(bus_type=BusType.SYSTEM).connect_sync()
+    introspection = bus.introspect_sync(BUS_NAME, BUS_PATH)
+    obj = bus.get_proxy_object(BUS_NAME, BUS_PATH, introspection)
+    return obj.get_interface(BUS_NAME)
 
 # Internationalization
 # This doesn't need to be portable because it intend to be run only on gentoo
@@ -61,7 +83,7 @@ addLoggingLevel('DEBUG2', 9)
 
 def state(myobject, opt, machine):
     """Display last tree repositories updater state or status"""
-    reply = myobject.get_sync_attribute(opt)
+    reply = myobject.call_get_sync_attribute_sync(opt)
     # For translation
     msg = {
         'success'       :   _('Success'),
@@ -95,7 +117,7 @@ def count(myobject, count, machine):
     if not machine:
         print('[*]', _('The repositories syncronizer run successfully:'))
     for item in opt[count]:
-        reply = myobject.get_sync_attribute(item)
+        reply = myobject.call_get_sync_attribute_sync(item)
         if machine:
             print('{0}'.format(reply))
         else:
@@ -114,13 +136,13 @@ def timestamp(myobject, formatting, machine):
     additionnal_msg = [ ]
     msg = ''
     # TEST return in progress if sync is running
-    if myobject.get_sync_status() == 'True':
+    if myobject.call_get_sync_status_sync() == 'True':
         msg = _('In progress')
         additionnal_msg.append(u"\u200B")
         additionnal_msg.append(u"\u200B")
     else:
         # Value is from dbus service (portagemanager and portagedbus)
-        reply = int(myobject.get_sync_attribute('timestamp'))
+        reply = int(myobject.call_get_sync_attribute_sync('timestamp'))
         opt = re.match(r'^(unix|date.*|elapsed.*)$', formatting).group(1)
         
         # unix timestamp, easy man ! :)
@@ -165,7 +187,7 @@ def interval(myobject, interval, machine):
         # TODO !
         print('Not yet implanted')
     elif pattern.match(interval):
-        reply = int(myobject.get_sync_attribute('interval'))
+        reply = int(myobject.call_get_sync_attribute_sync('interval'))
         if 'seconds' in interval:
             msg = reply
             additionnal_msg = (_('seconds'))
@@ -187,7 +209,7 @@ def elapsed_remain(myobject, switch, opt, machine):
         'elapsed'   :   _('Current repositories synchronization elapsed time:'),
         'remain'    :   _('Current repositories synchronization remain time:')
         }
-    reply = int(myobject.get_sync_attribute(switch))
+    reply = int(myobject.call_get_sync_attribute_sync(switch))
     if 'seconds' in opt:
         msg = reply
         additionnal_msg = _('seconds')
@@ -207,7 +229,7 @@ def available(myobject, available, machine):
     if not available:
         available = 'minimal'
     # Any way we have to check if available
-    reply = myobject.get_portage_attribute('available')
+    reply = myobject.call_get_portage_attribute_sync('available')
     msg = u"\u200B"  # woraround gettext
     additionnal_msg = _('Portage package update status:')
     formatting = '-'
@@ -218,14 +240,14 @@ def available(myobject, available, machine):
             msg = _('Not available')
     elif available == 'version':
         if reply == 'True':
-            msg = myobject.get_portage_attribute('latest')
+            msg = myobject.call_get_portage_attribute_sync('latest')
             additionnal_msg = _('Available portage package update, version:')
         else:
             formatting = ''
     else:
-        current = myobject.get_portage_attribute('current')
+        current = myobject.call_get_portage_attribute_sync('current')
         if reply == 'True':
-            latest = myobject.get_portage_attribute('latest')
+            latest = myobject.call_get_portage_attribute_sync('latest')
             msg = _('Available (from {0} to {1})').format(current, latest)
         else:
             msg = _('Not available ({0})').format(current)
@@ -239,8 +261,19 @@ def available(myobject, available, machine):
       
 def packages(myobject, machine):
     """Display world packages to update"""
-    reply = myobject.get_pretend_attribute('packages')
-    msg = _('None')
+    reply = myobject.call_get_pretend_attribute_sync('packages')
+    msg = _('Nonejerome@Gentoo /data/devel/python/syuppod $ syuppoc --all -m
+N'a jamais effectué de synchronisation
+0
+0
+Le 8 août 2026, 17:02:21 ​
+1 jour​
+18 heures, 15 minutes et 38 secondes​
+5 heures, 44 minutes et 22 secondes​
+Non disponible
+Aucun
+Il y a moins de 1 semaine et 4 jours​
+')
     if reply and not reply == '0':
         msg = reply
     if not machine:
@@ -258,13 +291,13 @@ def last(myobject, last, machine):
         
     # Parse
     if 'state' in last:
-        msg = myobject.get_world_attribute('state')
+        msg = myobject.call_get_world_attribute_sync('state')
         additionnal_msg = _('Last world update state:')
     elif 'total' in last:
-        msg = myobject.get_world_attribute('total')
+        msg = myobject.call_get_world_attribute_sync('total')
         additionnal_msg = _('Last world update packages:')
     elif 'failed' in last:
-        reply = myobject.get_world_attribute('failed')
+        reply = myobject.call_get_world_attribute_sync('failed')
         if reply == 'none':
             msg = _('None')
             additionnal_msg = _('Last world update failed package:')
@@ -272,27 +305,27 @@ def last(myobject, last, machine):
             msg = reply
             additionnal_msg = _('Last world update failed packages:')
     elif 'start' in last:
-        reply = int(myobject.get_world_attribute('start'))
+        reply = int(myobject.call_get_world_attribute_sync('start'))
         msg = _('The {0}').format(_format_date(reply, last))
         additionnal_msg = _('Last world update started:')
     elif 'stop' in last:
-        reply = int(myobject.get_world_attribute('stop'))
+        reply = int(myobject.call_get_world_attribute_sync('stop'))
         msg = _('The {0}').format(_format_date(reply, last))
         additionnal_msg = _('Last world update stoped:')
     elif 'elapsed' in last:
-        reply = int(myobject.get_world_attribute('stop'))
+        reply = int(myobject.call_get_world_attribute_sync('stop'))
         current_timestamp = time.time()
         elapsed = round(current_timestamp - reply)
         msg = _('There is {0} ago').format(_format_timestamp(elapsed, last))
         additionnal_msg = _('Last world update finished:')
     elif 'duration' in last:
-        start = int(myobject.get_world_attribute('start'))
-        stop = int(myobject.get_world_attribute('stop'))
+        start = int(myobject.call_get_world_attribute_sync('start'))
+        stop = int(myobject.call_get_world_attribute_sync('stop'))
         duration = round(stop - start)
         msg = _format_timestamp(duration, last)
         additionnal_msg = _('Last world update lasted:')
     # TEST return 'In progress' if running
-    if myobject.get_world_update_status() == 'True':
+    if myobject.call_get_world_update_status_sync() == 'True':
         msg = _('In progress')
     
     # Display
@@ -312,7 +345,7 @@ def forced(myobject, machine):
     additionnal_msg.append('')
     additionnal_msg.append('')
     tab = '    '
-    reply = myobject.forced_pretend()
+    reply = myobject.call_forced_pretend_sync()
     
     if 'too_early' in reply:
         split_reply = reply.split(' ')
@@ -350,7 +383,7 @@ def forced(myobject, machine):
       
 def parser(args):
     """Parser for portage implentation"""
-    myobject  = bus.get("net.syuppod.Manager.Portage")
+    myobject  = _connect()
     portcaller = {
         'state'     :   { 'func': state, 'args' : [myobject, 'state', args.machine] },
         'count'     :   { 'func': count, 'args' : [myobject, args.count, args.machine] },
@@ -375,9 +408,6 @@ def parser(args):
 
 def main():
     myargsparser = ClientParserHandler(version='dev')
-    # OK for now disable argcomplete because it will NOT work in this setup
-    # so we'll have to make an external file ...
-    #argcomplete.autocomplete(myargsparser.parser)
     args = myargsparser.parsing()
 
     # Call parser

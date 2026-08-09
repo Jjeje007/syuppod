@@ -326,7 +326,6 @@ class ClientParserHandler(CustomArgsCheck):
                                   help='Display all the informations in one time with defaults options.')
         
     def parsing(self):
-        #argcomplete.autocomplete(self.parser)
         args = self.parser.parse_args()
         # Print usage if no arg has been given
         noarg = True

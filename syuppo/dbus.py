@@ -5,57 +5,41 @@
 # Distributed under the terms of the GNU General Public License v3
 
 import logging 
+from dbus_fast.service import ServiceInterface, method
 from syuppo.manager import BaseHandler
 
-# TODO TODO TODO This have to be rewrite after we move to dbus-next
+# The interface used to be declared as an XML docstring, which is how pydbus
+# reads it. dbus-fast builds it from the @method decorators and the type
+# annotations instead, so the description now lives with each method rather
+# than in a block that had to be kept in sync by hand.
+INTERFACE = 'net.syuppod.Manager.Portage'
 
-class PortageDbus(BaseHandler):
+
+# ServiceInterface comes FIRST on purpose. BaseHandler sits at the end of a
+# cooperative super().__init__() chain running through manager.py; with
+# ServiceInterface last in the MRO, that chain reaches it instead of object
+# and calls its __init__ with no interface name, which it refuses. Putting it
+# first keeps the chain ending on object, and the explicit call below stays
+# the only one initialising the interface.
+class PortageDbus(ServiceInterface, BaseHandler):
     """
-        <node>
-            <interface name='net.syuppod.Manager.Portage'>
-                <method name='get_sync_attribute'>
-                    <arg type='s' name='sync_key' direction='in'/>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='get_world_attribute'>
-                    <arg type='s' name='world_key' direction='in'/>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='get_pretend_attribute'>
-                    <arg type='s' name='pretend_key' direction='in'/>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='get_portage_attribute'>
-                    <arg type='s' name='portage_key' direction='in'/>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='forced_pretend'>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='get_sync_status'>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='get_world_update_status'>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-                <method name='_get_debug_attributes'>
-                    <arg type='s' name='debug_key' direction='in'/>
-                    <arg type='s' name='response' direction='out'/>
-                </method>
-            </interface>
-        </node>
+    Exposes the daemon state on the system bus.
+
+    Every method returns a string: callers get to parse what they need, and
+    the interface stays stable whatever the internal types become.
     """
     def __init__(self, **kwargs):
         # Delegate arguments checking in portagemanager -> BaseHandler
-        super().__init__(**kwargs)
+        BaseHandler.__init__(self, **kwargs)
+        ServiceInterface.__init__(self, INTERFACE)
         # add specific logger
         self.named_logger = f'::{__name__}::PortageDbus::'
         logger = logging.getLogger(f'{self.named_logger}init::')
         self.external_sync = False 
         self.world_state = False
-    
 
-    def get_sync_attribute(self, key):
+    @method()
+    def get_sync_attribute(self, key: 's') -> 's':
         """
         Retrieve specific sync attribute and return through dbus.
         """
@@ -65,7 +49,8 @@ class PortageDbus(BaseHandler):
         return str(self.sync[key])   # Best to return string over other 
 
 
-    def get_world_attribute(self, key):
+    @method()
+    def get_world_attribute(self, key: 's') -> 's':
         """
         Retrieve specific world attribute and return through dbus
         """
@@ -75,7 +60,8 @@ class PortageDbus(BaseHandler):
         return str(self.world[key])
     
     
-    def get_pretend_attribute(self, key):
+    @method()
+    def get_pretend_attribute(self, key: 's') -> 's':
         """
         Retrieve specific pretend attribute and return through dbus
         """
@@ -85,7 +71,8 @@ class PortageDbus(BaseHandler):
         return str(self.pretend[key])
 
 
-    def get_portage_attribute(self, key):
+    @method()
+    def get_portage_attribute(self, key: 's') -> 's':
         """
         Retrieve specific portage attribute and return through dbus.
         """
@@ -95,7 +82,8 @@ class PortageDbus(BaseHandler):
         return str(self.portage[key])
 
         
-    def forced_pretend(self):
+    @method()
+    def forced_pretend(self) -> 's':
         """
         Forcing recompute of available update package depending on conditions.
         """
@@ -138,7 +126,8 @@ class PortageDbus(BaseHandler):
         self.pretend['forced'] = True
         return 'running {0}'.format(self.pathdir['pretendlog'])
     
-    def get_sync_status(self):
+    @method()
+    def get_sync_status(self) -> 's':
         """
         Retrieve sync status
         """
@@ -149,7 +138,8 @@ class PortageDbus(BaseHandler):
             return 'True'
         return 'False'
     
-    def get_world_update_status(self):
+    @method()
+    def get_world_update_status(self) -> 's':
         """
         Retrieve world update status
         """
@@ -160,17 +150,3 @@ class PortageDbus(BaseHandler):
         if self.world_state:
             return 'True'
         return 'False'
-        
-    def _get_debug_attributes(self, key):
-        """
-        Retrieve specific attribute for debugging only
-        """
-        logger = logging.getLogger(f'{self.named_logger}_get_debug_attributes::')
-        logger.debug(f'Requesting: {key}.')
-        try:
-            return str(getattr(self, key))
-        except Exception as exc:
-            logger.debug(f'Got exception: {exc}')
-        else:
-            logger.debug('Returning: {0} (as string).'.format(getattr(self, key)))
-        
