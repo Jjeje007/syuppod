@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syuppo"
+version = "0.1"
+description = "SYnc UPdate Portage."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "Venturi Jérôme", email = "jerome.venturi@gmail.com" },
+]
+keywords = ["gentoo", "portage", "daemon", "dbus"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Topic :: Utilities",
+]
+
+# portage is deliberately absent: it ships with the distribution and is not
+# on PyPI, so listing it would break any install outside Gentoo -- which is
+# the only place this daemon makes sense anyway.
+dependencies = [
+    "babel",
+    "dbus-fast",
+    "inotify_simple",
+    "numpy",
+    "pexpect",
+    "PyGObject",
+]
+
+[project.urls]
+Homepage = "https://github.com/Jjeje007/syuppod"
+
+# Entry points rather than the scripts= list setup.py used: pyproject.toml
+# rejects the latter. setuptools generates the wrappers, with a shebang
+# matching the Python they were built for. The syuppod and syuppoc files at
+# the top of the repository stay for running straight from a clone.
+[project.scripts]
+syuppod = "syuppo.daemon:main"
+syuppoc = "syuppo.client:main"
+
+[tool.setuptools]
+packages = ["syuppo"]
+
+# No package-data for the translations on purpose. They are installed to
+# /usr/share/locale by the ebuild, where every other program's catalogues
+# live; client.py looks next to the module first and falls back there.
