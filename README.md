@@ -11,20 +11,25 @@ Syuppod uses dbus to expose informations to user space tools and syuppoc can ret
 about new update package available, syncing stats.
 And many more (also more to come).
 
-You can use syuppoc, for exemple, with [conky](https://github.com/brndnmtthws/conky) to display some informations. But it's up 
-to you to do whatever you want to do with these informations and from whatever program 
+I use syuppoc to feed a desktop widget, but it has no dependency on any particular one. It is up
+to you to do whatever you want to do with these informations and from whatever program
 (as long as it use dbus or syuppoc output).
 
 
 ## Dependencies
 
-* [python](https://www.python.org/) 3.8 
-* [pydbus](https://github.com/LEW21/pydbus)
+* [python](https://www.python.org/) >= 3.8
+* [dbus-fast](https://github.com/bluetooth-devices/dbus-fast)
+* [PyGObject](https://gitlab.gnome.org/GNOME/pygobject)
+* [babel](https://github.com/python-babel/babel)
 * [numpy](https://numpy.org/)
 * [pexpect](https://github.com/pexpect/pexpect)
 * [inotify_simple](https://github.com/chrisjbillington/inotify_simple)
 
-For **pydbus** and **inotify_simple** ebuilds can be found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
+`portage` is needed as well, but it comes with the distribution rather than from PyPI,
+so it is not listed as a package dependency.
+
+For **inotify_simple** an ebuild can be found in [Jjeje007-overlay](https://github.com/Jjeje007/Jjeje007-overlay).
 
 ## Installation
 
@@ -42,7 +47,7 @@ Run the daemon:
 
 Syuppod have several logs all located in `/var/log/syuppod/`\
 
-The debug mode is enable by default until syuppod is stabilized.
+Debug output is written only when the daemon is started with `-d`.
 
 Syuppod write sync and pretend process logs to, respectively:\
 `/var/log/syuppod/sync.log`\
@@ -68,4 +73,3 @@ Please open an issue and don't forget to attach logs: messages (syslog), stderr.
 ## Contributing
 
 Pull requests and translations are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
