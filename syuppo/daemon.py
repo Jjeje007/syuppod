@@ -372,7 +372,22 @@ class DynamicDaemon(threading.Thread):
             }
         # Default inotify setup
         self.caller = self.watch['inotify']
-        self.timeout = 1
+        # Milliseconds, not seconds: inotify_simple takes its timeout in ms.
+        # The loop it drives exists only to check self.exit between reads, so
+        # a long value costs nothing but a slightly slower shutdown. A short
+        # one had this thread waking up a thousand times a second to find an
+        # empty queue -- measured at 2.7% of a core, around the clock.
+        self.timeout = 1000
+        # Wait this long after the first event before reading the queue. The
+        # kernel merges identical events that have not been read yet, so this
+        # turns a burst of writes into a single wake-up. emerge closes
+        # emerge.log after every line -- measured at one CLOSE_WRITE every
+        # 38 ms during a build -- and each one used to mean a full pass
+        # through checking(), rebuilding the caller dict along the way.
+        # 200 ms divides the wake-ups by nearly six. Nothing is lost: the
+        # event says the file changed, and the parser reads from its recorded
+        # offset regardless of how many times it changed.
+        self.read_delay = 200
         self.inotify = False
         
         # for process querying
@@ -502,7 +517,8 @@ class DynamicDaemon(threading.Thread):
         # But should be self.timeout != 0 / None
         # Otherwise it will be stuck until new data is available
         while not reader and not self.exit:
-            reader = self.inotify.read(timeout=self.timeout)
+            reader = self.inotify.read(timeout=self.timeout,
+                                       read_delay=self.read_delay)
     
         if self.exit:
             logger.debug("Stop waiting, receive exit order.")
@@ -530,7 +546,8 @@ class DynamicDaemon(threading.Thread):
         else:
             logger.debug(f"Started monitoring: '{self.caller['path']}', flags:"
                         + f" '{get_flags(self.caller['flags'])}',"
-                        + f" timeout={self.timeout}.")
+                        + f" timeout={self.timeout}ms,"
+                        + f" read_delay={self.read_delay}ms.")
             return inotify
           
     def checking(self):
