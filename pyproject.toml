@@ -40,8 +40,13 @@ Homepage = "https://github.com/Jjeje007/syuppod"
 syuppod = "syuppo.daemon:main"
 syuppoc = "syuppo.client:main"
 
-[tool.setuptools]
-packages = ["syuppo"]
+[tool.setuptools.packages.find]
+# The locale directories hold data, not modules, and have no __init__.py.
+# Without this, setuptools reports them as packages missing from the list.
+# They are not meant to ship with the wheel at all: the ebuild installs the
+# catalogues to /usr/share/locale, where every other program's live.
+include = ["syuppo"]
+exclude = ["syuppo.locale*"]
 
 # No package-data for the translations on purpose. They are installed to
 # /usr/share/locale by the ebuild, where every other program's catalogues
