@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -*- python -*- 
 # Dbus client for syuppod
@@ -262,18 +261,7 @@ def available(myobject, available, machine):
 def packages(myobject, machine):
     """Display world packages to update"""
     reply = myobject.call_get_pretend_attribute_sync('packages')
-    msg = _('Nonejerome@Gentoo /data/devel/python/syuppod $ syuppoc --all -m
-N'a jamais effectué de synchronisation
-0
-0
-Le 8 août 2026, 17:02:21 ​
-1 jour​
-18 heures, 15 minutes et 38 secondes​
-5 heures, 44 minutes et 22 secondes​
-Non disponible
-Aucun
-Il y a moins de 1 semaine et 4 jours​
-')
+    msg = _('None')
     if reply and not reply == '0':
         msg = reply
     if not machine:
@@ -281,8 +269,8 @@ Il y a moins de 1 semaine et 4 jours​
         print(f'    - {msg}')
     else:
         print(msg)
-     
-     
+
+
 def last(myobject, last, machine):
     """Display informations about last world update"""
     # Default for --all argument
