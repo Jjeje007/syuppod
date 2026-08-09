@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.patch
+*~
+Bugs/
+old/
+devel-files/
