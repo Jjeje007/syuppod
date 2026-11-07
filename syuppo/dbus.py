@@ -97,6 +97,31 @@ class PortageDbus(ServiceInterface, BaseHandler):
 
 
     @method()
+    def get_progress(self, key: 's') -> 's':
+        """
+        Progress of the emerge running right now, one field at a time:
+        'state' ('idle', 'running' or 'multiple'), 'count' (emerge
+        processes found), 'package', 'phase', 'done', 'total', 'seconds'
+        (time left, 'None' when it cannot be told) and 'unknown' (packages
+        left without build history). Any emerge that builds is followed,
+        not only @world. An unknown key returns 'None', with an error
+        logged.
+        """
+        logger = logging.getLogger(f'{self.named_logger}get_progress::')
+        logger.debug(f'Requesting: {key}.')
+        # Worked out on demand and cached two seconds: the client's
+        # successive calls for one display read the same snapshot.
+        snapshot = self.progress.snapshot()
+        if key in snapshot:
+            value = snapshot[key]
+        else:
+            logger.error(f"Unknown progress key: '{key}'.")
+            value = None
+        logger.debug(f'Returning: {value} (as string).')
+        return str(value)
+
+
+    @method()
     def get_portage_attribute(self, key: 's') -> 's':
         """
         Retrieve specific portage attribute and return through dbus.

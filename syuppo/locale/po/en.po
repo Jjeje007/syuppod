@@ -280,6 +280,74 @@ msgstr "Estimated build time of available updates:"
 msgid "{0} without history"
 msgstr "{0} without history"
 
+#: client.py
+msgid "Currently building:"
+msgstr "Currently building:"
+
+#: client.py
+msgid "Progress of the running emerge:"
+msgstr "Progress of the running emerge:"
+
+#: client.py
+msgid "Nothing in progress"
+msgstr "Nothing in progress"
+
+#: client.py
+msgid "{0} processes"
+msgstr "{0} processes"
+
+#: client.py
+msgid "{0} left"
+msgstr "{0} left"
+
+#: client.py
+msgid "resolving dependencies"
+msgstr "resolving dependencies"
+
+#: client.py
+msgid "checking"
+msgstr "checking"
+
+#: client.py
+msgid "setting up"
+msgstr "setting up"
+
+#: client.py
+msgid "unpacking"
+msgstr "unpacking"
+
+#: client.py
+msgid "preparing"
+msgstr "preparing"
+
+#: client.py
+msgid "configuring"
+msgstr "configuring"
+
+#: client.py
+msgid "compiling"
+msgstr "compiling"
+
+#: client.py
+msgid "testing"
+msgstr "testing"
+
+#: client.py
+msgid "installing"
+msgstr "installing"
+
+#: client.py
+msgid "merging"
+msgstr "merging"
+
+#: client.py
+msgid "building"
+msgstr "building"
+
+#: client.py
+msgid "cleaning"
+msgstr "cleaning"
+
 #~ msgid "a bit more than "
 #~ msgstr "a bit more than "
 

@@ -312,6 +312,22 @@ class ClientParserHandler(CustomArgsCheck):
                                   ' and [:1]-5 to choose granularity level - this can be collapse, ex:'
                                   ' [:r:3]. Packages never built before are counted apart. Default is'
                                   ' human, [:r]ounded and granularity is [:2].')
+        portage_args.add_argument('--current',
+                                  action = 'store_true',
+                                  help = 'Display the package being built by the emerge running right now, and'
+                                  ' its phase. Any emerge is followed, not only a world update. When several'
+                                  ' emerge run at once, only their number is displayed.')
+        portage_args.add_argument('--progress',
+                                  metavar = 'prg',
+                                  nargs = '?',
+                                  const = 'human:2',
+                                  type = self._check_args_portage_elapse_remain,
+                                  help = 'Display how far the emerge running right now has got: packages done,'
+                                  ' total and time left, from the past build durations. Where \'prg\' should'
+                                  ' be one of: \'human\' or \'seconds\', for the time left. \'human\' output'
+                                  ' a formatted rounded time, tweak using: [:r]ounded, [:u]nrounded and [:1]-5'
+                                  ' to choose granularity level - this can be collapse, ex: [:r:3]. Default is'
+                                  ' human, [:r]ounded and granularity is [:2].')
         portage_args.add_argument('--last',
                                   metavar = 'lst',
                                   nargs = '?',

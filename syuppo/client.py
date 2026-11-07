@@ -301,6 +301,98 @@ def estimate(myobject, opt, machine):
         print(' '.join(parts))
 
 
+# Phases as the daemon names them: the sandbox phases of an ebuild, the
+# coarser steps emerge writes in its log, and dependencies before the first
+# package. Anything else is shown as it comes.
+PHASES = {
+    'dependencies'  :   _('resolving dependencies'),
+    'pretend'       :   _('checking'),
+    'setup'         :   _('setting up'),
+    'unpack'        :   _('unpacking'),
+    'prepare'       :   _('preparing'),
+    'configure'     :   _('configuring'),
+    'compile'       :   _('compiling'),
+    'test'          :   _('testing'),
+    'install'       :   _('installing'),
+    'instprep'      :   _('installing'),
+    'preinst'       :   _('merging'),
+    'postinst'      :   _('merging'),
+    'merging'       :   _('merging'),
+    'building'      :   _('building'),
+    'cleaning'      :   _('cleaning'),
+    }
+
+
+def current(myobject, machine):
+    """Display the package being built right now and its phase"""
+    state = myobject.call_get_progress_sync('state')
+    if state == 'idle':
+        msg = '...' if machine else _('Nothing in progress')
+    elif state == 'multiple':
+        count = myobject.call_get_progress_sync('count')
+        msg = _('{0} processes').format(count)
+    else:
+        package = myobject.call_get_progress_sync('package')
+        phase = myobject.call_get_progress_sync('phase')
+        phase = PHASES.get(phase, phase)
+        if not package:
+            # Started, nothing built yet
+            msg = phase or '...'
+        else:
+            # 'cat/pkg', without the version: the panel is narrow
+            name = re.sub(r'-\d.*$', '', package)
+            msg = f'{name} — {phase}' if phase else name
+    if not machine:
+        print('[*]', _('Currently building:'))
+        print('    - {0}'.format(msg))
+    else:
+        print(msg)
+
+
+def progress(myobject, opt, machine):
+    """Display how far the running emerge has got, and the time left"""
+    # Default for --all argument
+    if not opt:
+        opt = 'human:2'
+    state = myobject.call_get_progress_sync('state')
+    total = int(myobject.call_get_progress_sync('total')) \
+        if state == 'running' else 0
+    if not total:
+        # Nothing to count yet. The panel shows '...'; a person is told why.
+        if machine:
+            msg = '...'
+        elif state == 'multiple':
+            msg = _('{0} processes').format(
+                myobject.call_get_progress_sync('count'))
+        elif state == 'running':
+            msg = PHASES['dependencies']
+        else:
+            msg = _('Nothing in progress')
+    else:
+        done = int(myobject.call_get_progress_sync('done'))
+        msg = '{0}/{1} ({2} %)'.format(done, total, done * 100 // total)
+        reply = myobject.call_get_progress_sync('seconds')
+        # No figure rather than a wrong one: the daemon says 'None' when
+        # the list of what is left cannot be trusted.
+        if reply != 'None':
+            seconds = int(reply)
+            if 'seconds' in opt:
+                left = '{0} {1}'.format(seconds, _('seconds'))
+            else:
+                # Past its usual duration, the package in progress counts
+                # for 0: say 'less than a minute' rather than 'now'.
+                left = _format_timestamp(max(seconds, 1), opt)
+            msg += ' — ' + _('{0} left').format(left)
+            unknown = myobject.call_get_progress_sync('unknown')
+            if unknown not in ('None', '0'):
+                msg += ' ({0})'.format(_('{0} without history').format(unknown))
+    if not machine:
+        print('[*]', _('Progress of the running emerge:'))
+        print('    - {0}'.format(msg))
+    else:
+        print(msg)
+
+
 def last(myobject, last, machine):
     """Display informations about last world update"""
     # Default for --all argument
@@ -412,6 +504,8 @@ def parser(args):
         'available' :   { 'func': available, 'args' : [myobject, args.available, args.machine] },
         'packages'  :   { 'func': packages, 'args' : [myobject, args.machine] },
         'estimate'  :   { 'func': estimate, 'args' : [myobject, args.estimate, args.machine] },
+        'current'   :   { 'func': current, 'args' : [myobject, args.machine] },
+        'progress'  :   { 'func': progress, 'args' : [myobject, args.progress, args.machine] },
         'last'      :   { 'func': last, 'args' : [myobject, args.last, args.machine] },
         'forced'    :   { 'func': forced, 'args' : [myobject, args.machine] }
         }

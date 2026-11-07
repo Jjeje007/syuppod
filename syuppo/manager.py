@@ -29,6 +29,7 @@ from syuppo.logger import ProcessLoggingHandler
 from syuppo.logparser import LastSync
 from syuppo.logparser import LastWorldUpdate 
 from syuppo.durations import PackagesDurations
+from syuppo.progress import EmergeProgress
 
 
 try:
@@ -1143,6 +1144,11 @@ class EstimateHandler:
         # pretend_world() runs in an executor thread, and later steps will
         # update from the inotify thread: one at a time on the database.
         self.durations_lock = Lock()
+        # Progress of the emerge running right now, worked out when dbus
+        # asks. It only reads (/proc, emerge.log, mtimedb, the database), so
+        # dryrun changes nothing for it.
+        self.progress = EmergeProgress(self.durations, self.durations_lock,
+                                       log=self.pathdir['emergelog'])
 
     def close_durations(self):
         """Close the durations database, at daemon exit. Never raises."""
