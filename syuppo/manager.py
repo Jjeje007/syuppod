@@ -1126,8 +1126,7 @@ class EstimateHandler:
     Estimate how long the pending update will take to build.
 
     Holds the build duration database. It is opened once, here, rather
-    than per pretend: EmergeLogParser counts the lines of emerge.log each
-    time it is instantiated.
+    than per pretend: one connection, kept, instead of one per pretend.
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

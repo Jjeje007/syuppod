@@ -5,6 +5,7 @@
 # Distributed under the terms of the GNU General Public License v3
 
 import logging
+import os
 import subprocess
 import re
 
@@ -48,42 +49,36 @@ class EmergeLogParser:
                 'real'      :   True
                 }
             logger.debug(f"Setting '{self.emergelog}' maximum lines count to:"
-                         + f" {self.log_lines['count']} lines.")
+                         + f" {self.log_lines['count']} lines (upper bound,"
+                         + " from the file size).")
         # Init numpy range lists
         self._range = { }
 
     def getlines(self):
         """
-        Get total number of lines from log file
+        Upper bound of the number of lines of the log file, from its size.
+
+        It used to be counted with 'wc --lines', reading the whole file
+        (45 MB) each time a parser was created. The count is only the top
+        of the range of lines read back when looking for something, and
+        asking 'tail' for more lines than the file holds just returns the
+        whole file: an upper bound does the job, for the price of a stat().
+
+        32 bytes per line keeps it an upper bound: emerge.log lines average
+        94 bytes (484 600 lines, 45.5 MB, November 2026), a timestamp alone
+        takes 12. Returns False when the size cannot be read, or for an
+        empty file -- the caller then falls back on an arbitrary count.
         """
         logger = logging.getLogger(f'{self.__nlogger}getlines::')
-        
-        myargs = ['/bin/wc', '--lines', self.emergelog]
-        mywc = subprocess.Popen(myargs, preexec_fn=on_parent_exit(),
-                                stdout=subprocess.PIPE, 
-                                stderr=subprocess.PIPE, 
-                                universal_newlines=True)
-        
-        nlines = re.compile(r'^(\d+)\s.*$')
-        
-        for line in mywc.stdout:
-            if nlines.match(line):
-                return int(nlines.match(line).group(1))
-        mywc.stdout.close()
-        
-        return_code = mywc.poll()
-        if return_code:
-            logger.error(f'Got error while getting lines number for \'{self.emergelog}\' file.')
-            logger.error('Command: {0}, return code: {1}'.format(' '.join(myargs), return_code))
-            for line in mywc.stderr:
-                line = line.rstrip()
-                if line:
-                    logger.error(f'Stderr: {line}')
-            mywc.stderr.close()
-        # Got nothing
-        return False
-   
-   
+        try:
+            size = os.path.getsize(self.emergelog)
+        except OSError as error:
+            logger.error(f"Could not get the size of '{self.emergelog}':"
+                         f" {error}.")
+            return False
+        return size // 32 + 1 if size else False
+
+
     def getlog(self, lastlines=500):
         """
         Get last n lines from log file
