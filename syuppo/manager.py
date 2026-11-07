@@ -1177,6 +1177,17 @@ class EstimateHandler:
         logger.info(msg)
         logger.debug(f'{added} new build duration(s) recorded first,'
                      f' {len(atoms)} package(s) in the pretend.')
+        # Which ones have no history: new packages, but also a name split
+        # wrongly or a package moved to another category -- worth seeing.
+        # Only worked out when debug is on: it queries the database again.
+        if unknown and logger.isEnabledFor(logging.DEBUG):
+            try:
+                with self.durations_lock:
+                    found = self.durations.estimate(atoms)
+                missing = [a for a in atoms if a not in found]
+                logger.debug(f"Without history: {', '.join(missing)}")
+            except Exception as exc:
+                logger.debug(f'Could not list packages without history: {exc}')
 
 
 class BaseHandler(PortageHandler, WorldHandler, PretendHandler,

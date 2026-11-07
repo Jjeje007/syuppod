@@ -72,6 +72,31 @@ class PortageDbus(ServiceInterface, BaseHandler):
 
 
     @method()
+    def get_estimate(self, key: 's') -> 's':
+        """
+        Estimated build time of the pending update, one field at a time:
+        'seconds', 'known', 'unknown' or 'degraded'. Returns 'None' until a
+        pretend has produced an estimate, or when there is nothing to update.
+        An unknown key returns 'None' too, with an error logged, rather than
+        a KeyError sent back over the bus.
+        """
+        logger = logging.getLogger(f'{self.named_logger}get_estimate::')
+        logger.debug(f'Requesting: {key}.')
+        # Read the reference once: pretend_world() replaces the dict as a
+        # whole, so this one is consistent even if a new one lands meanwhile.
+        estimate = self.pretend['estimate']
+        if estimate is None:
+            value = None
+        elif key in estimate:
+            value = estimate[key]
+        else:
+            logger.error(f"Unknown estimate key: '{key}'.")
+            value = None
+        logger.debug(f'Returning: {value} (as string).')
+        return str(value)
+
+
+    @method()
     def get_portage_attribute(self, key: 's') -> 's':
         """
         Retrieve specific portage attribute and return through dbus.
