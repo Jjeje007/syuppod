@@ -28,6 +28,7 @@ from syuppo.utils import on_parent_exit
 from syuppo.logger import ProcessLoggingHandler
 from syuppo.logparser import LastSync
 from syuppo.logparser import LastWorldUpdate 
+from syuppo.durations import PackagesDurations
 
 
 try:
@@ -554,6 +555,12 @@ class PretendHandler:
             'status'    :   'ready',
             # Packages to update
             'packages'  :   self.loaded_stateopts.get('pretend packages'),
+            # Estimated build time of those packages, set by
+            # pretend_world(): None until a pretend has run, then a dict
+            # (seconds, known, unknown, degraded). Replaced as a whole,
+            # never edited in place, so readers always see one consistent
+            # estimate.
+            'estimate'  :   None,
             # Interval between two pretend_world() 
             # TODO could be tweaked
             'interval'  :   600,
@@ -610,6 +617,13 @@ class PretendHandler:
         packages = False
         retry = 0
         extract_packages = re.compile(r'^Total:.(\d+).package.*$')        
+        # 'cat/pkg' of each package to build, without version, the way the
+        # durations database records them (same split rule as its START_RE:
+        # up to the first '-<digit>'). Only [ebuild ...] lines: [binary ...]
+        # installs are not builds, and [blocks ...] / [uninstall ...] are not
+        # installs at all.
+        extract_atom = re.compile(r'^\[ebuild[^\]]*\]\s+(\S+?)-\d')
+        atoms = [ ]
         
         if not self.dryrun:
             # Init logger
@@ -640,8 +654,14 @@ class PretendHandler:
             # Get package number and write log in the same time
             log_writer.info("##### START ####")
             log_writer.info(f"Command: {cmd_line}")
+            # A retry runs the whole command again: start from scratch
+            atoms = [ ]
             for line in logfile:
                 log_writer.info(line)
+                if line.startswith('[ebuild'):
+                    atom = extract_atom.match(line)
+                    if atom:
+                        atoms.append(atom.group(1))
                 if extract_packages.match(line):
                     packages = int(extract_packages.match(line).group(1))
                     # don't retry we got packages
@@ -694,6 +714,7 @@ class PretendHandler:
         # Make sure we have some packages
         if packages:
             self.change_packages_value(tochange=packages)
+            self.estimate_packages(atoms)
         # TODO TODO NO NO this HAVE to be rewritten.... 
         # If we got error on all the retry this shouldn't tochange=0 no no
         # this has to be maybe "-1" and then client should know there is a problem !
@@ -705,6 +726,7 @@ class PretendHandler:
         # TODO TODO TODO 
         else:
             self.change_packages_value(tochange=0)
+            self.pretend['estimate'] = None
                 
         with self.pretend['locks']['cancelled']:
             self.pretend['cancelled'] = False
@@ -1092,8 +1114,67 @@ class WorldHandler:
 
 
 
+class EstimateHandler:
+    """
+    Estimate how long the pending update will take to build.
+
+    Holds the build duration database. It is opened once, here, rather
+    than per pretend: EmergeLogParser counts the lines of emerge.log each
+    time it is instantiated.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.__logger_name = f'::{__name__}::EstimateHandler::'
+        logger = logging.getLogger(f'{self.__logger_name}init::')
+
+        # In dryrun nothing may be written: keep the database in memory.
+        # It is then rebuilt from the whole log on the first estimate
+        # (about 0.3 s for 42 MB).
+        dbpath = ':memory:' if self.dryrun else self.pathdir['durationsdb']
+        logger.debug(f'Durations database: {dbpath}')
+        self.durations = PackagesDurations(dbpath=dbpath,
+                                           log=self.pathdir['emergelog'])
+        # pretend_world() runs in an executor thread, and later steps will
+        # update from the inotify thread: one at a time on the database.
+        self.durations_lock = Lock()
+
+    def estimate_packages(self, atoms):
+        """
+        Estimate the build time of 'atoms' (list of 'cat/pkg') into
+        self.pretend['estimate']. Never raises: an estimate is a bonus,
+        it must not break the pretend.
+        """
+        logger = logging.getLogger(f'{self.__logger_name}estimate_packages::')
+        try:
+            with self.durations_lock:
+                added = self.durations.update()
+                seconds, known, unknown, degraded = \
+                    self.durations.estimate_total(atoms)
+        except Exception as exc:
+            logger.error(f'Could not estimate build time: {exc}')
+            self.pretend['estimate'] = None
+            return
+
+        self.pretend['estimate'] = {
+            'seconds'   :   seconds,
+            'known'     :   known,
+            'unknown'   :   unknown,
+            'degraded'  :   degraded
+            }
+        hours, minutes = divmod(round(seconds / 60), 60)
+        msg = (f'Estimated build time: {hours}h{minutes:02d}'
+               f' for {known} package(s)')
+        if unknown:
+            msg += f', {unknown} without history'
+        if degraded:
+            msg += f' ({degraded} measured under another configuration)'
+        logger.info(msg)
+        logger.debug(f'{added} new build duration(s) recorded first,'
+                     f' {len(atoms)} package(s) in the pretend.')
+
+
 class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
-                  SyncHandler, GenericHandler):
+                  SyncHandler, EstimateHandler, GenericHandler):
     """
     Base class for all Handler
     """

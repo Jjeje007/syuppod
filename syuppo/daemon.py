@@ -57,7 +57,8 @@ pathdir = {
     'fdlog'         :   '/var/log/' + prog_name + '/stderr.log', 
     'statelog'      :   '/var/lib/' + prog_name + '/state.info',
     'synclog'       :   '/var/log/' + prog_name + '/sync.log',
-    'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log'    
+    'pretendlog'    :   '/var/log/' + prog_name + '/pretend.log',
+    'durationsdb'   :   '/var/lib/' + prog_name + '/durations.db'
     }
 
 # Custom level name share across all logger
