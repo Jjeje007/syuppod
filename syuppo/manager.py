@@ -639,7 +639,13 @@ class PretendHandler:
             log_writer = logging.getLogger(name)
             
         cmd = '/usr/bin/emerge'
-        args = [ '--verbose', '--pretend', '--deep', 
+        # --color=n: emerge runs under a pty (pexpect) and would otherwise
+        # colour its output, so that an [ebuild] line starts with '[' and an
+        # escape sequence -- and is never recognised. Plain text also makes
+        # pretend.log readable with any tool.
+        # Keep '--with-bdeps=y' LAST: a failed run retries without it
+        # through args.pop().
+        args = [ '--verbose', '--color=n', '--pretend', '--deep',
                   '--newuse', '--update', '@world', '--with-bdeps=y' ]
         cmd_line = f"{cmd} {' '.join(args)}"
         msg = 'Stop checking for available updates'
