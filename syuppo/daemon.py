@@ -358,10 +358,16 @@ class DynamicDaemon(threading.Thread):
         self.manager = manager
         #logger.debug(f"MANAGER: {self.manager}")
         # Switch between watched target
+        # CLOSE_WRITE says emerge.log changed. MOVE_SELF and DELETE_SELF say
+        # it went away -- logrotate renames it by default -- and the watch,
+        # which follows the inode, would then stay on the old file: the
+        # daemon would see nothing more until restarted.
+        inflags = inotify_simple.flags
         self.watch = {
             'inotify'  :   {
                 'path'      :   pathdir['emergelog'],
-                'flags'     :   8,
+                'flags'     :   (inflags.CLOSE_WRITE | inflags.MOVE_SELF
+                                 | inflags.DELETE_SELF),
                 'id'        :   'inotify',
                 'call'      :   self.inotifywatch
                 },
@@ -390,6 +396,9 @@ class DynamicDaemon(threading.Thread):
         # offset regardless of how many times it changed.
         self.read_delay = 200
         self.inotify = False
+        # True while emerge.log does not exist and its directory is watched
+        # instead, waiting for the file to come back.
+        self.watching_dir = False
         
         # for process querying
         self.prun = CheckProcRunning()
@@ -514,13 +523,29 @@ class DynamicDaemon(threading.Thread):
         if not self.inotify:
             self.inotify = self.__inotify()
         reader = False
+        path = pathlib.Path(self.caller['path'])
+        gone = (inotify_simple.flags.MOVE_SELF | inotify_simple.flags.DELETE_SELF
+                | inotify_simple.flags.IGNORED)
         # For exit order also
         # But should be self.timeout != 0 / None
         # Otherwise it will be stuck until new data is available
         while not reader and not self.exit:
             reader = self.inotify.read(timeout=self.timeout,
                                        read_delay=self.read_delay)
-    
+            if not reader:
+                continue
+            if self.watching_dir:
+                # Only emerge.log matters in its directory
+                if not any(event.name == path.name for event in reader):
+                    reader = False
+                    continue
+                logger.info(f"'{path}' is back: watching it again.")
+                self.__rearm()
+            elif any(event.mask & gone for event in reader):
+                logger.info(f"'{path}' was moved or deleted (log rotation?):"
+                            " watching it again.")
+                self.__rearm()
+
         if self.exit:
             logger.debug("Stop waiting, receive exit order.")
             return 
@@ -529,26 +554,60 @@ class DynamicDaemon(threading.Thread):
         # DONT close here: let self.checking() doing it
         # OR at the end of run()
     
+    def __rearm(self):
+        """
+        Drop the current watch: the next inotifywatch() sets a new one on
+        emerge.log as it is now (a new file after a rotation).
+        """
+        self.inotify.close()
+        self.inotify = False
+        self.watching_dir = False
+
     def __inotify(self):
         """
         Setup a watch and return its
+
+        On emerge.log when it exists. When it does not -- between a rotation
+        and the first write, logrotate without 'create' -- on its directory,
+        waiting for it to appear.
         """
         logger = logging.getLogger(f'{self.logger_name}__inotify::')
-        inotify = inotify_simple.INotify()
         # Ouput by flag over one numeric value
         get_flags = inotify_simple.flags.from_mask
-        try:
-            log_wd = inotify.add_watch(self.caller['path'], self.caller['flags'])
-        except OSError as error:
-            logger.error(f"Inotify watch crash: Using:"
-                        + f" '{self.caller['path']}'.")
-            logger.error(f"{error}: Exiting with status '1'.")
-            sys.exit(1)
-        else:
-            logger.debug(f"Started monitoring: '{self.caller['path']}', flags:"
-                        + f" '{get_flags(self.caller['flags'])}',"
-                        + f" timeout={self.timeout}ms,"
-                        + f" read_delay={self.read_delay}ms.")
+        path = pathlib.Path(self.caller['path'])
+        while True:
+            inotify = inotify_simple.INotify()
+            try:
+                log_wd = inotify.add_watch(path, self.caller['flags'])
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                logger.error(f"Inotify watch crash: Using: '{path}'.")
+                logger.error(f"{error}: Exiting with status '1'.")
+                sys.exit(1)
+            else:
+                self.watching_dir = False
+                logger.debug(f"Started monitoring: '{path}', flags:"
+                            + f" '{get_flags(self.caller['flags'])}',"
+                            + f" timeout={self.timeout}ms,"
+                            + f" read_delay={self.read_delay}ms.")
+                return inotify
+            # emerge.log does not exist: watch its directory
+            dirflags = inotify_simple.flags.CREATE | inotify_simple.flags.MOVED_TO
+            try:
+                inotify.add_watch(path.parent, dirflags)
+            except OSError as error:
+                logger.error(f"Inotify watch crash: Using: '{path.parent}'.")
+                logger.error(f"{error}: Exiting with status '1'.")
+                sys.exit(1)
+            # It may have been created between the two add_watch(): the
+            # event is then already lost, so start over on the file.
+            if path.exists():
+                inotify.close()
+                continue
+            self.watching_dir = True
+            logger.warning(f"'{path}' does not exist: waiting for it in"
+                           f" '{path.parent}'.")
             return inotify
           
     def checking(self):
