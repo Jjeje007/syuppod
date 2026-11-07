@@ -300,6 +300,18 @@ class ClientParserHandler(CustomArgsCheck):
                                   action = 'store_true',
                                   help = 'Display packages\'s update related informations from `emerge --pretend`.'
                                   ' This will NOT run an `emerge --pretend` in a background.')
+        portage_args.add_argument('--estimate',
+                                  metavar = 'est',
+                                  nargs = '?',
+                                  const = 'human:2',
+                                  type = self._check_args_portage_elapse_remain,
+                                  help = 'Display the estimated build time of the available updates, from'
+                                  ' the past build durations of each package (median of the last five).'
+                                  ' Where \'est\' should be one of: \'human\' or \'seconds\'. \'human\''
+                                  ' output a formatted rounded time, tweak using: [:r]ounded, [:u]nrounded'
+                                  ' and [:1]-5 to choose granularity level - this can be collapse, ex:'
+                                  ' [:r:3]. Packages never built before are counted apart. Default is'
+                                  ' human, [:r]ounded and granularity is [:2].')
         portage_args.add_argument('--last',
                                   metavar = 'lst',
                                   nargs = '?',

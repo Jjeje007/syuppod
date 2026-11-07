@@ -921,6 +921,11 @@ def main():
                 f" {end_time - start_time} second(s).")
     dynamic_daemon.join()
     
+    # Both threads are gone: nothing can touch the durations database any
+    # more. Closing it checkpoints the WAL into the database file instead
+    # of leaving durations.db-wal behind for the next start to replay.
+    manager.close_durations()
+
     # Every thing done
     logger.info('...exiting, ...bye-bye.')
     sys.exit(0)

@@ -271,6 +271,36 @@ def packages(myobject, machine):
         print(msg)
 
 
+def estimate(myobject, opt, machine):
+    """Display the estimated build time of the available updates"""
+    # Default for --all argument
+    if not opt:
+        opt = 'human:2'
+    reply = myobject.call_get_estimate_sync('seconds')
+    # Pieces joined with a space. No u"\u200B" placeholder needed here:
+    # gettext is never asked to translate an empty string.
+    parts = [ ]
+    if reply == 'None':
+        # No pretend yet, or nothing to update
+        parts.append(_('None'))
+    else:
+        seconds = int(reply)
+        if 'seconds' in opt:
+            parts.append(str(seconds))
+            parts.append(_('seconds'))
+        else:
+            parts.append(_format_timestamp(seconds, opt))
+        # Packages never built: their time is not in the figure, say so
+        unknown = myobject.call_get_estimate_sync('unknown')
+        if unknown not in ('None', '0'):
+            parts.append('({0})'.format(_('{0} without history').format(unknown)))
+    if not machine:
+        print('[*]', _('Estimated build time of available updates:'))
+        print('    - {0}'.format(' '.join(parts)))
+    else:
+        print(' '.join(parts))
+
+
 def last(myobject, last, machine):
     """Display informations about last world update"""
     # Default for --all argument
@@ -381,6 +411,7 @@ def parser(args):
         'remain'    :   { 'func': elapsed_remain, 'args' : [myobject, 'remain', args.remain, args.machine] },
         'available' :   { 'func': available, 'args' : [myobject, args.available, args.machine] },
         'packages'  :   { 'func': packages, 'args' : [myobject, args.machine] },
+        'estimate'  :   { 'func': estimate, 'args' : [myobject, args.estimate, args.machine] },
         'last'      :   { 'func': last, 'args' : [myobject, args.last, args.machine] },
         'forced'    :   { 'func': forced, 'args' : [myobject, args.machine] }
         }

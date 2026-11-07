@@ -272,6 +272,14 @@ msgstr "environ "
 msgid "less than "
 msgstr "moins de "
 
+#: client.py
+msgid "Estimated build time of available updates:"
+msgstr "Durée de compilation estimée des mises à jour:"
+
+#: client.py
+msgid "{0} without history"
+msgstr "{0} sans historique"
+
 #~ msgid "a bit more than "
 #~ msgstr "un peu plus de "
 

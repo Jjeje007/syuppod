@@ -1144,6 +1144,16 @@ class EstimateHandler:
         # update from the inotify thread: one at a time on the database.
         self.durations_lock = Lock()
 
+    def close_durations(self):
+        """Close the durations database, at daemon exit. Never raises."""
+        logger = logging.getLogger(f'{self.__logger_name}close_durations::')
+        try:
+            with self.durations_lock:
+                self.durations.close()
+            logger.debug('Durations database closed.')
+        except Exception as exc:
+            logger.error(f'Could not close the durations database: {exc}')
+
     def estimate_packages(self, atoms):
         """
         Estimate the build time of 'atoms' (list of 'cat/pkg') into
