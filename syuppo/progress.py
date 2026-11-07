@@ -159,6 +159,15 @@ class EmergeProgress:
         # The session followed: emerge pid, and where we are in the log.
         self._pid = None
         self._session = None
+        # Debug lines are written on change only: Quickshell asks every
+        # 20 seconds, and the same line each time would drown the log.
+        self._said = {}
+
+    def _debug(self, topic, msg):
+        """Log 'msg' at debug level, unless it is what 'topic' said last."""
+        if self._said.get(topic) != msg:
+            self._said[topic] = msg
+            logging.getLogger(f'{self.__nlogger}{topic}::').debug(msg)
 
     # ── Public ──────────────────────────────────────────────────────────
 
@@ -169,6 +178,8 @@ class EmergeProgress:
         logger = logging.getLogger(f'{self.__nlogger}snapshot::')
         try:
             snap = self._compute(now)
+            self._debug('state', f"State: {snap['state']}, count: {snap['count']},"
+                        f" package: {snap['package'] or 'none'}.")
         except Exception as exc:
             # Progress is a display: it must never take the daemon down.
             logger.error(f'Could not work out the emerge progress: {exc}')
@@ -194,6 +205,9 @@ class EmergeProgress:
         pids = {c[0] for c in candidates}
         emerges = [(pid, cmd, start) for pid, ppid, cmd, start in candidates
                    if ppid not in pids]
+        self._debug('processes', 'emerge process(es) followed: '
+                    + (', '.join(f'{pid} ({cmd})' for pid, cmd, _s in emerges)
+                       or 'none') + '.')
         if not emerges:
             self._pid = self._session = None
             return self._idle()
@@ -209,6 +223,12 @@ class EmergeProgress:
             # moment after the process starts.
             self._pid = pid
             self._session = self._find_session(start)
+            if self._session is None:
+                self._debug('session', f'Session of pid {pid} (started at'
+                            f' {int(start)}) not found in the log yet.')
+            else:
+                self._debug('session', f'Session of pid {pid} found in the log'
+                            f" at byte {self._session['offset']}.")
         session = self._session
         if session is None:
             snap = self._idle(1, 'running')
@@ -291,6 +311,9 @@ class EmergeProgress:
             # Rotated (or truncated) under us: the offset means nothing in
             # the new file. Keep what is known, and go on from the start of
             # the new one -- logrotate leaves it empty, emerge writes on.
+            self._debug('rotation', f'{self.log} rotated or truncated (inode'
+                        f" {session['inode']} -> {st.st_ino}): reading the new"
+                        ' file from its start.')
             session['inode'] = st.st_ino
             session['offset'] = 0
         try:
@@ -366,19 +389,38 @@ class EmergeProgress:
             cpvs = [e[2] for e in mergelist
                     if len(e) >= 4 and e[0] in ('ebuild', 'binary')
                     and e[3] == 'merge']
-            if len(cpvs) == expected and (not building or cpvs[0] == current):
+            if len(cpvs) != expected:
+                why = (f'mtimedb lists {len(cpvs)} package(s) left, the log'
+                       f' {expected}')
+            elif building and cpvs[0] != current:
+                why = (f'mtimedb starts with {cpvs[0]}, the log builds'
+                       f' {current}')
+            else:
                 left = cpvs
-        except (OSError, ValueError, AttributeError, IndexError, TypeError):
-            pass
+                why = 'mtimedb agrees with the log'
+        except (OSError, ValueError, AttributeError, IndexError,
+                TypeError) as exc:
+            why = f'mtimedb unreadable ({exc})'
         if left is None and expected == 1 and building:
             left = [current]             # last package: no list needed
+            why += ', last package of the session: estimated on its own'
+        self._debug('mtimedb', f'{why}.')
         if left is None:
             return None, 0
 
         names = [cat_pkg(c) for c in left]
-        with self.lock:
+        # Asked from dbus: never wait long on the lock, a pretend may hold
+        # it while it updates the database. No figure this time rather
+        # than a frozen bus.
+        if not self.lock.acquire(timeout=1):
+            self._debug('lock', 'Durations database busy: no estimate this time.')
+            return None, 0
+        try:
             found = self.durations.estimate(
                 list(dict.fromkeys(n for n in names if n)))
+        finally:
+            self.lock.release()
+        self._said.pop('lock', None)
         seconds = 0
         unknown = 0
         for i, name in enumerate(names):
@@ -390,4 +432,9 @@ class EmergeProgress:
                 # Time already spent on the package in progress
                 median = max(0, median - (now - session['started']))
             seconds += median
+        if unknown:
+            missing = [c for c, n in zip(left, names) if n not in found]
+            more = f' (+{len(missing) - 10} more)' if len(missing) > 10 else ''
+            self._debug('unknown', 'Without history: '
+                        + ', '.join(missing[:10]) + more + '.')
         return int(seconds), unknown
