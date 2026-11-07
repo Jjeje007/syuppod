@@ -323,7 +323,18 @@ class PackagesDurations(EmergeLogParser):
         is exact here rather than approximate: emerge builds one package at a
         time unless --jobs is used, so measured durations do not overlap.
         """
-        found = self.estimate(packages, samples)
-        total = sum(v[0] for v in found.values())
-        degraded = sum(1 for v in found.values() if v[1] != 'current')
-        return total, len(found), len(packages) - len(found), degraded
+        # Count per entry of 'packages', not per distinct package: the same
+        # 'cat/pkg' can come twice (two slots, e.g. dev-lang/python 3.14 and
+        # 3.15), and each is a build of its own. Counting the dict instead
+        # summed such a package once and reported the second entry as
+        # "without history".
+        found = self.estimate(list(dict.fromkeys(packages)), samples)
+        total = known = degraded = 0
+        for pkg in packages:
+            if pkg in found:
+                seconds, source = found[pkg]
+                total += seconds
+                known += 1
+                if source != 'current':
+                    degraded += 1
+        return total, known, len(packages) - known, degraded
