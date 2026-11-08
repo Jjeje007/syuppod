@@ -126,6 +126,30 @@ def read_processes(proc='/proc'):
     return out
 
 
+def read_cputime(pid, proc='/proc'):
+    """
+    CPU time used so far by 'pid', in seconds; None if it cannot be read.
+    /proc/<pid>/stat is readable by anyone, root's processes included.
+    """
+    try:
+        with open(f'{proc}/{pid}/stat', 'rb') as f:
+            raw = f.read().decode(errors='replace')
+        # After the command name: field 3 is index 0, so utime (14) and
+        # stime (15) are indexes 11 and 12.
+        fields = raw[raw.rindex(')') + 2:].split()
+        return (int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK')
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+# Before its first package, emerge either works out the dependencies --
+# one core flat out -- or waits: for an answer to --ask, or for a lock held
+# by another emerge. Below this share of a core over at least WAIT_WINDOW
+# seconds, it is taken as waiting.
+WAIT_SHARE = 0.05
+WAIT_WINDOW = 3
+
+
 class EmergeProgress:
     """
     What the running emerge is doing, worked out on demand.
@@ -134,7 +158,7 @@ class EmergeProgress:
         state     'idle', 'running' or 'multiple'
         count     number of emerge processes found
         package   'cat/pkg-version' being built, '' if none yet
-        phase     short key: 'dependencies', a sandbox phase ('compile',
+        phase     short key: 'dependencies', 'waiting', a sandbox phase ('compile',
                   'install', ...) or a log step ('building', 'merging', ...)
         done      packages completed in this session
         total     packages in this session (0 until the first is started)
@@ -145,7 +169,7 @@ class EmergeProgress:
 
     def __init__(self, durations, lock, log='/var/log/emerge.log',
                  mtimedb='/var/cache/edb/mtimedb', processes=read_processes,
-                 clock=time.time, cache=2):
+                 clock=time.time, cache=2, cputime=read_cputime):
         self.__nlogger = f'::{__name__}::EmergeProgress::'
         self.durations = durations
         self.lock = lock
@@ -154,6 +178,11 @@ class EmergeProgress:
         self.processes = processes
         self.clock = clock
         self.cache = cache
+        self.cputime = cputime
+        # Last CPU sample of the emerge followed: (pid, cpu seconds, when),
+        # and the verdict it gave.
+        self._cpu = None
+        self._waiting = False
         self._snapshot = None
         self._taken = 0
         # The session followed: emerge pid, and where we are in the log.
@@ -209,12 +238,12 @@ class EmergeProgress:
                     + (', '.join(f'{pid} ({cmd})' for pid, cmd, _s in emerges)
                        or 'none') + '.')
         if not emerges:
-            self._pid = self._session = None
+            self._pid = self._session = self._cpu = None
             return self._idle()
         if len(emerges) > 1:
             # Decided in August: one session followed, never several. Their
             # lists cannot be told apart reliably (mtimedb holds only one).
-            self._pid = self._session = None
+            self._pid = self._session = self._cpu = None
             return self._idle(len(emerges), 'multiple')
 
         pid, cmd, start = emerges[0]
@@ -232,7 +261,7 @@ class EmergeProgress:
         session = self._session
         if session is None:
             snap = self._idle(1, 'running')
-            snap['phase'] = 'dependencies'
+            snap['phase'] = self._before_first(pid, now)
             return snap
         self._read_forward(session)
 
@@ -240,14 +269,39 @@ class EmergeProgress:
         snap['total'] = session['total']
         snap['done'] = session['done']
         if not session['package']:
-            # Started, nothing built yet: still resolving dependencies.
-            snap['phase'] = 'dependencies'
+            # Started, nothing built yet
+            snap['phase'] = self._before_first(pid, now)
             return snap
         snap['package'] = session['package']
         snap['phase'] = self._sandbox_phase(procs, session['package']) \
             or session['step']
         snap['seconds'], snap['unknown'] = self._remaining(session, now)
         return snap
+
+    def _before_first(self, pid, now):
+        """
+        'dependencies' or 'waiting', for an emerge that has not started its
+        first package yet, from the CPU it used since the last sample.
+
+        A verdict needs two samples WAIT_WINDOW seconds apart at least:
+        until then, and whenever the CPU time cannot be read, it says
+        'dependencies' -- what it said before this existed.
+        """
+        cpu = self.cputime(pid)
+        if cpu is None:
+            return 'dependencies'
+        prev = self._cpu
+        if prev is None or prev[0] != pid:
+            self._cpu = (pid, cpu, now)
+            self._waiting = False
+        elif now - prev[2] >= WAIT_WINDOW:
+            share = (cpu - prev[1]) / (now - prev[2])
+            self._waiting = share < WAIT_SHARE
+            self._cpu = (pid, cpu, now)
+            self._debug('cpu', f'emerge {pid} before its first package:'
+                        f' {share:.0%} of a core over {now - prev[2]:.0f} s,'
+                        f" {'waiting (answer or lock)' if self._waiting else 'working out dependencies'}.")
+        return 'waiting' if self._waiting else 'dependencies'
 
     def _find_session(self, start):
         """

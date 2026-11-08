@@ -306,6 +306,9 @@ def estimate(myobject, opt, machine):
 # package. Anything else is shown as it comes.
 PHASES = {
     'dependencies'  :   _('resolving dependencies'),
+    # Before the first package, emerge using almost no CPU: an answer to
+    # --ask, or a lock held by another emerge.
+    'waiting'       :   _('waiting'),
     'pretend'       :   _('checking'),
     'setup'         :   _('setting up'),
     'unpack'        :   _('unpacking'),
@@ -365,7 +368,8 @@ def progress(myobject, opt, machine):
             msg = _('{0} processes').format(
                 myobject.call_get_progress_sync('count'))
         elif state == 'running':
-            msg = PHASES['dependencies']
+            phase = myobject.call_get_progress_sync('phase')
+            msg = PHASES.get(phase, phase) or '...'
         else:
             msg = _('Nothing in progress')
     else:

@@ -305,6 +305,10 @@ msgid "resolving dependencies"
 msgstr "resolving dependencies"
 
 #: client.py
+msgid "waiting"
+msgstr "waiting"
+
+#: client.py
 msgid "checking"
 msgstr "checking"
 
