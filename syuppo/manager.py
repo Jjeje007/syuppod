@@ -1052,8 +1052,13 @@ class WorldHandler:
         logger = logging.getLogger(f'{self.__logger_name}{name}::')
         logger.debug(f'Running with detected={detected}')
         
-        myparser = LastWorldUpdate(advanced_debug=self.vdebug['logparser'],
-                                   log=self.pathdir['emergelog'])
+        # 'logparserlines' also prints every line read, which only shows
+        # with the parser's advanced debug on: it implies 'logparser'.
+        lines = self.vdebug.get('logparserlines', False)
+        myparser = LastWorldUpdate(
+            advanced_debug=self.vdebug['logparser'] or lines,
+            debug_show_all_lines=lines,
+            log=self.pathdir['emergelog'])
         get_world_info = myparser()
         
         updated = False

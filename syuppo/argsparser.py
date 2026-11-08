@@ -186,7 +186,9 @@ class DaemonParserHandler(CustomArgsCheck):
                                     action = 'store_true')
         advanced_debug.add_argument('--vdebug',
                                     help = """Enable advanced debug for [m]odules:
-                                            logparser, formattimestamp, durations (every
+                                            logparser, logparserlines (logparser plus every
+                                            emerge.log line it reads), formattimestamp,
+                                            durations (every
                                             build recorded in the durations database),
                                             procrunning (every process looked at when
                                             searching for a world, system, sync or
@@ -196,7 +198,8 @@ class DaemonParserHandler(CustomArgsCheck):
                                     metavar = 'm',
                                     action = DictAction,
                                     nargs = '+',
-                                    choices = [ 'logparser', 'formattimestamp', 'durations',
+                                    choices = [ 'logparser', 'logparserlines',
+                                                'formattimestamp', 'durations',
                                                 'procrunning' ])
     def parsing(self):
         self.args = self.parser.parse_args()
