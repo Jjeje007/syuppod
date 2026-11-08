@@ -271,6 +271,22 @@ def packages(myobject, machine):
         print(msg)
 
 
+def _first_upper(msg):
+    """
+    Capitalize the first letter of 'msg', leaving the rest alone. Every
+    value syuppoc displays on its own starts with a capital; pieces built
+    from fragments ('approximately 4 hours', a phase name) do not by
+    themselves. The zero-width spaces the timestamp formatter puts in
+    front are skipped.
+    """
+    for i, char in enumerate(msg):
+        if char.isalpha():
+            return msg[:i] + char.upper() + msg[i + 1:]
+        if not (char.isspace() or char == '\u200b'):
+            break      # starts with a digit or a sign: nothing to do
+    return msg
+
+
 def estimate(myobject, opt, machine):
     """Display the estimated build time of the available updates"""
     # Default for --all argument
@@ -295,11 +311,12 @@ def estimate(myobject, opt, machine):
         unknown = myobject.call_get_estimate_sync('unknown')
         if unknown not in ('None', '0'):
             parts.append('({0})'.format(_('{0} without history').format(unknown)))
+    msg = _first_upper(' '.join(parts))
     if not machine:
         print('[*]', _('Estimated build time of available updates:'))
-        print('    - {0}'.format(' '.join(parts)))
+        print('    - {0}'.format(msg))
     else:
-        print(' '.join(parts))
+        print(msg)
 
 
 # Phases as the daemon names them: the sandbox phases of an ebuild, the
@@ -340,8 +357,8 @@ def current(myobject, machine):
         phase = myobject.call_get_progress_sync('phase')
         phase = PHASES.get(phase, phase)
         if not package:
-            # Started, nothing built yet
-            msg = phase or '...'
+            # Started, nothing built yet: the phase is the whole value
+            msg = _first_upper(phase) or '...'
         else:
             # 'cat/pkg', without the version: the panel is narrow
             name = re.sub(r'-\d.*$', '', package)
@@ -370,7 +387,7 @@ def progress(myobject, opt, machine):
                 myobject.call_get_progress_sync('count'))
         elif state == 'running':
             phase = myobject.call_get_progress_sync('phase')
-            msg = PHASES.get(phase, phase) or '...'
+            msg = _first_upper(PHASES.get(phase, phase)) or '...'
         else:
             msg = _('Nothing in progress')
     else:
