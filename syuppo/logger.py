@@ -167,7 +167,11 @@ class LogLevelFormatter(logging.Formatter):
             }
     
     def format(self, record):
-        log_fmt = self.formats.get(record.levelno, self.formats['default'])
+        # DEBUG2 (--vdebug) too: without the logger name, nothing tells
+        # which module a line comes from. Compared by number, as DEBUG2
+        # is added at run time, after this class is built.
+        level = logging.DEBUG if record.levelno <= logging.DEBUG else record.levelno
+        log_fmt = self.formats.get(level, self.formats['default'])
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
