@@ -1065,9 +1065,10 @@ class CheckProcRunning:
         found = False
         internal_sync_syuppod = 0
         internal_sync_root = 0
+        procs = ('world', 'system', 'sync', 'portage')
         for cmdline, name, dirname in self.__get_content():
             logger.debug2(f"Search from: '{cmdline}'.")
-            for proc in 'world', 'system', 'sync', 'portage':
+            for proc in procs:
                 attr = getattr(self, proc)
                 logger.debug2(f"Use '{proc}' re: {attr}")
                 if attr.match(cmdline):
@@ -1133,7 +1134,9 @@ class CheckProcRunning:
                     # dirname: will return an PosixPath object
                              'path'  : dirname } 
                 logger.debug2("No positive match.")
-        logger.debug("No specific process running.")
+        # Say what was looked for: 'no specific process' told nothing.
+        logger.debug("No emerge running for: " + ', '.join(procs)
+                     + " (pretend and syuppod's own sync excluded).")
         return False
 
 

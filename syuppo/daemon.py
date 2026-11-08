@@ -759,7 +759,8 @@ class DynamicDaemon(threading.Thread):
             # state has changed
             # there is two choices depending on caller
             if self.caller['id'] == 'inotify':
-                logger.debug("Checking if specified process is running")
+                logger.debug("emerge.log changed: looking for a running world,"
+                             " system, sync or portage emerge.")
                 self.checking()
                 # self.checking() will automatically changed caller so
                 # all we have to do here is to restart the loop :p
