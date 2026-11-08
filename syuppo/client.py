@@ -281,8 +281,9 @@ def estimate(myobject, opt, machine):
     # gettext is never asked to translate an empty string.
     parts = [ ]
     if reply == 'None':
-        # No pretend yet, or nothing to update
-        parts.append(_('None'))
+        # No pretend yet, or nothing to update. The panel shows '...',
+        # like the other lines with nothing to say.
+        parts.append('...' if machine else _('None'))
     else:
         seconds = int(reply)
         if 'seconds' in opt:

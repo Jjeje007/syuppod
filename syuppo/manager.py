@@ -42,6 +42,31 @@ except Exception as exc:
 
 # TODO get news ?
 
+ESTIMATE_KEYS = ('seconds', 'known', 'unknown', 'degraded')
+
+
+def encode_estimate(estimate):
+    """
+    The estimate as one state file value: 'seconds known unknown degraded'
+    ('16511 132 1 0'), or 'None'.
+    """
+    if estimate is None:
+        return 'None'
+    return ' '.join(str(int(estimate[k])) for k in ESTIMATE_KEYS)
+
+
+def decode_estimate(value):
+    """
+    Back from encode_estimate(): a dict, or None for 'None', a missing key
+    or anything that does not read as four numbers -- an old state file,
+    or one edited by hand. Never raises.
+    """
+    parts = str(value).split()
+    if len(parts) != len(ESTIMATE_KEYS) or not all(p.isdigit() for p in parts):
+        return None
+    return dict(zip(ESTIMATE_KEYS, map(int, parts)))
+
+
 class GenericHandler:
     """
     Generic handler
@@ -560,8 +585,10 @@ class PretendHandler:
             # pretend_world(): None until a pretend has run, then a dict
             # (seconds, known, unknown, degraded). Replaced as a whole,
             # never edited in place, so readers always see one consistent
-            # estimate.
-            'estimate'  :   None,
+            # estimate. Saved in the state file like 'packages', so that a
+            # restart does not lose it until the next pretend.
+            'estimate'  :   decode_estimate(
+                self.loaded_stateopts.get('pretend estimate')),
             # Interval between two pretend_world() 
             # TODO could be tweaked
             'interval'  :   600,
@@ -733,7 +760,7 @@ class PretendHandler:
         # TODO TODO TODO 
         else:
             self.change_packages_value(tochange=0)
-            self.pretend['estimate'] = None
+            self.set_estimate(None)
                 
         with self.pretend['locks']['cancelled']:
             self.pretend['cancelled'] = False
@@ -1149,6 +1176,14 @@ class EstimateHandler:
         self.progress = EmergeProgress(self.durations, self.durations_lock,
                                        log=self.pathdir['emergelog'])
 
+    def set_estimate(self, estimate):
+        """
+        Replace self.pretend['estimate'] as a whole, and save it to the
+        state file so that it survives a restart.
+        """
+        self.pretend['estimate'] = estimate
+        self.stateinfo.save(['pretend estimate', encode_estimate(estimate)])
+
     def close_durations(self):
         """Close the durations database, at daemon exit. Never raises."""
         logger = logging.getLogger(f'{self.__logger_name}close_durations::')
@@ -1173,15 +1208,15 @@ class EstimateHandler:
                     self.durations.estimate_total(atoms)
         except Exception as exc:
             logger.error(f'Could not estimate build time: {exc}')
-            self.pretend['estimate'] = None
+            self.set_estimate(None)
             return
 
-        self.pretend['estimate'] = {
+        self.set_estimate({
             'seconds'   :   seconds,
             'known'     :   known,
             'unknown'   :   unknown,
             'degraded'  :   degraded
-            }
+            })
         hours, minutes = divmod(round(seconds / 60), 60)
         msg = (f'Estimated build time: {hours}h{minutes:02d}'
                f' for {known} package(s)')
@@ -1242,6 +1277,16 @@ class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
             }
         # Load stateopts from all other class
         super().stateopts()
+        # The saved estimate goes after every other option, at the end of
+        # the file. A new option in the middle makes StateInfo shift the
+        # ones after it, and some values are lost on the way: 'portage
+        # current: 3.0.83-r1' came back as '0.0'. At the end, it is only
+        # appended.
+        self.default_stateopts.update({
+            '# Estimate Opts'                :   '',
+            # 'seconds known unknown degraded', or None (see encode_estimate)
+            'pretend estimate'               :   'None'
+            })
         
         # Init save/load info file 
         self.stateinfo = StateInfo(pathdir=self.pathdir, 
