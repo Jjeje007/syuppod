@@ -1165,8 +1165,9 @@ class EstimateHandler:
         # (about 0.3 s for 42 MB).
         dbpath = ':memory:' if self.dryrun else self.pathdir['durationsdb']
         logger.debug(f'Durations database: {dbpath}')
-        self.durations = PackagesDurations(dbpath=dbpath,
-                                           log=self.pathdir['emergelog'])
+        self.durations = PackagesDurations(
+            dbpath=dbpath, log=self.pathdir['emergelog'],
+            advanced_debug=self.vdebug.get('durations', False))
         # pretend_world() runs in an executor thread, and later steps will
         # update from the inotify thread: one at a time on the database.
         self.durations_lock = Lock()

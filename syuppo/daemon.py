@@ -401,7 +401,7 @@ class DynamicDaemon(threading.Thread):
         self.watching_dir = False
         
         # for process querying
-        self.prun = CheckProcRunning()
+        self.prun = CheckProcRunning(advanced_debug=advanced_debug)
         self.pstate = False
         
         self.logflow = self.__load_def()        
@@ -835,7 +835,10 @@ def main():
             # For a better understanding get 
             # all level message for debug log
             debug_handler.addFilter(LogLevelFilter(50))
-            debug_handler.setLevel(10)
+            # --vdebug modules log at DEBUG2 (9): at 10, the handler dropped
+            # every one of them, so --vdebug did nothing outside a terminal.
+            debug_handler.setLevel(logging.DEBUG2 if any(args.vdebug.values())
+                                   else logging.DEBUG)
             handlers['debug'] = debug_handler
         # Other level goes to Syslog
         syslog_handler = logging.handlers.SysLogHandler(address='/dev/log',
@@ -896,6 +899,8 @@ def main():
                      "'::module::class::method:: msg'.")
     elif args.quiet:
         logger.setLevel(logging.ERROR)
+    if any(args.vdebug.values()) and not args.debug:
+        logger.warning("--vdebug has no effect without --debug.")
     
     if args.nodbus:
         logger.warning("Dbus binding is DISABLED.")
@@ -912,7 +917,8 @@ def main():
                           dryrun=args.dryrun, vdebug=args.vdebug)
     
     # Init Dynamic Daemon
-    dynamic_daemon = DynamicDaemon(pathdir, manager, 
+    dynamic_daemon = DynamicDaemon(pathdir, manager,
+                                  advanced_debug=args.vdebug['procrunning'],
                                   name='Dynamic Daemon Thread', daemon=True)
     
     # Check sync

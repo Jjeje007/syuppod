@@ -18,6 +18,7 @@ import pathlib
 import re
 import sqlite3
 import statistics
+import time
 
 from syuppo.logparser import EmergeLogParser
 
@@ -71,6 +72,15 @@ END_RE = re.compile(
     r'^(\d+):\s{2}::: completed emerge \((\d+) of (\d+)\) (\S+?)-\d[^\s]* to ')
 
 
+def _human(seconds):
+    """'42 s', '53 min 12 s', '2 h 48 min': for debug lines only."""
+    if seconds < 60:
+        return f'{seconds} s'
+    if seconds < 3600:
+        return f'{seconds // 60} min {seconds % 60:02d} s'
+    return f'{seconds // 3600} h {seconds % 3600 // 60:02d} min'
+
+
 class PackagesDurations(EmergeLogParser):
     """
     How long each package took to build, historically.
@@ -81,15 +91,20 @@ class PackagesDurations(EmergeLogParser):
     usually take.
     """
 
-    def __init__(self, dbpath, makeconf='/etc/portage/make.conf', **kwargs):
+    def __init__(self, dbpath, makeconf='/etc/portage/make.conf',
+                 advanced_debug=False, **kwargs):
         """
         dbpath is the database FILE, not the directory holding it. Its parent
         is created if missing. Any other keyword goes through to
         EmergeLogParser, which is where 'log' is picked up -- it defaults to
         /var/log/emerge.log, so there is usually nothing to pass.
+
+        advanced_debug (syuppod --vdebug durations) logs every build
+        recorded, one line each, at level DEBUG2.
         """
         super().__init__(**kwargs)
         self.__nlogger = f'::{__name__}::PackagesDurations::'
+        self.advanced_debug = advanced_debug
         self.dbpath = pathlib.Path(dbpath)
         self.makeconf = makeconf
         self._db = None
@@ -218,6 +233,8 @@ class PackagesDurations(EmergeLogParser):
         finished. Returns the number of durations added.
         """
         logger = logging.getLogger(f'{self.__nlogger}update::')
+        if self.advanced_debug:
+            logger.setLevel(logging.DEBUG2)
         db = self.connect()
         offset, inode, size, last_ts = self._cursor()
         rotated, new_inode, new_size = self._rotated(offset, inode, size)
@@ -233,7 +250,7 @@ class PackagesDurations(EmergeLogParser):
             with open(self.emergelog, 'r') as f:
                 f.seek(offset)
                 for line in f:
-                    ts = self._feed(line, db, config)
+                    ts = self._feed(line, db, config, logger)
                     if ts:
                         added += 1
                         last_ts = max(last_ts, ts)
@@ -251,8 +268,11 @@ class PackagesDurations(EmergeLogParser):
             logger.debug(f'Recorded {added} build duration(s).')
         return added
 
-    def _feed(self, line, db, config):
-        """Feed one line. Returns the timestamp when a build was recorded."""
+    def _feed(self, line, db, config, logger=None):
+        """
+        Feed one line. Returns the timestamp when a build was recorded.
+        With advanced_debug, each build is logged through 'logger'.
+        """
         # Substring test before the regex: 2.6x cheaper over a whole log, and
         # the vast majority of lines match neither.
         if '>>> emerge (' in line:
@@ -269,9 +289,19 @@ class PackagesDurations(EmergeLogParser):
                     # OR IGNORE rather than a lookup: re-reading a stretch of
                     # log after a rotation would otherwise fail on the primary
                     # key. The measurement is identical either way.
-                    db.execute(
+                    cur = db.execute(
                         'INSERT OR IGNORE INTO duration VALUES (?,?,?,?)',
                         (m.group(4), started, ended - started, config))
+                    if self.advanced_debug and logger:
+                        # rowcount 0: already in the database (log re-read
+                        # after a rotation)
+                        what = 'Recorded' if cur.rowcount else 'Already known'
+                        logger.debug2(
+                            f'{what}: {m.group(4)} ({_human(ended - started)},'
+                            ' started '
+                            + time.strftime('%Y-%m-%d %H:%M',
+                                            time.localtime(started))
+                            + f', config {config}).')
                     return ended
         return None
 
