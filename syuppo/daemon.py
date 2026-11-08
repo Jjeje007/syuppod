@@ -899,8 +899,16 @@ def main():
                      "'::module::class::method:: msg'.")
     elif args.quiet:
         logger.setLevel(logging.ERROR)
-    if any(args.vdebug.values()) and not args.debug:
-        logger.warning("--vdebug has no effect without --debug.")
+    # Say which --vdebug modules are on, next to 'Debug is enabled': they
+    # change what the log holds, and how much.
+    vdebug_on = [module for module, on in args.vdebug.items() if on]
+    if vdebug_on:
+        if args.debug and not args.quiet:
+            logger.info("Advanced debug (--vdebug) is enabled for: "
+                        + ', '.join(vdebug_on) + '.')
+        else:
+            logger.warning("--vdebug has no effect without --debug"
+                           " (or with --quiet).")
     
     if args.nodbus:
         logger.warning("Dbus binding is DISABLED.")
