@@ -613,6 +613,10 @@ class PretendHandler:
                 'status'    :   Lock()
                 }
             }
+        # A state file saved before this fix may hold an estimate with no
+        # package left (see change_packages_value()): never show it.
+        if self.pretend['packages'] == 0:
+            self.pretend['estimate'] = None
     
     def stateopts(self):
         """
@@ -811,6 +815,13 @@ class PretendHandler:
         if not packages == self.pretend['packages']:
             self.pretend['packages'] = packages
             self.stateinfo.save(['pretend packages', self.pretend['packages']])
+        # Nothing left to update: no build time either. Without this, a
+        # world update that completes sets packages to 0 here but keeps the
+        # estimate of the update that just ran (the next pretend only comes
+        # after the next sync).
+        if packages == 0 and self.pretend['estimate'] is not None:
+            logger.debug("No package left to update, dropping the estimate.")
+            self.set_estimate(None)
                 
     
     
