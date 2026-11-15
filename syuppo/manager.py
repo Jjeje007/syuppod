@@ -15,6 +15,7 @@ import io
 import uuid
 import logging
 
+from collections import Counter
 from threading import Lock
 from portage.versions import pkgcmp
 from portage.versions import pkgsplit
@@ -29,6 +30,7 @@ from syuppo.logger import ProcessLoggingHandler
 from syuppo.logparser import LastSync
 from syuppo.logparser import LastWorldUpdate 
 from syuppo.durations import PackagesDurations
+from syuppo.durations import END_RE
 from syuppo.progress import EmergeProgress
 
 
@@ -53,6 +55,48 @@ def encode_estimate(estimate):
     if estimate is None:
         return 'None'
     return ' '.join(str(int(estimate[k])) for k in ESTIMATE_KEYS)
+
+
+def encode_atoms(atoms):
+    """
+    The packages of the last pretend as one state file value: their
+    'cat/pkg' separated by spaces, or 'None'.
+    """
+    if atoms is None:
+        return 'None'
+    return ' '.join(atoms) if atoms else 'empty'
+
+
+def decode_atoms(value):
+    """
+    Back from encode_atoms(): a list ([] for 'empty'), or None for 'None',
+    a missing key or anything that does not read as 'cat/pkg' words. Never
+    raises.
+    """
+    value = str(value).strip()
+    if value == 'empty':
+        return [ ]
+    parts = value.split()
+    if not parts or not all(p.count('/') == 1 for p in parts):
+        return None
+    return parts
+
+
+def completed_between(log, start, stop):
+    """
+    'cat/pkg' of each package emerge.log says was merged between 'start' and
+    'stop' (timestamps, both included), in log order. The log is read once,
+    whole; a line that cannot be read is skipped.
+    """
+    done = [ ]
+    with open(log, errors='replace') as f:
+        for line in f:
+            if '::: completed emerge (' not in line:
+                continue
+            m = END_RE.match(line)
+            if m and start <= int(m.group(1)) <= stop:
+                done.append(m.group(4))
+    return done
 
 
 def decode_estimate(value):
@@ -589,6 +633,11 @@ class PretendHandler:
             # restart does not lose it until the next pretend.
             'estimate'  :   decode_estimate(
                 self.loaded_stateopts.get('pretend estimate')),
+            # 'cat/pkg' of each package the last pretend found to build, so
+            # that what is left after a world update that did not complete
+            # can be worked out without another pretend. None when unknown.
+            'atoms'     :   decode_atoms(
+                self.loaded_stateopts.get('pretend atoms')),
             # Interval between two pretend_world() 
             # TODO could be tweaked
             'interval'  :   600,
@@ -617,6 +666,7 @@ class PretendHandler:
         # package left (see change_packages_value()): never show it.
         if self.pretend['packages'] == 0:
             self.pretend['estimate'] = None
+            self.pretend['atoms'] = [ ]
     
     def stateopts(self):
         """
@@ -752,6 +802,7 @@ class PretendHandler:
         # Make sure we have some packages
         if packages:
             self.change_packages_value(tochange=packages)
+            self.set_atoms(atoms)
             self.estimate_packages(atoms)
         # TODO TODO NO NO this HAVE to be rewritten.... 
         # If we got error on all the retry this shouldn't tochange=0 no no
@@ -822,6 +873,8 @@ class PretendHandler:
         if packages == 0 and self.pretend['estimate'] is not None:
             logger.debug("No package left to update, dropping the estimate.")
             self.set_estimate(None)
+        if packages == 0 and self.pretend['atoms']:
+            self.set_atoms([ ])
                 
     
     
@@ -1110,6 +1163,7 @@ class WorldHandler:
                 # after a successfully sync ;)
                 if not self.world['state'] == 'complete':
                     self.recompute_packages_left()
+                    self.recompute_estimate_left()
                 else:
                     logger.debug("State is 'complete' setting pretend"
                                  " packages to 0.")
@@ -1164,6 +1218,55 @@ class WorldHandler:
 
 
 
+    def recompute_estimate_left(self):
+        """
+        After a world update that did not complete -- 'partial' (--keep-going
+        to the end, some packages failed, others dropped with them) or
+        'incomplete' (stopped half way) --, estimate what is left without
+        another pretend: the packages of the last pretend minus those
+        emerge.log says were merged during that update. That leaves the
+        failed ones, the dropped ones and the ones never reached.
+
+        Trusted only when it holds as many packages as
+        recompute_packages_left() found; otherwise there is no estimate
+        ('...') rather than a wrong one -- for instance when a package was
+        updated by hand after the pretend: it is still in the list but was
+        not merged during this update.
+        """
+        name = 'recompute_estimate_left'
+        logger = logging.getLogger(f'{self.__logger_name}{name}::')
+
+        left = self.pretend['packages']
+        atoms = self.pretend['atoms']
+        if not isinstance(left, int) or left < 1:
+            return                  # nothing left: already handled
+        if not atoms:
+            logger.debug("No package list kept from the last pretend:"
+                         " dropping the estimate.")
+            self.set_estimate(None)
+            return
+        try:
+            done = completed_between(self.pathdir['emergelog'],
+                                     int(self.world['start']),
+                                     int(self.world['stop']))
+        except (OSError, ValueError, TypeError) as exc:
+            logger.error(f"Could not read what the update merged: {exc}")
+            self.set_estimate(None)
+            return
+        rest = list((Counter(atoms) - Counter(done)).elements())
+        logger.debug(f"{len(atoms)} package(s) in the last pretend,"
+                     f" {len(done)} merged by this update, {len(rest)} left;"
+                     f" {left} left by the count.")
+        if len(rest) != left:
+            logger.info("The package list of the last pretend does not match"
+                        f" what is left ({len(rest)} against {left}): no"
+                        " estimate until the next pretend.")
+            self.set_estimate(None)
+            return
+        self.set_atoms(rest)
+        self.estimate_packages(rest)
+
+
 class EstimateHandler:
     """
     Estimate how long the pending update will take to build.
@@ -1200,6 +1303,14 @@ class EstimateHandler:
         """
         self.pretend['estimate'] = estimate
         self.stateinfo.save(['pretend estimate', encode_estimate(estimate)])
+
+    def set_atoms(self, atoms):
+        """
+        Replace self.pretend['atoms'] (list of 'cat/pkg', or None) and save
+        it to the state file.
+        """
+        self.pretend['atoms'] = atoms
+        self.stateinfo.save(['pretend atoms', encode_atoms(atoms)])
 
     def close_durations(self):
         """Close the durations database, at daemon exit. Never raises."""
@@ -1302,7 +1413,9 @@ class BaseHandler(PortageHandler, WorldHandler, PretendHandler,
         self.default_stateopts.update({
             '# Estimate Opts'                :   '',
             # 'seconds known unknown degraded', or None (see encode_estimate)
-            'pretend estimate'               :   'None'
+            'pretend estimate'               :   'None',
+            # 'cat/pkg cat/pkg ...' of the last pretend (see encode_atoms)
+            'pretend atoms'                  :   'None'
             })
         
         # Init save/load info file 
